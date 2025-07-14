@@ -24,20 +24,19 @@ Aplicación web para gestionar productos, movimientos, usuarios y observaciones 
 ## 🛠️ Estructura del proyecto
 
 mi-proyecto/
-├── back/ # Backend en FastAPI
-├── front/ # Frontend en Vite + React
-├── shed_data/ # Carpeta generada por la base de datos (no se sube)
+├── back/
+├── front/sistema-stock
+├── shed_data/
 ├── docker-compose.yml
 ├── .gitignore
 └── README.md
-
----
 
 ## 🚀 Cómo correr el proyecto localmente
 
 ### 1. Clonar el repositorio
 
 git clone https://github.com/tu-usuario/mi-proyecto.git
+
 cd mi-proyecto
 
 Backend
@@ -49,6 +48,7 @@ Requisitos:
 -SQLite
 
 Instalación:
+
 cd back
 pip install -r requirements.txt
 
