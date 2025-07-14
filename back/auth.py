@@ -68,7 +68,7 @@ async def create_user(user: CreateUser , db: db_dependency):
 
 @router.post("/login", response_model=Token)
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency):
-    user = db.query(User).filter(User.email == form_data.username).first()
+    user = db.query(User).filter(User.email == form_data.username, User.status == 1 ).first()
     
     if not user or not bcrypt_context.verify(form_data.password, user.password):
         raise HTTPException(

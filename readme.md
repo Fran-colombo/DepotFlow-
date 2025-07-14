@@ -4,6 +4,11 @@ Aplicación web para gestionar productos, movimientos, usuarios y observaciones 
 
 ---
 
+## Requisitos
+
+- Node.js, Python, etc.
+- Docker (opcional, si querés usar Docker)
+
 ## 🖥 Tecnologías utilizadas
 
 ### Backend
@@ -88,6 +93,29 @@ npm install
 npm run dev
 La app estará disponible en:
 📍 http://localhost:5173
+
+## Uso con Docker
+
+1. Descarga e instala Docker Desktop desde https://www.docker.com/get-started
+
+Verifica la instalación con:docker --version
+
+2. Construir la imagen Docker
+   Ejecuta este comando en la raíz del proyecto (donde está tu Dockerfile):
+
+docker build -t nombre-de-tu-imagen .
+
+3. Ejecutar el contenedor
+   Corre el contenedor con:
+   docker run -d --name backend -p 8000:8000 nombre-de-tu-imagen
+
+4. Entrar al contenedor
+   Para ejecutar comandos dentro del contenedor, abre una consola bash con:
+   docker exec -it backend bash
+
+5. Ejecutar adminSeed dentro del contenedor
+   Ya dentro del contenedor, corre el comando para inicializar o cargar datos:
+   python adminSeed.py
 
 🔐 Acceso
 Iniciá sesión con el usuario administrador que creaste manualmente para comenzar a gestionar productos, galpones, usuarios, historial y más.
