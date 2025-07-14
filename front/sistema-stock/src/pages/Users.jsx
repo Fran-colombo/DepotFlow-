@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getUsers, deleteUser } from '../api/auth'
 import Dashboard from './Dashboard'
+import UpdateUserPasswordModal from "../components/UpdateUser";
+
 
 const UsersPage = () => {
+  const [selectedUserName, setSelectedUserName] = useState("");
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -17,6 +20,8 @@ const UsersPage = () => {
     total: 0,
     totalPages: 1
   })
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState(null);
 
   const navigate = useNavigate()
 
@@ -56,6 +61,8 @@ const UsersPage = () => {
     setFilters(prev => ({ ...prev, [name]: value }))
     setPagination(prev => ({ ...prev, page: 1 }))
   }
+
+
 
   const handlePageSizeChange = (e) => {
     const newSize = parseInt(e.target.value)
@@ -165,6 +172,18 @@ const UsersPage = () => {
                         >
                           Desactivar
                         </button>
+                        <button
+                          onClick={() => {
+                            setSelectedUserId(user.id);
+                            setSelectedUserName(`${user.name} ${user.surname}`);
+                            setPasswordModalOpen(true);
+                          }}
+                          className="btn btn-sm btn-outline-warning ms-2"
+                        >
+                          Cambiar Contraseña
+                        </button>
+
+
                       </td>
                     </tr>
                   ))}
@@ -212,6 +231,15 @@ const UsersPage = () => {
           </>
         )}
       </div>
+        <UpdateUserPasswordModal
+          isOpen={passwordModalOpen}
+          onClose={() => setPasswordModalOpen(false)}
+          userId={selectedUserId}
+          userFullName={selectedUserName}
+          onSuccess={fetchUsers}
+        />
+
+
       
     </Dashboard>
   )

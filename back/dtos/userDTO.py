@@ -36,3 +36,5 @@ class PaginatedUsersResponse(BaseModel):
     page_size: int
     total_pages: int
 
+class ChangePasswordDTO(BaseModel):
+    new_password: str = Field(..., min_length=8)

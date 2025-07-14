@@ -79,6 +79,19 @@ export const getCurrentUserName = async (token) => {
   if (!data || !data.full_name) {
     throw new Error("Respuesta inválida del servidor");
   }
-  // console.log("👉 data de getCurrentUserName:", data);
   return data.full_name;
+};
+export const changePassword = async (userId, newPassword) => {
+  const token = localStorage.getItem("authToken");
+
+  const data = await apiFetch(`/admin/users/${userId}/password`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+
+  return data?.message || "Contraseña cambiada";
 };

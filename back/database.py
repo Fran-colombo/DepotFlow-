@@ -24,8 +24,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import os
 
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# DB_PATH = "C:\\Users\\Francesco\\Desktop\\TUP\\gestorInventarioGalpon\\shed_data\\shed.db"
+# SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = "C:\\Users\\Francesco\\Desktop\\TUP\\gestorInventarioGalpon\\shed_data\\shed.db"
+DB_PATH = os.path.join(BASE_DIR, "shed_data", "shed.db")
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 

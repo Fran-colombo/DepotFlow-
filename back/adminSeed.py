@@ -10,16 +10,16 @@ def seed_admins():
     # Lista de administradores a crear (nombre, apellido, email, contraseña)
     admins = [
         {
-            "name": "Fernando",
-            "surname": "Cataldo",
-            "email": "conkreto001@gmail.com",
-            "password": "Valentina2009"
+            "name": "admin1",
+            "surname": "admin",
+            "email": "admin@gmail.com",
+            "password": "admin123"
         },
         {
-            "name": "Miriam",
-            "surname": "Etchevarne",
-            "email": "miriametchevarne@gmail.com",
-            "password": "Miru040509"
+            "name": "admin2",
+            "surname": "admin",
+            "email": "admin2@gmail.com",
+            "password": "admin123"
         }
     ]
 

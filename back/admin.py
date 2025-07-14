@@ -2,12 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from typing import Optional
 import math
-
-
 from database import get_db
 from models import User
-from dtos.userDTO import  PaginatedUsersResponse
-from auth import get_current_user, get_user_name_by_id
+from dtos.userDTO import  ChangePasswordDTO, PaginatedUsersResponse
+from auth import get_current_user, get_user_name_by_id, bcrypt_context
 
 router = APIRouter(
     prefix="/admin",
@@ -89,3 +87,33 @@ def get_current_user_name(
     current_user: User = Depends(get_current_user)
 ):
     return {"full_name": get_user_name_by_id(db, current_user["user_id"])}
+
+
+@router.put("/users/{user_id}/password")
+def change_user_password(
+    user_id: int,
+    payload: ChangePasswordDTO,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden cambiar contraseñas"
+        )
+
+    user = db.query(User).filter(User.id == user_id, User.status == 1).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado"
+        )
+
+    try:
+        hashed_password = bcrypt_context.hash(payload.new_password)
+        user.password = hashed_password
+        db.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error al actualizar la contraseña")
+
+    return {"message": "Contraseña actualizada correctamente"}
