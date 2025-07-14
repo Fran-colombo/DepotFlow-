@@ -10,16 +10,16 @@ def seed_admins():
     # Lista de administradores a crear (nombre, apellido, email, contraseña)
     admins = [
         {
-            "name": "Fernando",
-            "surname": "Cataldo",
-            "email": "conkreto001@gmail.com",
-            "password": "Valentina2009"
+            "name": "admin1",
+            "surname": "admin",
+            "email": "admin@gmail.com",
+            "password": "admin123"
         },
         {
-            "name": "Miriam",
-            "surname": "Etchevarne",
-            "email": "miriametchevarne@gmail.com",
-            "password": "Miru040509"
+            "name": "admin2",
+            "surname": "admin",
+            "email": "admin2@gmail.com",
+            "password": "admin123"
         }
     ]
 
@@ -27,7 +27,7 @@ def seed_admins():
         existing_admin = db.query(User).filter(User.email == admin_data["email"]).first()
         if existing_admin:
             print(f"Admin con email {admin_data['email']} ya existe")
-            continue  # Saltar a la siguiente iteración si ya existe
+            continue 
 
         admin_user = User(
             name=admin_data["name"],
@@ -44,4 +44,4 @@ def seed_admins():
     db.close()
 
 if __name__ == "__main__":
-    seed_admins()  # Cambiado el nombre de la función para reflejar su propósito
+    seed_admins()  
