@@ -1,31 +1,148 @@
-/* @tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-@layer components {
-  .nav-btn {
-    @apply text-sm text-gray-600 hover:text-blue-600 transition font-medium;
-  }
-} */
- body {
-  font-family: 'Inter', sans-serif;
-  background-color: #f9fafb;
+body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background-color: #f7f8fa;
   color: #1f2937;
+}
+
+.app-shell {
+  background-color: #f7f8fa;
+}
+
+.app-navbar {
+  box-shadow: 0 1px 0 rgba(16, 24, 40, 0.06);
+  padding-top: 0.65rem;
+  padding-bottom: 0.65rem;
+}
+
+.app-nav-link {
+  color: #667085 !important;
+  border-radius: 0.5rem;
+  border-bottom: 2px solid transparent;
+}
+
+.app-nav-link:hover {
+  color: #344054 !important;
+  background-color: #f2f4f7;
+}
+
+.app-nav-link-active {
+  color: #175cd3 !important;
+  font-weight: 600;
+  border-bottom-color: #175cd3;
+  background-color: transparent;
+}
+
+.app-nav-divider {
+  width: 1px;
+  height: 1.25rem;
+  background: #e4e7ec;
+  margin: 0 0.35rem;
+}
+
+.app-page-card {
+  background: #fff;
+  border: 1px solid #eaecf0;
+  border-radius: 0.85rem;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  padding: 1.75rem 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .app-page-card {
+    padding: 2rem 2rem;
+  }
+}
+
+.app-page-title {
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #101828;
+  margin-bottom: 1.5rem;
+}
+
+.app-filter-bar {
+  background: #f9fafb;
+  border: 1px solid #eaecf0;
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1.25rem;
+}
+
+.app-table thead th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #667085;
+  background: #f9fafb !important;
+  border-bottom: 1px solid #eaecf0;
+  white-space: nowrap;
+}
+
+.app-table tbody td {
+  border-color: #f2f4f7;
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+  vertical-align: middle;
+}
+
+.app-table tbody tr:hover {
+  background-color: #f9fafb;
+}
+
+.app-muted {
+  color: #667085;
+  font-size: 0.8125rem;
+}
+
+.app-stock-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.app-stock-badge.out {
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.app-stock-badge.ok {
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.app-warehouse-list .list-group-item {
+  cursor: pointer;
+  border-color: #eaecf0;
+}
+
+.app-warehouse-list .list-group-item.active {
+  background: #eff8ff;
+  color: #175cd3;
+  border-color: #b2ddff;
+  font-weight: 600;
 }
 
 table {
   font-size: 0.875rem;
 }
 
-th, td {
+th,
+td {
   vertical-align: middle;
 }
 
-input[type="text"], input[type="number"], select, textarea {
+input[type="text"],
+input[type="number"],
+select,
+textarea {
   transition: all 0.2s ease-in-out;
 }
 
 button {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
-

@@ -9,6 +9,8 @@ class MovementCreateDTO(BaseModel):
     to_shed_id: int
     quantity: int
     username: str
+    from_zone_id: Optional[int] = None
+    to_zone_id: int
 
 
 class MovementResponseDTO(BaseModel):
@@ -22,5 +24,9 @@ class MovementResponseDTO(BaseModel):
     to_shed_id: int
     from_shed_name: str
     to_shed_name: str
+    from_zone_id: Optional[int] = None
+    to_zone_id: Optional[int] = None
+    from_zone_name: Optional[str] = None
+    to_zone_name: Optional[str] = None
     user_id: Optional[int]
     username: Optional[str]

@@ -8,11 +8,11 @@ import movements
 import logging
 import threading
 import admin
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, contains_eager
 from typing import Annotated, Optional
 from datetime import datetime
 from math import ceil
-from database import get_db, engine
+from database import get_db, engine, ensure_zone_schema
 import pytz 
 from dtos.itemResponseDTO import ItemResponseDTO
 from dtos.deleteItemDTO import DeleteItemDTO, ResponseFakeDeleteDTO
@@ -20,6 +20,7 @@ import dtos.itemToCreateDTO as itemDTO
 from historial import router
 from auth import get_current_user, router as auth_router
 from notifications import NotificationService, enviar_mail_fallo_borrado
+import zones
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -44,8 +45,10 @@ app.include_router(observations.router)
 app.include_router(shed.router)
 app.include_router(movements.router)
 app.include_router(admin.router)
+app.include_router(zones.router)
 
 models.Base.metadata.create_all(bind=engine)
+ensure_zone_schema()
 
 
 item_dependency = Annotated[Session, Depends(get_db)]
@@ -76,11 +79,18 @@ def read_items(
     name: Optional[str] = None,
     category: Optional[str] = None,
     shed_id: Optional[int] = None,
+    zone_id: Optional[int] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, le=MAX_PAGE_SIZE)
 ):
     try:
-        query = db.query(models.Item).filter(models.Item.status == 1)
+        query = (
+            db.query(models.Item)
+            .outerjoin(models.Shed, models.Item.shed_id == models.Shed.id)
+            .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
+            .options(contains_eager(models.Item.zone))
+            .filter(models.Item.status == 1)
+        )
 
         if name:
             query = query.filter(models.Item.name.ilike(f"%{name}%"))
@@ -88,17 +98,29 @@ def read_items(
             query = query.filter(models.Item.category.ilike(f"%{category}%"))
         if shed_id:
             query = query.filter(models.Item.shed_id == shed_id)
+        if zone_id:
+            query = query.filter(models.Item.zone_id == zone_id)
 
         total_records = query.count()
         total_pages = ceil(total_records / page_size)
 
-        items = query.order_by(models.Item.name.asc()) \
+        items = query.order_by(
+                        models.Shed.name.asc().nullslast(),
+                        models.Zone.name.asc().nullslast(),
+                        models.Item.name.asc(),
+                     ) \
                      .offset((page - 1) * page_size) \
                      .limit(page_size) \
                      .all()
 
+        data = []
+        for item in items:
+            dto = ItemResponseDTO.model_validate(item)
+            dto.zone_name = item.zone.name if item.zone else None
+            data.append(dto)
+
         return {
-            "data": [ItemResponseDTO.model_validate(item) for item in items],
+            "data": data,
             "pagination": {
                 "total_records": total_records,
                 "total_pages": total_pages,
@@ -139,16 +161,38 @@ def getItemById(item_id: int, db: item_dependency):
 @app.post("/")
 def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
     nameWellWritten = item.name.lower().capitalize()
+
+    if not item.zone_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La zona es obligatoria",
+        )
+
+    zone = db.query(models.Zone).filter(models.Zone.id == item.zone_id).first()
+    if not zone:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Zona no encontrada",
+        )
+
+    if item.shed_id is not None and item.shed_id != zone.shed_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La zona no pertenece al galpón seleccionado",
+        )
+
+    shed_id = zone.shed_id
+
     existing = db.query(models.Item).filter(
         models.Item.name == nameWellWritten,
-        models.Item.shed_id == item.shed_id
+        models.Item.zone_id == item.zone_id,
     ).first()
 
     if existing:
         if existing.status == 1:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Un elemento con el mismo nombre ya existe en ese galpón."
+                detail="Un elemento con el mismo nombre ya existe en esa zona."
             )
         else:
             existing.name = f"{existing.name}__OLD_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
@@ -166,7 +210,8 @@ def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
             name=nameWellWritten,
             description=item.description,
             category=item.category,
-            shed_id=item.shed_id,
+            shed_id=shed_id,
+            zone_id=item.zone_id,
             totalAmount=item.quantity,
             actualAmount=item.quantity,
             is_available=True,

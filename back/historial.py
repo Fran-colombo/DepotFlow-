@@ -8,6 +8,7 @@ from database import get_db
 from auth import get_current_user, get_user_name_by_id
 import dtos.retiroDTO as retiroDTO
 import dtos.turnBackDTO as devolucionDTO
+import dtos.trasladoDTO as trasladoDTO
 from dtos.historialDTO import HistoryResponseWithDetailsDTO
 from sqlalchemy import case, func, or_
 from fastapi import Query
@@ -239,6 +240,73 @@ def search_history(item_id: int, db: db_dependency):
     return history
 
 
+@router.get("/pending-places/{item_id}")
+def get_pending_places(
+    item_id: int,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Item not found",
+        )
+
+    pending_rows = (
+        db.query(models.History)
+        .filter(
+            models.History.itemId == item_id,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.amountNotReturned > 0,
+        )
+        .order_by(models.History.place.asc(), models.History.date.asc())
+        .all()
+    )
+
+    by_place = {}
+    for history in pending_rows:
+        place = (history.place or "").strip()
+        if not place:
+            continue
+        entry = by_place.setdefault(
+            place, {"place": place, "pending_amount": 0, "persons": []}
+        )
+        entry["pending_amount"] += int(history.amountNotReturned or 0)
+        person = (history.personWhoTook or history.userName or "").strip()
+        if person and person not in entry["persons"]:
+            entry["persons"].append(person)
+
+    return [
+        {
+            "place": data["place"],
+            "pending_amount": data["pending_amount"],
+            "personWhoTook": ", ".join(data["persons"]) if data["persons"] else None,
+        }
+        for data in by_place.values()
+    ]
+
+
+@router.get("/places")
+def get_historial_places(
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    rows = (
+        db.query(models.History.place)
+        .filter(
+            models.History.place.isnot(None),
+            models.History.place != "",
+            ~models.History.place.contains("→"),
+        )
+        .distinct()
+        .order_by(models.History.place.asc())
+        .all()
+    )
+    return [{"place": place} for (place,) in rows if place]
+
+
 @router.post("/retirar")
 def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency, 
                 current_user: Annotated[dict, Depends(get_current_user)]):
@@ -373,6 +441,114 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
     return history
 
 
+@router.post("/trasladar")
+def trasladar_item(
+    dto: trasladoDTO.TrasladoDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    user_id = current_user["user_id"]
+    user_name = get_user_name_by_id(db, user_id)
+
+    from_place = (dto.fromPlace or "").strip()
+    to_place = (dto.toPlace or "").strip()
+
+    if not from_place or not to_place:
+        raise HTTPException(400, "Origen y destino son obligatorios")
+    if from_place.lower() == to_place.lower():
+        raise HTTPException(400, "El origen y el destino deben ser distintos")
+    if dto.amount <= 0:
+        raise HTTPException(400, "La cantidad debe ser mayor a 0")
+
+    item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+
+    if item.category == "Materiales consumibles":
+        raise HTTPException(
+            400,
+            "Los materiales consumibles no se pueden trasladar entre obras",
+        )
+
+    pendientes = (
+        db.query(models.History)
+        .filter(
+            models.History.itemId == dto.itemId,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.place == from_place,
+            models.History.amountNotReturned > 0,
+        )
+        .order_by(models.History.date.asc())
+        .all()
+    )
+
+    total_pendiente = sum(p.amountNotReturned or 0 for p in pendientes)
+    if dto.amount > total_pendiente:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No se pueden trasladar {dto.amount} unidades. "
+                f"Solo {total_pendiente} están pendientes en {from_place}."
+            ),
+        )
+
+    restante = dto.amount
+    for p in pendientes:
+        if restante <= 0:
+            break
+        if restante >= p.amountNotReturned:
+            restante -= p.amountNotReturned
+            p.amountNotReturned = 0
+        else:
+            p.amountNotReturned -= restante
+            restante = 0
+        if p.amountNotReturned == 0:
+            p.turnback = True
+            p.turnbackDate = now()
+
+    quien_mueve = (
+        dto.personWhoMoved.strip()
+        if dto.personWhoMoved and dto.personWhoMoved.strip()
+        else user_name
+    )
+
+    nuevo_retiro = models.History(
+        itemId=dto.itemId,
+        userId=user_id,
+        userName=user_name,
+        action=models.ActionEnum.retiro,
+        personWhoTook=quien_mueve,
+        amountRetired=dto.amount,
+        amountNotReturned=dto.amount,
+        date=now(),
+        place=to_place,
+        turnback=False,
+        lastNotification=None,
+    )
+    db.add(nuevo_retiro)
+
+    traslado = models.History(
+        itemId=dto.itemId,
+        userId=user_id,
+        userName=user_name,
+        action=models.ActionEnum.traslado,
+        personWhoTook=quien_mueve,
+        amountRetired=dto.amount,
+        amountNotReturned=0,
+        date=now(),
+        place=f"{from_place} → {to_place}",
+        turnback=True,
+        turnbackDate=now(),
+        lastNotification=None,
+    )
+    db.add(traslado)
+
+    db.commit()
+    db.refresh(traslado)
+    return traslado
+
+
 @router.post("/remito", response_class=StreamingResponse)
 def generate_remito(
     history_ids: list[int],
@@ -403,7 +579,7 @@ def generate_remito(
         for history in histories:
             p.drawString(2*cm, y, f"Ítem: {history['itemName']}")
             y -= 0.5 * cm
-            p.drawString(2*cm, y, f"Entregado por: {history['userName']}")
+            p.drawString(2*cm, y, f"Entregado por: {history['personWhoTook']}")
             y -= 0.5 * cm
             p.drawString(2*cm, y, f"Cantidad: {history['amountRetired']}")
             y -= 0.5 * cm
@@ -434,7 +610,7 @@ def generate_remito(
             history, item_name, shed_name = record
             histories.append({
                 "itemName": item_name,
-                "userName": history.userName,
+                "personWhoTook": history.personWhoTook,
                 "amountRetired": history.amountRetired,
                 "place": history.place,
                 "shedName": shed_name,

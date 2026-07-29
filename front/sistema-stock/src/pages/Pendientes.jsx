@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
 import { getPendientes } from "../api/items";
+import TrasladoModal from "../components/TrasladoModal";
 
 const Pendientes = () => {
   const [pendientes, setPendientes] = useState([]);
@@ -18,39 +19,39 @@ const Pendientes = () => {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showTrasladoModal, setShowTrasladoModal] = useState(false);
+  const [selectedPending, setSelectedPending] = useState(null);
 
+  const fetchPendientes = async (page = 1) => {
+    setLoading(true);
+    try {
+      const response = await getPendientes(filters, page, pagination.page_size);
+
+      setPendientes(response.data || []);
+
+      setPagination(prev => ({
+        ...prev,
+        current_page: response.pagination?.current_page || response.data?.pagination?.current_page || 1,
+        total_pages: response.pagination?.total_pages || response.data?.pagination?.total_pages || 1,
+        page_size: response.pagination?.page_size || response.data?.pagination?.page_size || prev.page_size,
+        total_records: response.pagination?.total_records || response.data?.pagination?.total_records || 0,
+        has_next: response.pagination?.has_next || response.data?.pagination?.has_next || false,
+        has_previous: response.pagination?.has_previous || response.data?.pagination?.has_previous || false
+      }));
+      setError("");
+    } catch (err) {
+      console.error('Error fetching pendientes:', err);
+      if (err.message?.includes("No pending historical records found")) {
+        setPendientes([]);
+      } else {
+        setError(err.message || "Error al cargar los pendientes");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchPendientes = async (page = 1) => {
-      setLoading(true);
-      try {
-        const response = await getPendientes(filters, page, pagination.page_size);
-        
-        setPendientes(response.data || []);
-        
-        setPagination(prev => ({
-          ...prev,
-          current_page: response.data.pagination?.current_page || 1,
-          total_pages: response.data.pagination?.total_pages || 1,
-          page_size: response.data.pagination?.page_size || prev.page_size,
-          total_records: response.data.pagination?.total_records || 0,
-          has_next: response.data.pagination?.has_next || false,
-          has_previous: response.data.pagination?.has_previous || false
-        }));
-
-        
-      } catch (err) {
-        console.error('Error fetching pendientes:', err);
-        if (err.message?.includes("No pending historical records found")) {
-          setPendientes([]);
-        } else {
-          setError(err.message || "Error al cargar los pendientes");
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchPendientes(pagination.current_page);
   }, [pagination.current_page, filters, pagination.page_size]);
 
@@ -128,6 +129,7 @@ const Pendientes = () => {
                   <th>Cantidad Pendiente</th>
                   <th>Lugar</th>
                   <th>Fecha de Retiro</th>
+                  <th>Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -139,11 +141,23 @@ const Pendientes = () => {
                       <td className="fw-semibold text-warning">{registro.amountNotReturned}</td>
                       <td>{registro.place || 'N/A'}</td>
                       <td>{formatDate(registro.date)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-info"
+                          onClick={() => {
+                            setSelectedPending(registro);
+                            setShowTrasladoModal(true);
+                          }}
+                        >
+                          Trasladar
+                        </button>
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="5" className="text-center py-4">
+                    <td colSpan="6" className="text-center py-4">
                       No se encontraron pendientes con los filtros aplicados
                     </td>
                   </tr>
@@ -211,6 +225,19 @@ const Pendientes = () => {
             </div>
           )}
         </>
+      )}
+
+      {showTrasladoModal && selectedPending && (
+        <TrasladoModal
+          itemId={selectedPending.itemId}
+          isOpen={showTrasladoModal}
+          defaultFromPlace={selectedPending.place || ""}
+          onClose={() => {
+            setShowTrasladoModal(false);
+            setSelectedPending(null);
+          }}
+          onSuccess={() => fetchPendientes(pagination.current_page)}
+        />
       )}
     </Dashboard>
   );

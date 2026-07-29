@@ -92,6 +92,7 @@ useEffect(() => {
     switch(action) {
       case 'retiro': return 'bg-danger text-white';
       case 'devolucion': return 'bg-success text-white';
+      case 'traslado': return 'bg-info text-white';
       default: return 'bg-secondary text-white';
     }
   };
@@ -218,6 +219,7 @@ useEffect(() => {
                 <option value="">Todas</option>
                 <option value="retiro">Retiros</option>
                 <option value="devolucion">Devoluciones</option>
+                <option value="traslado">Traslados</option>
               </select>
             </div>
 
@@ -259,10 +261,13 @@ useEffect(() => {
                   type="checkbox"
                   id="showAllCheckbox"
                   checked={filters.showAll}
-                  onChange={(e) => setFilters({
-                    ...filters,
-                    showAll: e.target.checked
-                  })}
+                  onChange={(e) => {
+                    setFilters({
+                      ...filters,
+                      showAll: e.target.checked
+                    });
+                    setPagination(prev => ({ ...prev, page: 1 }));
+                  }}
                 />
                 <label className="form-check-label" htmlFor="showAllCheckbox">
                   Mostrar todo el historial
@@ -325,7 +330,11 @@ useEffect(() => {
                       <td>{registro.personWhoTook || registro.userName}</td>
                       <td>
                         <span className={`badge ${getActionColor(registro.action)}`}>
-                          {registro.action === 'retiro' ? 'Retiro' : 'Devolución'}
+                          {registro.action === 'retiro'
+                            ? 'Retiro'
+                            : registro.action === 'traslado'
+                              ? 'Traslado'
+                              : 'Devolución'}
                         </span>
                       </td>
                       <td>{registro.amountRetired || registro.amountNotReturned || '0'}</td>

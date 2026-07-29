@@ -212,7 +212,7 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
                           />
                         </td>
                         <td>{item.itemName}</td>
-                        <td>{item.userName}</td>
+                        <td>{item.personWhoTook}</td>
                         <td>{item.amountRetired}</td>
                         <td>{item.place}</td>
                         <td>{item.shed_name}</td>

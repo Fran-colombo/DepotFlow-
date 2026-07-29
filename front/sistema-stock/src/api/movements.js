@@ -54,6 +54,8 @@ export const moveItem = async (movementData) => {
       item_id: movementData.item_id,
       from_shed_id: movementData.from_shed_id,
       to_shed_id: movementData.to_shed_id,
+      from_zone_id: movementData.from_zone_id ?? null,
+      to_zone_id: movementData.to_zone_id,
       quantity: movementData.quantity,
       username: movementData.username
     };

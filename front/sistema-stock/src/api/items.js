@@ -6,6 +6,7 @@ export const getItems = (filters = {}, page = 1, pageSize = 10) => {
     name: filters.name || undefined,
     category: filters.category || undefined,
     shed_id: filters.shed || undefined,
+    zone_id: filters.zone || undefined,
     page: page,
     pageSize: pageSize,
   };
@@ -56,6 +57,26 @@ export async function devolverItem(data) {
     body: JSON.stringify(data),
   });
 }
+
+export async function getPendingPlaces(itemId) {
+  return apiFetch(`/historical/pending-places/${itemId}`, {
+    method: "GET",
+  });
+}
+
+export async function getHistorialPlaces() {
+  return apiFetch("/historical/places", {
+    method: "GET",
+  });
+}
+
+export async function trasladarItem(data) {
+  return apiFetch("/historical/trasladar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
 export async function createItem(data) {
   return apiFetch("/", {
     method: "POST",
@@ -68,6 +89,7 @@ export async function createItem(data) {
       quantity: data.quantity,
       category: data.category,
       shed_id: data.shed_id,
+      zone_id: data.zone_id,
     }),
   });
 }
@@ -109,8 +131,8 @@ export const getFilteredHistorial = async (filters = {}, page = 1, pageSize = 10
     action: filters.action || undefined,
     item_category: filters.category || undefined,
     shedId: filters.shed || undefined,
-    month: filters.month || undefined,
-    year: filters.year || undefined,
+    month: filters.showAll ? undefined : (filters.month || undefined),
+    year: filters.showAll ? undefined : (filters.year || undefined),
     page: page,
     page_size: pageSize,
   };

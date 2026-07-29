@@ -10,6 +10,8 @@ class ItemResponseDTO(BaseModel):
     actualAmount: int
     is_available: bool
     shed_id: Optional[int] = None
+    zone_id: Optional[int] = None
+    zone_name: Optional[str] = None
     status: int
 
     class Config:

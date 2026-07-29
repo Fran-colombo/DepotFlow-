@@ -15,6 +15,7 @@ class ItemBaseDTO(BaseModel):
 class ItemCreateDTO(ItemBaseDTO):
     category: str
     shed_id: Optional[int] = None
+    zone_id: Optional[int] = None
 
 class ItemUpdateDTO(BaseModel):
     # name: str
@@ -27,6 +28,8 @@ class MoveItemDTO(BaseModel):
     quantity: int
     from_shed_id: int
     to_shed_id: int
+    from_zone_id: Optional[int] = None
+    to_zone_id: Optional[int] = None
 
 
     model_config = ConfigDict(from_attributes=True)

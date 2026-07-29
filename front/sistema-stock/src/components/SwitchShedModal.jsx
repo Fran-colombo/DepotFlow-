@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { moveItem } from "../api/movements";
+import { getZones } from "../api/zones";
 
 const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) => {
   const [formData, setFormData] = useState({
@@ -7,32 +8,52 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
     quantity: 1,
     from_shed_id: item?.shed_id || '',
     to_shed_id: "",
+    from_zone_id: item?.zone_id || null,
+    to_zone_id: "",
     username: ""
   });
-  const [availableSheds, setAvailableSheds] = useState([]);
+  const [destinationZones, setDestinationZones] = useState([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen && item) {
-      loadSheds();
       resetForm();
     }
   }, [isOpen, item]);
 
-  const loadSheds = () => {
-    try {
-      const filteredSheds = sheds.filter(shed => shed.id !== item?.shed_id);
-      setAvailableSheds(filteredSheds);
-
-      if (filteredSheds.length === 0) {
-        setError('No hay otros galpones disponibles para mover el ítem');
+  useEffect(() => {
+    const loadZones = async () => {
+      if (!formData.to_shed_id) {
+        setDestinationZones([]);
+        return;
       }
-    } catch (err) {
-      console.error("Error loading sheds:", err);
-      setError("Error al cargar los galpones disponibles");
+      try {
+        const zones = await getZones(formData.to_shed_id);
+        const filtered = zones.filter(
+          (z) =>
+            !(
+              Number(formData.to_shed_id) === Number(item?.shed_id) &&
+              Number(z.id) === Number(item?.zone_id)
+            )
+        );
+        setDestinationZones(filtered);
+        setFormData((prev) => ({
+          ...prev,
+          to_zone_id: filtered.some((z) => Number(z.id) === Number(prev.to_zone_id))
+            ? prev.to_zone_id
+            : "",
+        }));
+      } catch (err) {
+        console.error("Error loading zones:", err);
+        setError("Error al cargar las zonas disponibles");
+        setDestinationZones([]);
+      }
+    };
+    if (isOpen) {
+      loadZones();
     }
-  };
+  }, [formData.to_shed_id, isOpen, item]);
 
   const getShedName = (shedId) => {
     const shed = sheds.find(s => s.id === shedId);
@@ -46,7 +67,9 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
       item_id: item.id,
       quantity: 1,
       from_shed_id: item.shed_id,
-      to_shed_id: "",
+      to_shed_id: item.shed_id || "",
+      from_zone_id: item.zone_id || null,
+      to_zone_id: "",
       username: ""
     });
     setError('');
@@ -56,7 +79,7 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: name.includes('_id') ? parseInt(value) : value
+      [name]: name.includes('_id') && value !== "" ? parseInt(value) : value
     }));
   };
 
@@ -81,6 +104,12 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
 
     if (!formData.to_shed_id) {
       setError('Seleccione un galpón destino');
+      setIsLoading(false);
+      return;
+    }
+
+    if (!formData.to_zone_id) {
+      setError('Seleccione una zona destino');
       setIsLoading(false);
       return;
     }
@@ -147,8 +176,13 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
               )}
 
               <div className="mb-3">
-                <label className="form-label fw-semibold text-primary">Galpón origen:</label>
-                <input type="text" className="form-control" value={getShedName(item.shed_id)} readOnly />
+                <label className="form-label fw-semibold text-primary">Origen:</label>
+                <input
+                  type="text"
+                  className="form-control"
+                  value={`${getShedName(item.shed_id)} / ${item.zone_name || "Sin zona"}`}
+                  readOnly
+                />
               </div>
 
               <div className="mb-3">
@@ -161,10 +195,32 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
                   required
                 >
                   <option value="">Seleccionar galpón</option>
-                  {availableSheds.map(shed => (
+                  {sheds.map(shed => (
                     <option key={shed.id} value={shed.id}>{shed.name}</option>
                   ))}
                 </select>
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label fw-semibold text-primary">Zona destino:</label>
+                <select
+                  name="to_zone_id"
+                  className="form-select"
+                  value={formData.to_zone_id}
+                  onChange={handleChange}
+                  required
+                  disabled={!formData.to_shed_id}
+                >
+                  <option value="">Seleccionar zona</option>
+                  {destinationZones.map(zone => (
+                    <option key={zone.id} value={zone.id}>{zone.name}</option>
+                  ))}
+                </select>
+                {formData.to_shed_id && destinationZones.length === 0 && (
+                  <div className="form-text text-danger">
+                    No hay zonas disponibles en este depósito (o solo existe la zona actual).
+                  </div>
+                )}
               </div>
 
               <div className="mb-3">
@@ -204,7 +260,11 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
               <button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={isLoading}>
                 Cancelar
               </button>
-              <button type="submit" className="btn btn-primary" disabled={isLoading || availableSheds.length === 0}>
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={isLoading || !formData.to_zone_id || destinationZones.length === 0}
+              >
                 {isLoading ? (
                   <>
                     <span className="spinner-border spinner-border-sm me-2"></span>

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, Enum, ForeignKey
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, Enum, ForeignKey, UniqueConstraint
 from database import Base
 import enum
 from sqlalchemy.orm import relationship
@@ -9,6 +9,7 @@ class ActionEnum(enum.Enum):
     retiro = "retiro"
     devolucion = "devolucion"
     carga = "carga"
+    traslado = "traslado"
 
 class RoleEnum(enum.Enum):
      admin = "admin"
@@ -26,6 +27,8 @@ class Item(Base):
     is_available = Column(Boolean, default=True)
     shed_id = Column(Integer, ForeignKey("sheds.id"))
     shed = relationship("Shed", back_populates="items")
+    zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
+    zone = relationship("Zone", back_populates="items")
     status = Column(Integer, default=1)  
 
     
@@ -82,6 +85,8 @@ class Movement(Base):
     item_name = Column(String)
     from_shed_id = Column(Integer, ForeignKey("sheds.id"))
     to_shed_id = Column(Integer, ForeignKey("sheds.id"))
+    from_zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
+    to_zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
     quantity = Column(Integer)
     username = Column(String)
     date = Column(DateTime, default=datetime.utcnow)
@@ -91,6 +96,8 @@ class Movement(Base):
     user = relationship("User")
     from_shed = relationship("Shed", foreign_keys=[from_shed_id])
     to_shed = relationship("Shed", foreign_keys=[to_shed_id])
+    from_zone = relationship("Zone", foreign_keys=[from_zone_id])
+    to_zone = relationship("Zone", foreign_keys=[to_zone_id])
 
 
 class Shed(Base):
@@ -98,6 +105,20 @@ class Shed(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
     items = relationship("Item", back_populates="shed")
+    zones = relationship("Zone", back_populates="shed")
+
+
+class Zone(Base):
+    __tablename__ = "zones"
+    __table_args__ = (UniqueConstraint("shed_id", "name", name="uq_zone_shed_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, index=True)
+    shed_id = Column(Integer, ForeignKey("sheds.id"), nullable=False)
+
+    shed = relationship("Shed", back_populates="zones")
+    items = relationship("Item", back_populates="zone")
+
 
 class DeletedItem(Base):
     __tablename__ = "deleted_items"

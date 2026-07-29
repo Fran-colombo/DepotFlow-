@@ -1,5 +1,12 @@
 const MovementsModal = ({ item, isOpen, onClose, movements = [] }) => {
   if (!isOpen) return null;
+
+  const formatLocation = (shedName, zoneName) => {
+    const shed = shedName || "Desconocido";
+    const zone = zoneName || "Sin zona";
+    return `${shed} / ${zone}`;
+  };
+
   return (
     <div className="modal show d-block fade" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
       <div className="modal-dialog modal-lg modal-dialog-centered">
@@ -29,8 +36,8 @@ const MovementsModal = ({ item, isOpen, onClose, movements = [] }) => {
                     movements.map((mov) => (
                       <tr key={mov.id}>
                         <td>{mov.date}</td>
-                        <td>{mov.from_shed_name}</td>
-                        <td>{mov.to_shed_name}</td>
+                        <td>{formatLocation(mov.from_shed_name, mov.from_zone_name)}</td>
+                        <td>{formatLocation(mov.to_shed_name, mov.to_zone_name)}</td>
                         <td>{mov.username}</td>
                         <td className="text-end">{mov.quantity}</td>
                       </tr>
