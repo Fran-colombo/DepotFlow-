@@ -6,7 +6,9 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.env
 back/.env
+back/adminSeed.py
 *.sqlite3
 *.db
 
