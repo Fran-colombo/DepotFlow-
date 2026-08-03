@@ -1,102 +1,94 @@
-# 📦 Gestión de Depósito - Conkreto SRL
+# Gestión de Depósito - Conkreto SRL
 
 Aplicación web para gestionar productos, movimientos, usuarios y observaciones dentro de un sistema de inventario para depósitos.
 
----
+## Tecnologías
 
-## 🖥 Tecnologías utilizadas
+- **Backend:** FastAPI, SQLite, JWT, SQLAlchemy
+- **Frontend:** React + Vite, Bootstrap 5
+
+## Estructura
+
+```
+gestorInventarioGalpon/
+├── back/
+├── front/sistema-stock/
+├── shed_data/          # SQLite persistente (Docker volume)
+├── Docker-compose.yml
+├── .env.example
+└── README.md
+```
+
+## Desarrollo local
 
 ### Backend
 
-- [FastAPI](https://fastapi.tiangolo.com/)
-- SQLite
-- JWT Authentication
-- SQLAlchemy
+```bash
+cd back
+pip install -r requirements.txt
+cp .env.example .env   # editar SECRET_KEY y mail si aplica
+uvicorn main:app --reload
+```
+
+La DB por defecto queda en `shed_data/shed.db` (relativa al repo).
+
+Crear admin con `adminSeed.py` (local) y al menos un depósito desde `/docs`.
 
 ### Frontend
 
-- React + Vite
-- Bootstrap 5
-- Fetch API
-
----
-
-## 🛠️ Estructura del proyecto
-
-mi-proyecto/
-├── back/
-├── front/sistema-stock
-├── shed_data/
-├── docker-compose.yml
-├── .gitignore
-└── README.md
-
-## 🚀 Cómo correr el proyecto localmente
-
-### 1. Clonar el repositorio
-
-git clone https://github.com/tu-usuario/mi-proyecto.git
-
-cd mi-proyecto
-
-Backend
-
-Requisitos:
--Python 3.10+
--FastAPI
--Uvicorn
--SQLite
-
-Instalación:
-
-cd back
-pip install -r requirements.txt
-
-1. Configurar usuario administrador
-   Antes de iniciar la app, debes configurar el archivo adminSeed.py para hardcodear tu usuario administrador:
-
-user = User(
-name="Admin",
-surname="Admin",
-email="admin@admin.com",
-password=hashed_password,
-role=RoleEnum.admin,
-status=1
-)
-
-2. Levantar el servidor:
-   uvicorn main:app --reload
-
-3. Ejecutar el archivo adminSeed.py, con el backend corriendo, ejecutá:
-   python adminSeed.py
-
-Esto insertará el usuario administrador.
-
-4. Crear un galpón (shed)
-   ⚠️ Importante: el sistema necesita al menos un galpón creado desde el backend para que el frontend funcione correctamente.
-
-http://localhost:8000/docs
-
-💻 Frontend
-Requisitos:
-Node.js 18+
-Vite
-
-Instalación y ejecución:
-cd front
+```bash
+cd front/sistema-stock
+cp .env.example .env   # VITE_API_URL=http://localhost:8000
 npm install
 npm run dev
-La app estará disponible en:
-📍 http://localhost:5173
+```
 
-🔐 Acceso
-Iniciá sesión con el usuario administrador que creaste manualmente para comenzar a gestionar productos, galpones, usuarios, historial y más.
+App en http://localhost:5173
 
-🔐 Autenticación
+## Deploy con Docker (recomendado)
 
-- El sistema utiliza JWT para proteger las rutas.
-- Solo los administradores pueden crear, desactivar o visualizar usuarios.
-  -Al iniciar sesión, se guarda el token en localStorage.
+En un VPS con Docker instalado:
 
-Contacto
+1. Copiá variables de entorno:
+
+```bash
+cp .env.example .env
+# Editá SECRET_KEY (obligatorio en producción)
+```
+
+2. Levantá:
+
+```bash
+docker compose -f Docker-compose.yml up -d --build
+```
+
+3. Accedé:
+   - App: `http://TU_IP` (o tu dominio en el puerto 80)
+   - API directa: `http://TU_IP:8000` / docs en `/docs`
+   - El front llama al API vía `/api` (nginx → backend)
+
+4. Primer uso:
+   - Crear usuario admin (`adminSeed` o `/signUp` + rol admin)
+   - Crear al menos un depósito y zonas
+
+### Variables importantes
+
+| Variable | Uso |
+|----------|-----|
+| `SECRET_KEY` | Firma JWT |
+| `VITE_API_URL` | Default `/api` (proxy nginx). Si el front está en otro dominio, usá la URL pública del API |
+| `DB_PATH` | Ruta SQLite (Docker: `/app/shed_data/shed.db`) |
+| `ALLOWED_ORIGINS` | CORS (`*` o lista) |
+| `EMAIL_*` / `SMTP_*` | Notificaciones (opcional) |
+
+### HTTPS
+
+Poné un reverse proxy (Caddy / nginx / Traefik) delante del puerto 80 con certificado Let's Encrypt.
+
+### Backup
+
+Copiá periódicamente la carpeta `shed_data/` (contiene `shed.db`).
+
+## Contacto
+
 Proyecto desarrollado por Francesco para Conkreto SRL.

@@ -4,6 +4,7 @@ import { getItemObservations, addObservation, getItemById } from "../api/items";
 const ObservationsModal = ({ itemId, isOpen, onClose }) => {
   const [observations, setObservations] = useState([]);
   const [newObservation, setNewObservation] = useState("");
+  const [observedBy, setObservedBy] = useState("");
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -16,7 +17,10 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
       const data = await getItemObservations(itemId);
       setObservations(data);
     } catch (err) {
-      setError(err, "No se pudieron cargar las observaciones.");
+      setObservations([]);
+      if (!String(err.message || "").includes("No observations found")) {
+        setError(err.message || "No se pudieron cargar las observaciones.");
+      }
     } finally {
       setLoading(false);
     }
@@ -27,11 +31,12 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
     setLoading(true);
     setError("");
     try {
-      await addObservation(itemId, newObservation);
+      await addObservation(itemId, newObservation, observedBy);
       setNewObservation("");
+      setObservedBy("");
       await fetchObservations();
     } catch (err) {
-      setError(err, "Error al agregar observación.");
+      setError(err.message || "Error al agregar observación.");
     } finally {
       setLoading(false);
     }
@@ -43,11 +48,13 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
         const res = await getItemById(itemId);
         setItem(res.item);
       } catch (err) {
-        setError(err, "Error al cargar el ítem");
+        setError(err.message || "Error al cargar el ítem");
       }
     };
 
     if (isOpen && itemId) {
+      setNewObservation("");
+      setObservedBy("");
       fetchItem();
       fetchObservations();
     }
@@ -56,7 +63,7 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="modal show d-block fade" tabIndex="-1" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+    <div className="modal show d-block fade" tabIndex="-1" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
       <div className="modal-dialog modal-lg modal-dialog-centered">
         <div className="modal-content border-0 shadow-lg">
           <div className="modal-header bg-secondary text-white">
@@ -68,7 +75,7 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
           </div>
 
           <div className="modal-body bg-light">
-            {error && <div >No hay observaciones</div>}
+            {error && <div className="alert alert-danger">{error}</div>}
             {loading && <div className="text-muted mb-2">Cargando...</div>}
 
             <div className="mb-3" style={{ maxHeight: "300px", overflowY: "auto" }}>
@@ -78,7 +85,8 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
                     <li key={obs.id} className="border-bottom pb-2 mb-2">
                       <p className="mb-1">{obs.description}</p>
                       <small className="text-muted">
-                        {new Date(obs.date).toLocaleString()} - Por: {obs.user_name}
+                        {new Date(obs.date).toLocaleString()} — Por:{" "}
+                        {obs.observed_by || obs.user_name || "—"}
                       </small>
                     </li>
                   ))}
@@ -98,6 +106,18 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
               onChange={(e) => setNewObservation(e.target.value)}
               disabled={loading}
             />
+
+            <div className="mb-0">
+              <label className="form-label">Observado por (opcional)</label>
+              <input
+                type="text"
+                className="form-control"
+                placeholder="Si sos vos, dejalo vacío"
+                value={observedBy}
+                onChange={(e) => setObservedBy(e.target.value)}
+                disabled={loading}
+              />
+            </div>
           </div>
 
           <div className="modal-footer bg-light">
@@ -107,7 +127,6 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
               onClick={onClose}
               disabled={loading}
             >
-              <i className="bi bi-x-lg me-1"></i>
               Cancelar
             </button>
             <button
@@ -116,17 +135,7 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
               onClick={handleAddObservation}
               disabled={loading || !newObservation.trim()}
             >
-              {loading ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2"></span>
-                  Agregando...
-                </>
-              ) : (
-                <>
-                  <i className="bi bi-plus-lg me-1"></i>
-                  Agregar Observación
-                </>
-              )}
+              {loading ? "Agregando..." : "Agregar Observación"}
             </button>
           </div>
         </div>

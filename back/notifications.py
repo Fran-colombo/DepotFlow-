@@ -85,6 +85,12 @@ class NotificationService:
 
     @staticmethod
     def send_notification_email(items: List[tuple]):
+        if not EmailConfig.is_configured():
+            logger.warning(
+                "Email no configurado (EMAIL_ADDRESS / EMAIL_PASSWORD / ADMIN_EMAIL). "
+                "Se omite el envío de notificación."
+            )
+            return
         try:
             msg = MIMEMultipart()
             msg['From'] = EmailConfig.EMAIL_ADDRESS

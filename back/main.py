@@ -7,6 +7,7 @@ import shed
 import movements
 import logging
 import threading
+import os
 import admin
 from sqlalchemy.orm import Session, joinedload, contains_eager
 from typing import Annotated, Optional
@@ -21,7 +22,9 @@ from historial import router
 from auth import get_current_user, router as auth_router
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
+from dotenv import load_dotenv
 
+load_dotenv()
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -29,9 +32,16 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "*").strip()
+_allow_origins = (
+    ["*"]
+    if _raw_origins == "*"
+    else [origin.strip() for origin in _raw_origins.split(",") if origin.strip()]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

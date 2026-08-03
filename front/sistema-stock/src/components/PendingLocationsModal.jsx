@@ -7,6 +7,17 @@ const PendingLocationsModal = ({ itemId, isOpen, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const formatDate = (dateString) => {
+    if (!dateString) return "—";
+    return new Date(dateString).toLocaleDateString("es-ES", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   useEffect(() => {
     if (!isOpen || !itemId) return;
 
@@ -38,7 +49,7 @@ const PendingLocationsModal = ({ itemId, isOpen, onClose }) => {
       onClick={onClose}
     >
       <div
-        className="modal-dialog modal-md modal-dialog-centered"
+        className="modal-dialog modal-lg modal-dialog-centered"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-content rounded shadow-lg">
@@ -72,6 +83,7 @@ const PendingLocationsModal = ({ itemId, isOpen, onClose }) => {
                     <tr>
                       <th>Obra / lugar</th>
                       <th>Quién lo retiró</th>
+                      <th>Fecha</th>
                       <th className="text-end">Cantidad pendiente</th>
                     </tr>
                   </thead>
@@ -80,6 +92,7 @@ const PendingLocationsModal = ({ itemId, isOpen, onClose }) => {
                       <tr key={p.place}>
                         <td>{p.place}</td>
                         <td>{p.personWhoTook || "—"}</td>
+                        <td>{formatDate(p.date)}</td>
                         <td className="text-end fw-semibold">{p.pending_amount}</td>
                       </tr>
                     ))}

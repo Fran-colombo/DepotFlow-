@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
 import { getPendientes } from "../api/items";
 import TrasladoModal from "../components/TrasladoModal";
+import DevolverItemModal from "../components/DevolucionModal";
 
 const Pendientes = () => {
   const [pendientes, setPendientes] = useState([]);
@@ -20,6 +21,7 @@ const Pendientes = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showTrasladoModal, setShowTrasladoModal] = useState(false);
+  const [showDevolverModal, setShowDevolverModal] = useState(false);
   const [selectedPending, setSelectedPending] = useState(null);
 
   const fetchPendientes = async (page = 1) => {
@@ -142,16 +144,28 @@ const Pendientes = () => {
                       <td>{registro.place || 'N/A'}</td>
                       <td>{formatDate(registro.date)}</td>
                       <td>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-info"
-                          onClick={() => {
-                            setSelectedPending(registro);
-                            setShowTrasladoModal(true);
-                          }}
-                        >
-                          Trasladar
-                        </button>
+                        <div className="d-inline-flex gap-1">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-success"
+                            onClick={() => {
+                              setSelectedPending(registro);
+                              setShowDevolverModal(true);
+                            }}
+                          >
+                            Devolver
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-info"
+                            onClick={() => {
+                              setSelectedPending(registro);
+                              setShowTrasladoModal(true);
+                            }}
+                          >
+                            Trasladar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -234,6 +248,19 @@ const Pendientes = () => {
           defaultFromPlace={selectedPending.place || ""}
           onClose={() => {
             setShowTrasladoModal(false);
+            setSelectedPending(null);
+          }}
+          onSuccess={() => fetchPendientes(pagination.current_page)}
+        />
+      )}
+
+      {showDevolverModal && selectedPending && (
+        <DevolverItemModal
+          itemId={selectedPending.itemId}
+          isOpen={showDevolverModal}
+          defaultPlace={selectedPending.place || ""}
+          onClose={() => {
+            setShowDevolverModal(false);
             setSelectedPending(null);
           }}
           onSuccess={() => fetchPendientes(pagination.current_page)}

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
 
-const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess }) => {
+const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
   const [pendingPlaces, setPendingPlaces] = useState([]);
   const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '' });
@@ -12,7 +12,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess }) => {
   useEffect(() => {
     if (!isOpen || !itemId) return;
 
-    setForm({ amount: '', place: '', personWhoReturned: '' });
+    setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '' });
     setError("");
     setPendingPlaces([]);
 
@@ -23,9 +23,15 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess }) => {
       .then((places) => {
         const list = Array.isArray(places) ? places : [];
         setPendingPlaces(list);
-        if (list.length === 1) {
-          setForm((prev) => ({ ...prev, place: list[0].place }));
-        }
+        setForm((prev) => {
+          if (defaultPlace && list.some((p) => p.place === defaultPlace)) {
+            return { ...prev, place: defaultPlace };
+          }
+          if (list.length === 1) {
+            return { ...prev, place: list[0].place };
+          }
+          return prev;
+        });
       })
       .catch((err) => {
         console.error(err);
@@ -33,7 +39,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess }) => {
         setPendingPlaces([]);
       })
       .finally(() => setLoadingPlaces(false));
-  }, [isOpen, itemId]);
+  }, [isOpen, itemId, defaultPlace]);
 
   const selectedPlace = pendingPlaces.find((p) => p.place === form.place);
   const maxAmount = selectedPlace?.pending_amount ?? 0;

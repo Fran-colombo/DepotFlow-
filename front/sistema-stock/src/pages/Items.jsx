@@ -14,6 +14,9 @@ import UpdateItemModal from "../components/UpdateItem";
 import PackingSlipModal from "../components/CrearRemito";
 import TrasladoModal from "../components/TrasladoModal";
 import PendingLocationsModal from "../components/PendingLocationsModal";
+import ItemHistorialModal from "../components/ItemHistorialModal";
+
+const isConsumable = (item) => item?.category === "Materiales consumibles";
 
 const Items = () => {
   const [items, setItems] = useState([]);
@@ -36,6 +39,7 @@ const Items = () => {
   const [showRemitoModal, setShowRemitoModal] = useState(false);
   const [showTrasladoModal, setShowTrasladoModal] = useState(false);
   const [showPendingLocationsModal, setShowPendingLocationsModal] = useState(false);
+  const [showItemHistorialModal, setShowItemHistorialModal] = useState(false);
 
   const [openMenuId, setOpenMenuId] = useState(null);
 
@@ -302,6 +306,13 @@ const Items = () => {
                             {item.description}
                           </div>
                         )}
+                        <span
+                          className={`badge mt-1 ${
+                            isConsumable(item) ? "bg-warning text-dark" : "bg-secondary"
+                          }`}
+                        >
+                          {isConsumable(item) ? "Insumo" : "Herramienta"}
+                        </span>
                       </td>
                       <td className="text-secondary">{item.category}</td>
                       <td>
@@ -434,6 +445,19 @@ const Items = () => {
                                     }}
                                   >
                                     Historial de movimientos
+                                  </button>
+                                </li>
+                                <li>
+                                  <button
+                                    className="dropdown-item"
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      setSelectedItem(item);
+                                      setShowItemHistorialModal(true);
+                                    }}
+                                  >
+                                    Historial de retiros
                                   </button>
                                 </li>
                                 <li><hr className="dropdown-divider" /></li>
@@ -570,6 +594,14 @@ const Items = () => {
           itemId={selectedItem.id}
           isOpen={showPendingLocationsModal}
           onClose={() => setShowPendingLocationsModal(false)}
+        />
+      )}
+
+      {showItemHistorialModal && selectedItem && (
+        <ItemHistorialModal
+          itemId={selectedItem.id}
+          isOpen={showItemHistorialModal}
+          onClose={() => setShowItemHistorialModal(false)}
         />
       )}
 

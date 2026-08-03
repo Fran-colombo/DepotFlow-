@@ -48,8 +48,9 @@ const [showConfirmModal, setShowConfirmModal] = useState(false);
 async function confirmarGenerarRemito() {
   try {
     const token = localStorage.getItem("authToken");
+    const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
-    const response = await fetch(import.meta.env.VITE_API_URL + "/historical/remito", {
+    const response = await fetch(base + "/historical/remito", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -5,10 +5,21 @@ services:
     build:
       context: ./back
     container_name: backend
-    ports:
-      - "8000:8000"
+    environment:
+      DOCKER: "1"
+      DB_PATH: /app/shed_data/shed.db
+      SECRET_KEY: ${SECRET_KEY:-cambia-esta-clave-en-produccion}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      SMTP_SERVER: ${SMTP_SERVER:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      EMAIL_ADDRESS: ${EMAIL_ADDRESS:-}
+      EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      NOTIFICATION_THRESHOLD_DAYS: ${NOTIFICATION_THRESHOLD_DAYS:-7}
     volumes:
       - ./shed_data:/app/shed_data
+    ports:
+      - "8000:8000"
     restart: unless-stopped
     networks:
       - app-network
@@ -16,6 +27,8 @@ services:
   frontend:
     build:
       context: ./front/sistema-stock
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
     container_name: frontend
     ports:
       - "80:80"

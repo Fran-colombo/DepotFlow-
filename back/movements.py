@@ -152,6 +152,7 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
                         description=obs.description,
                         user_id=obs.user_id,
                         user_name=obs.user_name,
+                        observed_by=obs.observed_by,
                         date=obs.date
                     )
                     db.add(new_obs)

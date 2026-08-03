@@ -1,6 +1,7 @@
 export async function apiFetch(endpoint, options = {}) {
   const token = localStorage.getItem("authToken");
-  let url = import.meta.env.VITE_API_URL + endpoint;
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  let url = `${base}${endpoint}`;
 
   if (options.params) {
     const params = new URLSearchParams();

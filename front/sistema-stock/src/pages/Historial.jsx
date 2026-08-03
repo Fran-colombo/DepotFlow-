@@ -97,6 +97,19 @@ useEffect(() => {
     }
   };
 
+  const getStatusBadge = (registro) => {
+    if (registro.action === 'traslado') {
+      return { className: 'bg-info text-white', label: 'Trasladado' };
+    }
+    if (registro.action === 'devolucion') {
+      return { className: 'bg-success text-white', label: 'Devuelto' };
+    }
+    if (registro.turnback) {
+      return { className: 'bg-success text-white', label: 'Devuelto' };
+    }
+    return { className: 'bg-warning text-dark', label: 'Pendiente' };
+  };
+
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
@@ -342,9 +355,14 @@ useEffect(() => {
                       <td>{registro.shed_name || 'N/A'}</td>
                       <td>{formatDate(registro.date)}</td>
                       <td>
-                        <span className={`badge ${registro.turnback ? 'bg-success' : 'bg-warning'}`}>
-                          {registro.turnback ? 'Devuelto' : 'Pendiente'}
-                        </span>
+                        {(() => {
+                          const status = getStatusBadge(registro);
+                          return (
+                            <span className={`badge ${status.className}`}>
+                              {status.label}
+                            </span>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))

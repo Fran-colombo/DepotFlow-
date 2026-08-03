@@ -28,13 +28,17 @@ export async function getItemObservations(itemId) {
   return apiFetch(`/api/observations/item/${itemId}`);
 }
 
-export async function addObservation(itemId, description) {
+export async function addObservation(itemId, description, observedBy = "") {
   return apiFetch(`/api/observations/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ item_id: itemId, description }),
+    body: JSON.stringify({
+      item_id: itemId,
+      description,
+      ...(observedBy?.trim() && { observed_by: observedBy.trim() }),
+    }),
   });
 }
 
@@ -126,6 +130,7 @@ export async function getPendientes(filters = {}, page = 1, pageSize = 10) {
 export const getFilteredHistorial = async (filters = {}, page = 1, pageSize = 10) => {
   const params = {
     item_name: filters.itemName || undefined,
+    item_id: filters.itemId || undefined,
     user_name: filters.userName || undefined,
     place: filters.place || undefined,
     action: filters.action || undefined,
@@ -146,7 +151,8 @@ export const getFilteredHistorial = async (filters = {}, page = 1, pageSize = 10
 export async function generarRemito(historyIds) {
   const token = localStorage.getItem("authToken");
 
-  const response = await fetch(import.meta.env.VITE_API_URL + "/historical/remito", {
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const response = await fetch(base + "/historical/remito", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

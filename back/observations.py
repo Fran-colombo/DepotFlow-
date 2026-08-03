@@ -58,11 +58,14 @@ def create_observation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+    observed_by = dto.observed_by.strip() if dto.observed_by and dto.observed_by.strip() else None
+
     observation = models.Observation(
         item_id=dto.item_id,
         description=dto.description,
         user_id=current_user["user_id"],
-        user_name=f"{user.name} {user.surname}", 
+        user_name=f"{user.name} {user.surname}",
+        observed_by=observed_by,
         date=now()
     )
     

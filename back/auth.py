@@ -1,5 +1,6 @@
 from datetime import timedelta, datetime
 import math
+import os
 from jose import jwt, JWTError
 from fastapi import HTTPException, APIRouter, Depends, Query
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -12,12 +13,15 @@ from database import engine, SessionLocal
 from passlib.context import CryptContext
 from models import RoleEnum, User
 from database import get_db
+from dotenv import load_dotenv
+
+load_dotenv()
 
 router = APIRouter(
     prefix="",
     tags=["auth"],
 )
-SECRET_KEY = "sinalientoputotetradescendidoporput0ycagon"
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-me-in-production")
 ALGORITHM = "HS256"
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")

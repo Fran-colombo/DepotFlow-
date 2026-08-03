@@ -48,6 +48,7 @@ MAX_PAGE_SIZE = 100
 def read_history(
     db: db_dependency,
     item_name: Optional[str] = None,
+    item_id: Optional[int] = None,
     user_name: Optional[str] = None,
     person_who_took: Optional[str] = None,
     place: Optional[str] = None,
@@ -76,6 +77,10 @@ def read_history(
             )
             .join(models.Item, models.History.itemId == models.Item.id)
             .join(models.Shed, models.Item.shed_id == models.Shed.id)
+            .filter(
+                (models.History.hideFromHistorial.is_(False))
+                | (models.History.hideFromHistorial.is_(None))
+            )
         )
 
         if item_name:
@@ -85,6 +90,8 @@ def read_history(
                     original_name.ilike(f"%{item_name}%")
                 )
             )
+        if item_id is not None:
+            query = query.filter(models.History.itemId == item_id)
         if user_name:
             query = query.filter(models.History.userName.ilike(f"%{user_name}%"))
         if place:
@@ -271,9 +278,12 @@ def get_pending_places(
         if not place:
             continue
         entry = by_place.setdefault(
-            place, {"place": place, "pending_amount": 0, "persons": []}
+            place,
+            {"place": place, "pending_amount": 0, "persons": [], "date": history.date},
         )
         entry["pending_amount"] += int(history.amountNotReturned or 0)
+        if history.date and (entry["date"] is None or history.date < entry["date"]):
+            entry["date"] = history.date
         person = (history.personWhoTook or history.userName or "").strip()
         if person and person not in entry["persons"]:
             entry["persons"].append(person)
@@ -283,6 +293,7 @@ def get_pending_places(
             "place": data["place"],
             "pending_amount": data["pending_amount"],
             "personWhoTook": ", ".join(data["persons"]) if data["persons"] else None,
+            "date": data["date"],
         }
         for data in by_place.values()
     ]
@@ -525,6 +536,7 @@ def trasladar_item(
         place=to_place,
         turnback=False,
         lastNotification=None,
+        hideFromHistorial=True,
     )
     db.add(nuevo_retiro)
 
@@ -541,6 +553,7 @@ def trasladar_item(
         turnback=True,
         turnbackDate=now(),
         lastNotification=None,
+        hideFromHistorial=False,
     )
     db.add(traslado)
 

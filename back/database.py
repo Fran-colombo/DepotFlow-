@@ -1,40 +1,41 @@
-# from sqlalchemy import create_engine
-# from sqlalchemy.orm import sessionmaker
-# from sqlalchemy.ext.declarative import declarative_base
-
-# SQLALCHEMY_DATABASE_URL = "sqlite:///./shed.db"
-
-# engine = create_engine(
-#     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-# )
-# SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Base = declarative_base()
-
-# def get_db():
-#     db = SessionLocal()
-#     try:
-#         yield db
-#     finally:
-#         db.close()
-
-# database.py
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = "C:\\Users\\Francesco\\Desktop\\TUP\\gestorInventarioGalpon\\shed_data\\shed.db"
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
+load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent
 
 
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+def _default_db_path() -> Path:
+    # Docker volume mount (see docker-compose)
+    docker_path = Path("/app/shed_data/shed.db")
+    if Path("/app/shed_data").is_dir() or os.getenv("DOCKER", "").lower() in ("1", "true"):
+        return docker_path
+    return PROJECT_ROOT / "shed_data" / "shed.db"
+
+
+DB_PATH = Path(os.getenv("DB_PATH", str(_default_db_path()))).resolve()
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+SQLALCHEMY_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    f"sqlite:///{DB_PATH.as_posix()}",
 )
+
+connect_args = {}
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
 
 def get_db():
     db = SessionLocal()
@@ -53,6 +54,9 @@ def _column_exists(table_name: str, column_name: str) -> bool:
 
 def ensure_zone_schema():
     """Apply additive schema changes create_all cannot do on existing SQLite tables."""
+    if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+        return
+
     with engine.begin() as conn:
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS zones (
@@ -85,3 +89,30 @@ def ensure_zone_schema():
             conn.execute(text(
                 "ALTER TABLE movements ADD COLUMN to_zone_id INTEGER REFERENCES zones(id)"
             ))
+
+    if not _column_exists("observations", "observed_by"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE observations ADD COLUMN observed_by VARCHAR"
+            ))
+
+    if not _column_exists("historal", "hideFromHistorial"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE historal ADD COLUMN hideFromHistorial BOOLEAN DEFAULT 0"
+            ))
+            conn.execute(text("""
+                UPDATE historal
+                SET hideFromHistorial = 1
+                WHERE id IN (
+                    SELECT r.id
+                    FROM historal AS r
+                    INNER JOIN historal AS t
+                        ON t.itemId = r.itemId
+                        AND t.action = 'traslado'
+                        AND t.amountRetired = r.amountRetired
+                        AND t.place LIKE '% → ' || r.place
+                    WHERE r.action = 'retiro'
+                      AND IFNULL(r.hideFromHistorial, 0) = 0
+                )
+            """))

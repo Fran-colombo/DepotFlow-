@@ -44,6 +44,7 @@ class Observation(Base):
     date = Column(DateTime, nullable=False, default=datetime.utcnow)
     user_id = Column(Integer, ForeignKey("users.id"))
     user_name = Column(String, index=True)
+    observed_by = Column(String, nullable=True)
     
     item = relationship("Item", back_populates="observations")
     user = relationship("User")
@@ -75,6 +76,7 @@ class History(Base):
     turnback = Column(Boolean, default=False)
     turnbackDate = Column(DateTime, nullable=True)
     lastNotification = Column(DateTime, nullable=True)
+    hideFromHistorial = Column(Boolean, default=False)
     item = relationship("Item") 
 
 class Movement(Base):
