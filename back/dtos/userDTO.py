@@ -7,6 +7,12 @@ class CreateUser(BaseModel):
     surname: str = Field(..., max_length=50)
     email: str = Field(..., max_length=100)
     password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field(default="user")  # "user" | "admin"
+
+
+class UpdatePasswordDTO(BaseModel):
+    password: str = Field(..., min_length=8, max_length=128)
+
 
 class LogUser(BaseModel):
     email: str = Field(..., max_length=50)

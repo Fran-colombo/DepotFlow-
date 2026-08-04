@@ -1,95 +1,128 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getUsers, deleteUser } from '../api/auth'
-import Dashboard from './Dashboard'
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { getUsers, deleteUser, updateUserPassword } from "../api/auth";
+import Dashboard from "./Dashboard";
 
 const UsersPage = () => {
-  const [users, setUsers] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [filters, setFilters] = useState({
-    name: '',
-    email: ''
-  })
+    name: "",
+    email: "",
+  });
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 20,
     total: 0,
-    totalPages: 1
-  })
+    totalPages: 1,
+  });
+  const [passwordModal, setPasswordModal] = useState({
+    open: false,
+    user: null,
+    password: "",
+    saving: false,
+  });
 
-  const navigate = useNavigate()
+  const navigate = useNavigate();
 
   const fetchUsers = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
       const { data, total, page, page_size, total_pages } = await getUsers({
         ...filters,
         page: pagination.page,
-        pageSize: pagination.pageSize
-      })
-      
-      setUsers(data)
+        pageSize: pagination.pageSize,
+      });
+
+      setUsers(data);
       setPagination({
         page,
         pageSize: page_size,
         total,
-        totalPages: total_pages
-      })
-      setError('')
+        totalPages: total_pages,
+      });
+      setError("");
     } catch (err) {
-      setError(err.message)
-      if (err.message.includes('autorizados')) {
-        navigate('/')
+      setError(err.message);
+      if (err.message.includes("autorizados")) {
+        navigate("/");
       }
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    fetchUsers()
-  }, [filters, pagination.page, pagination.pageSize])
+    fetchUsers();
+  }, [filters, pagination.page, pagination.pageSize]);
 
   const handleFilterChange = (e) => {
-    const { name, value } = e.target
-    setFilters(prev => ({ ...prev, [name]: value }))
-    setPagination(prev => ({ ...prev, page: 1 }))
-  }
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+    setPagination((prev) => ({ ...prev, page: 1 }));
+  };
 
   const handlePageSizeChange = (e) => {
-    const newSize = parseInt(e.target.value)
-    setPagination(prev => ({ ...prev, pageSize: newSize, page: 1 }))
-  }
+    const newSize = parseInt(e.target.value, 10);
+    setPagination((prev) => ({ ...prev, pageSize: newSize, page: 1 }));
+  };
 
   const handlePageChange = (newPage) => {
-    setPagination(prev => ({ ...prev, page: newPage }))
-  }
+    setPagination((prev) => ({ ...prev, page: newPage }));
+  };
 
   const handleDeleteUser = async (userId) => {
-    if (!window.confirm('¿Estás seguro de desactivar este usuario?')) return
-    
+    if (!window.confirm("¿Estás seguro de desactivar este usuario?")) return;
+
     try {
-      await deleteUser(userId)
-      fetchUsers() 
+      await deleteUser(userId);
+      fetchUsers();
     } catch (err) {
-      setError(err.message)
+      setError(err.message);
     }
-  }
+  };
+
+  const openPasswordModal = (user) => {
+    setPasswordModal({ open: true, user, password: "", saving: false });
+  };
+
+  const closePasswordModal = () => {
+    setPasswordModal({ open: false, user: null, password: "", saving: false });
+  };
+
+  const handleUpdatePassword = async (e) => {
+    e.preventDefault();
+    if (!passwordModal.user) return;
+    if (!passwordModal.password || passwordModal.password.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres");
+      return;
+    }
+
+    setPasswordModal((prev) => ({ ...prev, saving: true }));
+    try {
+      await updateUserPassword(passwordModal.user.id, passwordModal.password);
+      closePasswordModal();
+      setError("");
+    } catch (err) {
+      setError(err.message);
+      setPasswordModal((prev) => ({ ...prev, saving: false }));
+    }
+  };
 
   return (
     <Dashboard>
       <div>
-          <div className="d-flex justify-content-between align-items-center mb-3">
-            <h2 className="mb-0">Administración de Usuarios</h2>
-            <button
-              className="btn btn-success d-flex align-items-center gap-2 shadow-sm"
-              onClick={() => navigate("/signup")}
-            >
-              <i className="bi bi-plus-circle" />
-              Crear Usuario
-            </button>
-          </div>
+        <div className="d-flex justify-content-between align-items-center mb-3">
+          <h2 className="mb-0">Gestión de usuarios</h2>
+          <button
+            className="btn btn-success d-flex align-items-center gap-2 shadow-sm"
+            onClick={() => navigate("/signup")}
+          >
+            <i className="bi bi-plus-circle" />
+            Crear usuario
+          </button>
+        </div>
 
         <div className="card mb-4 shadow-sm">
           <div className="card-body">
@@ -120,7 +153,6 @@ const UsersPage = () => {
           </div>
         </div>
 
-        {/* Resultados */}
         {loading ? (
           <div className="text-center my-5">
             <div className="spinner-border text-primary" role="status">
@@ -144,27 +176,43 @@ const UsersPage = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map(user => (
+                  {users.map((user) => (
                     <tr key={user.id}>
                       <td>{user.id}</td>
-                      <td>{user.name} {user.surname}</td>
+                      <td>
+                        {user.name} {user.surname}
+                      </td>
                       <td>{user.email}</td>
                       <td>
-                        <span className={`badge ${user.role === 'admin' ? 'bg-danger' : 'bg-primary'}`}>
-                          {user.role}
+                        <span
+                          className={`badge ${
+                            user.role === "admin" ? "bg-danger" : "bg-primary"
+                          }`}
+                        >
+                          {user.role === "admin" ? "Admin" : "Usuario"}
                         </span>
                       </td>
                       <td>
                         <span className="badge bg-success">Activo</span>
                       </td>
                       <td>
-                        <button
-                          onClick={() => handleDeleteUser(user.id)}
-                          className="btn btn-sm btn-outline-danger"
-                          disabled={user.role === 'admin'}
-                        >
-                          Desactivar
-                        </button>
+                        <div className="d-inline-flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openPasswordModal(user)}
+                            className="btn btn-sm btn-outline-primary"
+                          >
+                            Cambiar contraseña
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUser(user.id)}
+                            className="btn btn-sm btn-outline-danger"
+                            disabled={user.role === "admin"}
+                          >
+                            Desactivar
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -172,11 +220,10 @@ const UsersPage = () => {
               </table>
             </div>
 
-            {/* Paginación */}
             <div className="d-flex justify-content-between align-items-center mt-3">
               <div>
-                <select 
-                  value={pagination.pageSize} 
+                <select
+                  value={pagination.pageSize}
                   onChange={handlePageSizeChange}
                   className="form-select form-select-sm"
                 >
@@ -186,21 +233,21 @@ const UsersPage = () => {
                   <option value="100">100 por página</option>
                 </select>
               </div>
-              
+
               <div className="d-flex align-items-center gap-2">
-                <button 
+                <button
                   onClick={() => handlePageChange(pagination.page - 1)}
                   disabled={pagination.page === 1}
                   className="btn btn-sm btn-outline-primary"
                 >
                   Anterior
                 </button>
-                
+
                 <span>
                   Página {pagination.page} de {pagination.totalPages}
                 </span>
-                
-                <button 
+
+                <button
                   onClick={() => handlePageChange(pagination.page + 1)}
                   disabled={pagination.page >= pagination.totalPages}
                   className="btn btn-sm btn-outline-primary"
@@ -212,9 +259,73 @@ const UsersPage = () => {
           </>
         )}
       </div>
-      
-    </Dashboard>
-  )
-}
 
-export default UsersPage
+      {passwordModal.open && passwordModal.user && (
+        <div
+          className="modal show d-block fade"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={closePasswordModal}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <form onSubmit={handleUpdatePassword}>
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    Cambiar contraseña — {passwordModal.user.name}{" "}
+                    {passwordModal.user.surname}
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={closePasswordModal}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <label className="form-label">Nueva contraseña</label>
+                  <input
+                    type="password"
+                    className="form-control"
+                    value={passwordModal.password}
+                    onChange={(e) =>
+                      setPasswordModal((prev) => ({
+                        ...prev,
+                        password: e.target.value,
+                      }))
+                    }
+                    minLength={8}
+                    required
+                    autoFocus
+                  />
+                  <div className="form-text">Mínimo 8 caracteres.</div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closePasswordModal}
+                    disabled={passwordModal.saving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={passwordModal.saving}
+                  >
+                    {passwordModal.saving ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+    </Dashboard>
+  );
+};
+
+export default UsersPage;

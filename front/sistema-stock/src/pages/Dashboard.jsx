@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, UserPlus } from "lucide-react"
+import { Package, History, Clock, LogOut, Users, Trash2, Warehouse } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 
 const Dashboard = ({ title, children }) => {
@@ -63,7 +63,7 @@ const Dashboard = ({ title, children }) => {
                   <span className="d-none d-lg-inline app-nav-divider" />
                   <button onClick={() => navigate("/admin/users")} className={navLinkClass("/admin/users")}>
                     <Users className="me-1" size={18} />
-                    Usuarios
+                    Gestión usuarios
                   </button>
                   <button
                     onClick={() => navigate("/admin/warehouses")}
@@ -71,10 +71,6 @@ const Dashboard = ({ title, children }) => {
                   >
                     <Warehouse className="me-1" size={18} />
                     Gestión depósitos
-                  </button>
-                  <button onClick={() => navigate("/signup")} className={navLinkClass("/signup")}>
-                    <UserPlus className="me-1" size={18} />
-                    Crear usuario
                   </button>
                 </>
               )}

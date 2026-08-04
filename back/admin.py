@@ -6,8 +6,8 @@ import math
 
 from database import get_db
 from models import User
-from dtos.userDTO import  PaginatedUsersResponse
-from auth import get_current_user, get_user_name_by_id
+from dtos.userDTO import PaginatedUsersResponse, UpdatePasswordDTO
+from auth import get_current_user, get_user_name_by_id, bcrypt_context
 
 router = APIRouter(
     prefix="/admin",
@@ -82,6 +82,32 @@ async def delete_user(
     db.commit()
 
     return {"message": "Usuario desactivado correctamente"}
+
+
+@router.put("/users/{user_id}/password")
+async def update_user_password(
+    user_id: int,
+    body: UpdatePasswordDTO,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden realizar esta acción",
+        )
+
+    user = db.query(User).filter(User.id == user_id, User.status == 1).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado",
+        )
+
+    user.password = bcrypt_context.hash(body.password)
+    db.commit()
+    return {"message": "Contraseña actualizada correctamente"}
+
 
 @router.get("/me")
 def get_current_user_name(

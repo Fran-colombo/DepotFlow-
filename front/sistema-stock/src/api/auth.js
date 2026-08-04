@@ -69,6 +69,20 @@ export async function deleteUser(userId) {
     }
   })
 }
+
+export async function updateUserPassword(userId, password) {
+  const token = localStorage.getItem("authToken")
+
+  return await apiFetch(`/admin/users/${userId}/password`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ password }),
+  })
+}
+
 export const getCurrentUserName = async (token) => {
   const data = await apiFetch("/admin/me", {
     headers: {
