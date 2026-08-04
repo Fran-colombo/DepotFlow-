@@ -14,7 +14,7 @@ gestorInventarioGalpon/
 ├── back/
 ├── front/sistema-stock/
 ├── shed_data/          # SQLite persistente (Docker volume)
-├── Docker-compose.yml
+├── docker-compose.yml
 ├── .env.example
 └── README.md
 ```
@@ -59,7 +59,7 @@ cp .env.example .env
 2. Levantá:
 
 ```bash
-docker compose -f Docker-compose.yml up -d --build
+docker compose up -d --build
 ```
 
 3. Accedé:
