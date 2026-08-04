@@ -22,6 +22,7 @@ from historial import router
 from auth import get_current_user, router as auth_router
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
+from seed_admin import seed_admin_from_env
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -59,7 +60,7 @@ app.include_router(zones.router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()
-
+seed_admin_from_env()
 
 item_dependency = Annotated[Session, Depends(get_db)]
 

@@ -68,7 +68,7 @@ docker compose -f Docker-compose.yml up -d --build
    - El front llama al API vía `/api` (nginx → backend)
 
 4. Primer uso:
-   - Crear usuario admin (`adminSeed` o `/signUp` + rol admin)
+   - El admin se crea solo si en `.env` están `ADMIN_USER_EMAIL` y `ADMIN_USER_PASSWORD`
    - Crear al menos un depósito y zonas
 
 ### Variables importantes
@@ -76,6 +76,7 @@ docker compose -f Docker-compose.yml up -d --build
 | Variable | Uso |
 |----------|-----|
 | `SECRET_KEY` | Firma JWT |
+| `ADMIN_USER_EMAIL` / `ADMIN_USER_PASSWORD` | Admin creado al arrancar (si no existe) |
 | `VITE_API_URL` | Default `/api` (proxy nginx). Si el front está en otro dominio, usá la URL pública del API |
 | `DB_PATH` | Ruta SQLite (Docker: `/app/shed_data/shed.db`) |
 | `ALLOWED_ORIGINS` | CORS (`*` o lista) |
