@@ -147,7 +147,7 @@ const SignUp = () => {
                         name="password"
                         type={showPassword ? "text" : "password"}
                         className={`form-control ${errors.password ? "is-invalid" : ""}`}
-                        placeholder="Ingresar password"
+                        placeholder="Ingresar contraseña"
                         onChange={handleChange}
                         value={form.password}
                         ref={refs.password}

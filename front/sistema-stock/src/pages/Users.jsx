@@ -23,6 +23,11 @@ const UsersPage = () => {
     password: "",
     saving: false,
   });
+  const [feedbackModal, setFeedbackModal] = useState({
+    open: false,
+    type: "success", // success | error
+    message: "",
+  });
 
   const navigate = useNavigate();
 
@@ -95,18 +100,31 @@ const UsersPage = () => {
     e.preventDefault();
     if (!passwordModal.user) return;
     if (!passwordModal.password || passwordModal.password.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres");
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: "La contraseña debe tener al menos 8 caracteres.",
+      });
       return;
     }
 
+    const userLabel = `${passwordModal.user.name} ${passwordModal.user.surname}`.trim();
     setPasswordModal((prev) => ({ ...prev, saving: true }));
     try {
       await updateUserPassword(passwordModal.user.id, passwordModal.password);
       closePasswordModal();
-      setError("");
+      setFeedbackModal({
+        open: true,
+        type: "success",
+        message: `La contraseña de ${userLabel} se actualizó correctamente.`,
+      });
     } catch (err) {
-      setError(err.message);
       setPasswordModal((prev) => ({ ...prev, saving: false }));
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: err.message || "No se pudo actualizar la contraseña.",
+      });
     }
   };
 
@@ -320,6 +338,57 @@ const UsersPage = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {feedbackModal.open && (
+        <div
+          className="modal show d-block fade"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setFeedbackModal({ open: false, type: "success", message: "" })}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div
+                className={`modal-header ${
+                  feedbackModal.type === "success"
+                    ? "bg-success text-white"
+                    : "bg-danger text-white"
+                }`}
+              >
+                <h5 className="modal-title">
+                  {feedbackModal.type === "success" ? "Éxito" : "Error"}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  onClick={() =>
+                    setFeedbackModal({ open: false, type: "success", message: "" })
+                  }
+                ></button>
+              </div>
+              <div className="modal-body">
+                <p className="mb-0">{feedbackModal.message}</p>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className={`btn ${
+                    feedbackModal.type === "success" ? "btn-success" : "btn-danger"
+                  }`}
+                  onClick={() =>
+                    setFeedbackModal({ open: false, type: "success", message: "" })
+                  }
+                >
+                  Aceptar
+                </button>
+              </div>
             </div>
           </div>
         </div>
