@@ -11,7 +11,7 @@ Este directorio contiene **solo** la configuración del entorno de demostración
 | Contenedores | `backend`, `frontend` | `demo-backend`, `demo-frontend` |
 | Base de datos | `shed_data/shed.db` | `demo/shed_data_demo/shed.db` |
 | Env | `.env` | `demo/.env.demo` |
-| Puertos host | `80`, `8000` | `8080`, `8001` |
+| Puertos host | `80`, `8000` | `8082`, `8001` |
 | Código app | `back/`, `front/` | **Mismo código**, distinto build/env |
 
 ## Primer despliegue
@@ -25,10 +25,10 @@ cp demo/.env.demo.example demo/.env.demo
 docker compose -f docker-compose.demo.yml -p depotflow-demo up -d --build
 ```
 
-- Web demo: http://localhost:8080  
+- Web demo: http://localhost:8082  
 - API demo: http://localhost:8001/docs  
 
-En un VPS con producción ya corriendo, mapeá un **puerto público nuevo** hacia el `8080` interno (igual que SSH usa el 10044).
+En un VPS con producción ya corriendo, mapeá un **puerto público nuevo** hacia el `8082` interno del host (el contenedor sigue escuchando en el puerto `80` interno).
 
 ## Credenciales demo
 

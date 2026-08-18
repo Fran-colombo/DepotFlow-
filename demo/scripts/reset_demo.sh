@@ -21,5 +21,5 @@ export DEMO_RESET=1
 $COMPOSE up -d --build
 
 echo "==> Demo reset complete."
-echo "    Web: http://localhost:8080"
+echo "    Web: http://localhost:8082"
 echo "    API: http://localhost:8001/docs"
