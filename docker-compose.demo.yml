@@ -1,0 +1,48 @@
+# Independent DEMO stack — does not use production compose, volumes, or env.
+# Usage: docker compose -f docker-compose.demo.yml -p depotflow-demo up -d --build
+
+version: "3.8"
+
+services:
+  demo-backend:
+    build:
+      context: ./back
+    container_name: demo-backend
+    env_file:
+      - ./demo/.env.demo
+    environment:
+      DOCKER: "1"
+      DB_PATH: /app/shed_data/shed.db
+      PYTHONPATH: /app
+      DEMO_MODE: ${DEMO_MODE:-1}
+      DEMO_RESET: ${DEMO_RESET:-0}
+    volumes:
+      - ./demo/shed_data_demo:/app/shed_data
+      - ./demo:/demo:ro
+    ports:
+      - "8001:8000"
+    command: >
+      sh -c "python /demo/seed/seed_demo_data.py &&
+             uvicorn main:app --host 0.0.0.0 --port 8000"
+    restart: unless-stopped
+    networks:
+      - demo-network
+
+  demo-frontend:
+    build:
+      context: .
+      dockerfile: demo/docker/Dockerfile.frontend.demo
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    container_name: demo-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - demo-backend
+    restart: unless-stopped
+    networks:
+      - demo-network
+
+networks:
+  demo-network:
+    driver: bridge

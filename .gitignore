@@ -17,6 +17,9 @@ back/adminSeed.py
 
 shed_data/
 
+demo/shed_data_demo/
+demo/.env.demo
+
 *.log
 
 .vscode/
