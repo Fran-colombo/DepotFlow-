@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { login } from '../api/auth';
 import useAuth from '../hooks/useAuth';
 import logoConkreto from '../assets/logo-conkreto.png';
-import warehouseBg from '../assets/demo/warehouse-login-bg.png';
+import warehouseBg from '../assets/demo/warehouse-login-bg.jpg';
 
 const DEMO_USERS = {
   admin: {
@@ -60,28 +60,36 @@ function DemoLoginPage() {
 
   return (
     <div
-      className="min-vh-100 d-flex align-items-center justify-content-center p-3"
+      className="min-vh-100 d-flex align-items-center justify-content-center p-3 position-relative overflow-hidden"
       style={{
-        background: `url(${warehouseBg}) no-repeat center center`,
+        backgroundColor: '#0f172a',
+        backgroundImage: `
+          linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(30, 64, 175, 0.72) 100%),
+          url(${warehouseBg})
+        `,
         backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
       }}
     >
       <div
-        className="rounded shadow-lg p-4 border"
+        className="rounded-4 shadow-lg p-4 border-0"
         style={{
           maxWidth: 440,
           width: '100%',
           backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          backdropFilter: 'blur(2px)',
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.45)',
         }}
       >
         <div className="text-center mb-3">
           <img src={logoConkreto} alt="Logo Conkreto" style={{ maxWidth: 180 }} />
-          <h4 className="mt-3 fw-bold mb-1">Gestor de Inventario</h4>
+          <h4 className="mt-3 fw-bold mb-1 text-dark">Gestor de Inventario</h4>
           <p className="text-muted small mb-0">Conkreto Construcciones STL</p>
         </div>
 
-        <div className="alert alert-warning py-2 px-3 small text-center">
+        <div className="alert alert-warning py-2 px-3 small text-center border-0">
           <strong>Entorno DEMO</strong> — Datos ficticios para evaluación
         </div>
 
