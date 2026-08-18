@@ -10,6 +10,8 @@ RUN npm install
 
 COPY front/sistema-stock/ ./
 COPY demo/ui/DemoBanner.jsx ./src/components/DemoBanner.jsx
+COPY demo/ui/DemoLogin.jsx ./src/components/DemoLogin.jsx
+COPY demo/ui/assets/ ./src/assets/demo/
 COPY demo/ui/apply-demo-patch.sh /tmp/apply-demo-patch.sh
 RUN chmod +x /tmp/apply-demo-patch.sh && /tmp/apply-demo-patch.sh
 RUN npm run build

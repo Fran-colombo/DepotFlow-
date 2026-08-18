@@ -8,6 +8,8 @@ Sistema de **gestión de depósito / inventario** para herramientas, materiales 
 
 ## Credenciales
 
+En la pantalla de login del demo podés usar los botones **Entrar como Admin** o **Entrar como Usuario** (acceso con un clic).
+
 ### Administrador
 - **Email:** demo.admin@example.com  
 - **Contraseña:** Demo123!
