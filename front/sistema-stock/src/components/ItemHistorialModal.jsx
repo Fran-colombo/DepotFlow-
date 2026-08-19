@@ -13,6 +13,7 @@ const actionBadgeClass = (action) => {
   if (action === "retiro") return "bg-danger";
   if (action === "devolucion") return "bg-success";
   if (action === "traslado") return "bg-info text-dark";
+  if (action === "carga") return "bg-primary";
   return "bg-secondary";
 };
 
@@ -71,7 +72,7 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
           <div className="modal-header bg-primary text-white">
             <h5 className="modal-title">
               <i className="bi bi-journal-text me-2"></i>
-              Historial de retiros: {item?.name || "Cargando..."}
+              Historial: {item?.name || "Cargando..."}
             </h5>
             <button
               type="button"
@@ -121,7 +122,7 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
                     ) : (
                       <tr>
                         <td colSpan="5" className="text-center text-muted py-4">
-                          No hay retiros ni devoluciones registrados
+                          No hay movimientos registrados
                         </td>
                       </tr>
                     )}

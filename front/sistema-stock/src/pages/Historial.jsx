@@ -93,11 +93,27 @@ useEffect(() => {
       case 'retiro': return 'bg-danger text-white';
       case 'devolucion': return 'bg-success text-white';
       case 'traslado': return 'bg-info text-white';
+      case 'carga': return 'bg-primary text-white';
       default: return 'bg-secondary text-white';
     }
   };
 
+  const getActionLabel = (action) => {
+    if (action === 'retiro') return 'Retiro';
+    if (action === 'traslado') return 'Traslado';
+    if (action === 'carga') return 'Carga';
+    if (action === 'devolucion') return 'Devolución';
+    return action || '—';
+  };
+
   const getStatusBadge = (registro) => {
+    if (registro.action === 'carga') {
+      const qty = Number(registro.amountRetired);
+      if (qty < 0) {
+        return { className: 'bg-warning text-dark', label: 'Ajuste de stock' };
+      }
+      return { className: 'bg-primary text-white', label: 'Ingresado' };
+    }
     if (registro.action === 'traslado') {
       return { className: 'bg-info text-white', label: 'Trasladado' };
     }
@@ -233,6 +249,7 @@ useEffect(() => {
                 <option value="retiro">Retiros</option>
                 <option value="devolucion">Devoluciones</option>
                 <option value="traslado">Traslados</option>
+                <option value="carga">Cargas</option>
               </select>
             </div>
 
@@ -343,11 +360,7 @@ useEffect(() => {
                       <td>{registro.personWhoTook || registro.userName}</td>
                       <td>
                         <span className={`badge ${getActionColor(registro.action)}`}>
-                          {registro.action === 'retiro'
-                            ? 'Retiro'
-                            : registro.action === 'traslado'
-                              ? 'Traslado'
-                              : 'Devolución'}
+                          {getActionLabel(registro.action)}
                         </span>
                       </td>
                       <td>{registro.amountRetired || registro.amountNotReturned || '0'}</td>

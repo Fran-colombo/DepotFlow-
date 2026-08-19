@@ -1,6 +1,8 @@
-from fastapi import FastAPI, HTTPException, Query, status, Depends
+from fastapi import FastAPI, HTTPException, Query, status, Depends, File, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 import models
 import observations
 import shed
@@ -23,6 +25,8 @@ from auth import get_current_user, router as auth_router
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
 from seed_admin import seed_admin_from_env
+from item_service import ItemServiceError, create_item
+from item_import import build_import_template, import_items_from_excel
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -171,73 +175,58 @@ def getItemById(item_id: int, db: item_dependency):
 
 @app.post("/")
 def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
-    nameWellWritten = item.name.lower().capitalize()
-
-    if not item.zone_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La zona es obligatoria",
-        )
-
-    zone = db.query(models.Zone).filter(models.Zone.id == item.zone_id).first()
-    if not zone:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Zona no encontrada",
-        )
-
-    if item.shed_id is not None and item.shed_id != zone.shed_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="La zona no pertenece al galpón seleccionado",
-        )
-
-    shed_id = zone.shed_id
-
-    existing = db.query(models.Item).filter(
-        models.Item.name == nameWellWritten,
-        models.Item.zone_id == item.zone_id,
-    ).first()
-
-    if existing:
-        if existing.status == 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Un elemento con el mismo nombre ya existe en esa zona."
-            )
-        else:
-            existing.name = f"{existing.name}__OLD_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-            db.commit()
-
-    deleted_with_same_name = db.query(models.DeletedItem).filter(
-        models.DeletedItem.name == nameWellWritten
-    ).order_by(models.DeletedItem.deleted_at.desc()).first()
-
-    if deleted_with_same_name:
-        logger.warning(f"Se está recreando un item previamente borrado: {nameWellWritten}")
-
     try:
-        itemToAdd = models.Item(
-            name=nameWellWritten,
+        return create_item(
+            db,
+            name=item.name,
             description=item.description,
             category=item.category,
-            shed_id=shed_id,
+            quantity=item.quantity,
             zone_id=item.zone_id,
-            totalAmount=item.quantity,
-            actualAmount=item.quantity,
-            is_available=True,
-            status=1,
+            shed_id=item.shed_id,
         )
-        db.add(itemToAdd)
-        db.commit()
-        db.refresh(itemToAdd)
-        return itemToAdd
-    except Exception as e:
-        db.rollback()
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@app.get("/items/import/template")
+def download_items_import_template():
+    content = build_import_template()
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": "attachment; filename=plantilla_carga_inventario.xlsx"
+        },
+    )
+
+
+@app.post("/items/import")
+async def import_items_excel(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    file: UploadFile = File(...),
+):
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".xlsx"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Error creating item: {str(e)}"
+            detail="El archivo debe ser un Excel (.xlsx)",
         )
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo está vacío",
+        )
+
+    try:
+        return import_items_from_excel(db, file_bytes, current_user)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 @app.put("/items/by-id/{item_id}")
 def update_item_by_id(

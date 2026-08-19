@@ -148,6 +148,61 @@ export const getFilteredHistorial = async (filters = {}, page = 1, pageSize = 10
   });
 };
 
+export async function downloadImportTemplate() {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const response = await fetch(base + "/items/import/template", {
+    method: "GET",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || "Error al descargar la plantilla");
+  }
+
+  const blob = await response.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "plantilla_carga_inventario.xlsx";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+export async function importItemsExcel(file) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(base + "/items/import", {
+    method: "POST",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = "Error al importar el archivo";
+    try {
+      const errorData = await response.json();
+      message = errorData.detail || message;
+    } catch {
+      const errorText = await response.text();
+      message = errorText || message;
+    }
+    throw new Error(typeof message === "string" ? message : "Error al importar el archivo");
+  }
+
+  return response.json();
+}
+
 export async function generarRemito(historyIds) {
   const token = localStorage.getItem("authToken");
 

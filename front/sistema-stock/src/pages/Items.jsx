@@ -11,6 +11,7 @@ import DevolverItemModal from "../components/DevolucionModal";
 import RetirarItemModal from "../components/RetiroModal";
 import DeleteItemModal from "../components/DeleteItemModal";
 import UpdateItemModal from "../components/UpdateItem";
+import BulkImportModal from "../components/BulkImportModal";
 import PackingSlipModal from "../components/CrearRemito";
 import TrasladoModal from "../components/TrasladoModal";
 import PendingLocationsModal from "../components/PendingLocationsModal";
@@ -35,6 +36,7 @@ const Items = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10, totalRecords: 0, totalPages: 1 });
   const [itemModal, setItemModal] = useState({ open: false, mode: "create", itemId: null });
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
   const [pendingRemitoData, setPendingRemitoData] = useState(null);
   const [showRemitoModal, setShowRemitoModal] = useState(false);
   const [showTrasladoModal, setShowTrasladoModal] = useState(false);
@@ -156,8 +158,15 @@ const Items = () => {
     return `${shed} / ${zone}`;
   };
 
-  const refreshCurrentPage = () =>
-    getItems(filters, pagination.page, pagination.pageSize).then((res) => setItems(res.data));
+  const refreshCurrentPage = async () => {
+    const res = await getItems(filters, pagination.page, pagination.pageSize);
+    setItems(res.data);
+    setPagination((prev) => ({
+      ...prev,
+      totalRecords: res.pagination.total_records,
+      totalPages: res.pagination.total_pages,
+    }));
+  };
 
   const handleShowMovements = async (item) => {
     setSelectedItem(item);
@@ -263,13 +272,22 @@ const Items = () => {
         <p className="app-muted mb-0">
           {pagination.totalRecords} producto{pagination.totalRecords === 1 ? "" : "s"}
         </p>
-        <button
-          onClick={() => setItemModal({ open: true, mode: "create", itemId: null })}
-          className="btn btn-primary btn-sm"
-          disabled={isLoading}
-        >
-          {isLoading ? "Cargando..." : "Agregar"}
-        </button>
+        <div className="d-flex gap-2">
+          <button
+            onClick={() => setShowBulkImportModal(true)}
+            className="btn btn-outline-primary btn-sm"
+            disabled={isLoading}
+          >
+            Carga masiva
+          </button>
+          <button
+            onClick={() => setItemModal({ open: true, mode: "create", itemId: null })}
+            className="btn btn-primary btn-sm"
+            disabled={isLoading}
+          >
+            {isLoading ? "Cargando..." : "Agregar"}
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -649,6 +667,12 @@ const Items = () => {
           refreshItems={refreshCurrentPage}
         />
       )}
+
+      <BulkImportModal
+        isOpen={showBulkImportModal}
+        onClose={() => setShowBulkImportModal(false)}
+        onSuccess={refreshCurrentPage}
+      />
     </Dashboard>
   );
 };
