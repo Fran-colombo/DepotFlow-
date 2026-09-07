@@ -156,6 +156,11 @@ def merge_payload(dto: WhatsAppActionDTO) -> dict:
                 data["cantidad"] = int(blob.get("cantidad"))
             except (TypeError, ValueError):
                 pass
+    if dto.text and not blob:
+        inferred = parse_free_text(dto.text)
+        for key, value in inferred.items():
+            if value not in (None, "") and not data.get(key):
+                data[key] = value
     if not data["action"]:
         data["action"] = infer_action(data)
     return data
@@ -167,6 +172,120 @@ def infer_action(data: dict) -> str | None:
     if data.get("cantidad") and data.get("elemento") and data.get("where"):
         return "retiro"
     return None
+
+
+def _singularize(name: str) -> str:
+    n = name.strip()
+    if len(n) > 3 and n[-1].lower() == "s" and n[-2].lower() != "s":
+        return n[:-1]
+    return n
+
+
+def _split_dest_origin(rest: str) -> tuple[str, str | None, str | None]:
+    dest_parts = re.split(r"\s+(?:a|para)\s+", rest, maxsplit=1, flags=re.I)
+    elemento = dest_parts[0].strip()
+    where = from_ = None
+    if len(dest_parts) > 1:
+        origin_parts = re.split(r"\s+(?:de|desde|from)\s+", dest_parts[1], maxsplit=1, flags=re.I)
+        where = origin_parts[0].strip() or None
+        if len(origin_parts) > 1:
+            from_ = origin_parts[1].strip() or None
+    else:
+        origin_parts = re.split(r"\s+(?:de|desde|from)\s+", rest, maxsplit=1, flags=re.I)
+        if len(origin_parts) > 1:
+            elemento = origin_parts[0].strip()
+            from_ = origin_parts[1].strip() or None
+    return _singularize(elemento), where, from_
+
+
+def parse_free_text(text: str) -> dict:
+    """Turn short Spanish WhatsApp phrases into the same fields as the JSON."""
+    if not text:
+        return {}
+    compact = " ".join(text.strip().split())
+    if not compact or compact.startswith("{"):
+        return {}
+
+    consulta = re.match(
+        r"^(?:consulta(?:r)?|stock|inventario)\s+(?:de\s+)?(.+)$",
+        compact,
+        re.I,
+    )
+    if consulta:
+        elemento = _singularize(consulta.group(1).strip(" .?!"))
+        return {"action": "consulta", "elemento": elemento} if elemento else {}
+
+    cuanto = re.match(
+        r"^(?:cu[aá]nt[oa]s?|hay)\s+(?:hay\s+)?(?:de\s+)?(.+?)(?:\s+hay)?$",
+        compact,
+        re.I,
+    )
+    if cuanto:
+        elemento = _singularize(cuanto.group(1).strip(" .?!"))
+        if elemento and not re.match(r"^\d+$", elemento):
+            return {"action": "consulta", "elemento": elemento}
+
+    retiro = re.match(
+        r"^(?:retir(?:ar|a|o|[áa])|sac(?:ar|[áa]|a))\s+(\d+)\s+(.+)$",
+        compact,
+        re.I,
+    )
+    if retiro:
+        elemento, where, from_ = _split_dest_origin(retiro.group(2).strip())
+        data = {"action": "retiro", "elemento": elemento, "cantidad": int(retiro.group(1))}
+        if where:
+            data["where"] = where
+        if from_:
+            data["from"] = from_
+        return data
+
+    devolucion = re.match(
+        r"^(?:devol(?:ver|v[eé]|uci[oó]n)|devuelv[eo])\s+(?:(\d+)\s+)?(.+)$",
+        compact,
+        re.I,
+    )
+    if devolucion:
+        elemento, where, from_ = _split_dest_origin(devolucion.group(2).strip())
+        data = {"action": "devolucion", "elemento": elemento}
+        if devolucion.group(1):
+            data["cantidad"] = int(devolucion.group(1))
+        if where:
+            data["where"] = where
+        if from_:
+            data["from"] = from_
+        return data
+
+    ingreso = re.match(
+        r"^(?:ingres(?:ar|o|[áa])|cargar|carga)\s+(\d+)\s+(.+)$",
+        compact,
+        re.I,
+    )
+    if ingreso:
+        elemento, where, from_ = _split_dest_origin(ingreso.group(2).strip())
+        data = {
+            "action": "ingreso",
+            "elemento": elemento,
+            "cantidad": int(ingreso.group(1)),
+        }
+        if where or from_:
+            data["from"] = from_ or where
+        return data
+
+    traslado = re.match(
+        r"^(?:traslad(?:ar|o|[áa])|mover|pas[aá])\s+(\d+)\s+(.+)$",
+        compact,
+        re.I,
+    )
+    if traslado:
+        elemento, where, from_ = _split_dest_origin(traslado.group(2).strip())
+        data = {"action": "traslado", "elemento": elemento, "cantidad": int(traslado.group(1))}
+        if where:
+            data["where"] = where
+        if from_:
+            data["from"] = from_
+        return data
+
+    return {}
 
 
 def handle_action(db: Session, dto: WhatsAppActionDTO) -> dict:

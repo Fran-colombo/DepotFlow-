@@ -3,18 +3,6 @@
   "nodes": [
     {
       "parameters": {
-        "updates": ["messages"],
-        "options": {}
-      },
-      "id": "a1b2c3d4-0001-4000-8000-whatsapptrig01",
-      "name": "WhatsApp Trigger",
-      "type": "n8n-nodes-base.whatsAppTrigger",
-      "typeVersion": 1,
-      "position": [0, 320],
-      "notes": "Credencial OAuth de Meta (App ID + App Secret). Activá el workflow y pegá la URL de producción en el webhook de Cloud API, campo messages."
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
         "path": "inventario-whatsapp",
         "responseMode": "lastNode",
@@ -98,9 +86,9 @@
         "url": "={{ ($env.OLLAMA_URL || 'http://ollama:11434') + '/api/generate' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"llama3.2\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"prompt\": \"Convertí el mensaje de WhatsApp a un JSON con exactamente estas claves: action, where, from, elemento, cantidad, quien. action debe ser una de: consulta, retiro, devolucion, ingreso, traslado. cantidad es número o null. quien es quién retira o devuelve; vacío o null si es la misma persona que escribe. Si no se entiende, devolvé {\\\"action\\\": null}. Mensaje: {{ $('Normalize message').item.json.text }}\"\n}",
+        "jsonBody": "={\n  \"model\": \"llama3.2:1b\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"options\": { \"temperature\": 0, \"num_predict\": 180 },\n  \"prompt\": \"Sos un parser de inventario. Devolvé SOLO un JSON con claves action, where, from, elemento, cantidad, quien.\\naction: consulta | retiro | devolucion | ingreso | traslado.\\ncantidad: número o null. quien: nombre o null si es quien escribe.\\nEjemplos:\\nconsulta pala -> {\\\"action\\\":\\\"consulta\\\",\\\"where\\\":null,\\\"from\\\":null,\\\"elemento\\\":\\\"Pala\\\",\\\"cantidad\\\":null,\\\"quien\\\":null}\\nsacá 2 palas a C15 desde Galpon San Martin / Baño -> {\\\"action\\\":\\\"retiro\\\",\\\"where\\\":\\\"C15\\\",\\\"from\\\":\\\"Galpon San Martin / Baño\\\",\\\"elemento\\\":\\\"Pala\\\",\\\"cantidad\\\":2,\\\"quien\\\":null}\\ndevuelve 1 maquina bombeo -> {\\\"action\\\":\\\"devolucion\\\",\\\"where\\\":null,\\\"from\\\":null,\\\"elemento\\\":\\\"Maquina bombeo\\\",\\\"cantidad\\\":1,\\\"quien\\\":null}\\nSi no se entiende: {\\\"action\\\":null,\\\"where\\\":null,\\\"from\\\":null,\\\"elemento\\\":null,\\\"cantidad\\\":null,\\\"quien\\\":null}\\nMensaje: {{ $('Normalize message').item.json.text }}\"\n}",
         "options": {
-          "timeout": 20000
+          "timeout": 90000
         }
       },
       "id": "a1b2c3d4-0006-4000-8000-tryollama0001",
@@ -113,7 +101,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const api = $('Call Inventory API').first().json || {};\nconst phone = api.phone || $('Normalize message').first().json.phone;\nconst incoming = $input.first().json || {};\nlet parsed = null;\ntry {\n  const raw = incoming.response || incoming.message || incoming;\n  const text = typeof raw === 'string' ? raw : JSON.stringify(raw);\n  const match = String(text).match(/\\{[\\s\\S]*\\}/);\n  if (match) parsed = JSON.parse(match[0]);\n} catch (e) {\n  parsed = null;\n}\nconst action = parsed && parsed.action;\nconst valid = ['consulta', 'retiro', 'devolucion', 'ingreso', 'traslado'];\nif (parsed && valid.includes(String(action || '').toLowerCase())) {\n  return [{\n    json: {\n      retry: true,\n      phone,\n      action: String(parsed.action).toLowerCase(),\n      where: parsed.where || null,\n      from: parsed.from || null,\n      elemento: parsed.elemento || null,\n      cantidad: parsed.cantidad ?? null,\n      quien: parsed.quien || null\n    }\n  }];\n}\nreturn [{ json: { retry: false, phone, reply: api.reply, needs_json: true, authorized: api.authorized, ok: false } }];"
+        "jsCode": "const api = $('Call Inventory API').first().json || {};\nconst phone = api.phone || $('Normalize message').first().json.phone;\nconst incoming = $input.first().json || {};\nlet parsed = null;\ntry {\n  let raw = incoming.response ?? incoming.message;\n  if (raw && typeof raw === 'object' && raw.action) parsed = raw;\n  else if (typeof raw === 'string') {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    parsed = JSON.parse(match ? match[0] : raw);\n  }\n} catch (e) {\n  parsed = null;\n}\nconst action = parsed && parsed.action;\nconst valid = ['consulta', 'retiro', 'devolucion', 'ingreso', 'traslado'];\nif (parsed && valid.includes(String(action || '').toLowerCase())) {\n  return [{\n    json: {\n      retry: true,\n      phone,\n      action: String(parsed.action).toLowerCase(),\n      where: parsed.where || null,\n      from: parsed.from || null,\n      elemento: parsed.elemento || null,\n      cantidad: parsed.cantidad ?? null,\n      quien: parsed.quien || null\n    }\n  }];\n}\nreturn [{ json: { retry: false, phone, reply: api.reply, needs_json: true, authorized: api.authorized, ok: false } }];"
       },
       "id": "a1b2c3d4-0007-4000-8000-parseollama01",
       "name": "Parse Ollama JSON",
@@ -249,17 +237,6 @@
     }
   ],
   "connections": {
-    "WhatsApp Trigger": {
-      "main": [
-        [
-          {
-            "node": "Normalize message",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Webhook test": {
       "main": [
         [
