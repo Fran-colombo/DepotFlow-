@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getUsers, deleteUser, updateUserPassword } from "../api/auth";
+import { getUsers, deleteUser, updateUserPassword, updateUserPhone } from "../api/auth";
 import Dashboard from "./Dashboard";
 
 const UsersPage = () => {
@@ -21,6 +21,12 @@ const UsersPage = () => {
     open: false,
     user: null,
     password: "",
+    saving: false,
+  });
+  const [phoneModal, setPhoneModal] = useState({
+    open: false,
+    user: null,
+    phone: "",
     saving: false,
   });
   const [feedbackModal, setFeedbackModal] = useState({
@@ -94,6 +100,38 @@ const UsersPage = () => {
 
   const closePasswordModal = () => {
     setPasswordModal({ open: false, user: null, password: "", saving: false });
+  };
+
+  const openPhoneModal = (user) => {
+    setPhoneModal({ open: true, user, phone: user.phone || "", saving: false });
+  };
+
+  const closePhoneModal = () => {
+    setPhoneModal({ open: false, user: null, phone: "", saving: false });
+  };
+
+  const handleUpdatePhone = async (e) => {
+    e.preventDefault();
+    if (!phoneModal.user) return;
+    const userLabel = `${phoneModal.user.name} ${phoneModal.user.surname}`.trim();
+    setPhoneModal((prev) => ({ ...prev, saving: true }));
+    try {
+      await updateUserPhone(phoneModal.user.id, phoneModal.phone.trim());
+      closePhoneModal();
+      setFeedbackModal({
+        open: true,
+        type: "success",
+        message: `El teléfono de ${userLabel} se actualizó correctamente.`,
+      });
+      fetchUsers();
+    } catch (err) {
+      setPhoneModal((prev) => ({ ...prev, saving: false }));
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: err.message || "No se pudo actualizar el teléfono.",
+      });
+    }
   };
 
   const handleUpdatePassword = async (e) => {
@@ -188,6 +226,7 @@ const UsersPage = () => {
                     <th>ID</th>
                     <th>Nombre</th>
                     <th>Email</th>
+                    <th>Teléfono</th>
                     <th>Rol</th>
                     <th>Estado</th>
                     <th>Acciones</th>
@@ -201,6 +240,7 @@ const UsersPage = () => {
                         {user.name} {user.surname}
                       </td>
                       <td>{user.email}</td>
+                      <td>{user.phone || "—"}</td>
                       <td>
                         <span
                           className={`badge ${
@@ -215,6 +255,13 @@ const UsersPage = () => {
                       </td>
                       <td>
                         <div className="d-inline-flex gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openPhoneModal(user)}
+                            className="btn btn-sm btn-outline-secondary"
+                          >
+                            Teléfono
+                          </button>
                           <button
                             type="button"
                             onClick={() => openPasswordModal(user)}
@@ -335,6 +382,72 @@ const UsersPage = () => {
                     disabled={passwordModal.saving}
                   >
                     {passwordModal.saving ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phoneModal.open && phoneModal.user && (
+        <div
+          className="modal show d-block fade"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={closePhoneModal}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <form onSubmit={handleUpdatePhone}>
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    Teléfono WhatsApp — {phoneModal.user.name}{" "}
+                    {phoneModal.user.surname}
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={closePhoneModal}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <label className="form-label">Número</label>
+                  <input
+                    type="tel"
+                    className="form-control"
+                    value={phoneModal.phone}
+                    onChange={(e) =>
+                      setPhoneModal((prev) => ({
+                        ...prev,
+                        phone: e.target.value,
+                      }))
+                    }
+                    placeholder="+54 9 11 1234-5678"
+                    autoFocus
+                  />
+                  <div className="form-text">
+                    Vacío quita el número. Se guarda en formato internacional.
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closePhoneModal}
+                    disabled={phoneModal.saving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={phoneModal.saving}
+                  >
+                    {phoneModal.saving ? "Guardando..." : "Guardar"}
                   </button>
                 </div>
               </form>

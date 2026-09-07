@@ -1,0 +1,416 @@
+{
+  "name": "WhatsApp Inventario",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["messages"],
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-whatsapptrig01",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [0, 320],
+      "notes": "Credencial OAuth de Meta (App ID + App Secret). Activá el workflow y pegá la URL de producción en el webhook de Cloud API, campo messages."
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inventario-whatsapp",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0002-4000-8000-webhooktest01",
+      "name": "Webhook test",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 80],
+      "webhookId": "inventario-whatsapp",
+      "notes": "POST {\"phone\":\"54911...\",\"text\":\"...\"} a /webhook/inventario-whatsapp para probar sin Meta."
+    },
+    {
+      "parameters": {
+        "jsCode": "function pickText(msg) {\n  if (!msg) return '';\n  if (typeof msg === 'string') return msg;\n  if (msg.text && typeof msg.text === 'string') return msg.text;\n  if (msg.text && msg.text.body) return msg.text.body;\n  if (msg.body) return msg.body;\n  if (typeof msg.message === 'string') return msg.message;\n  return '';\n}\n\nconst item = $input.first().json || {};\nconst body = item.body || item;\nlet phone = body.phone || body.from || body.wa_id || '';\nlet text = pickText(body) || body.text || '';\n\nconst value = body.entry?.[0]?.changes?.[0]?.value\n  || item.entry?.[0]?.changes?.[0]?.value;\nif (value) {\n  if (value.statuses && !value.messages) {\n    return [];\n  }\n  const msg = (value.messages || [])[0] || {};\n  phone = phone || msg.from || value.contacts?.[0]?.wa_id || '';\n  text = text || pickText(msg);\n}\n\nif (body.messages?.[0]) {\n  const msg = body.messages[0];\n  phone = phone || msg.from || '';\n  text = text || pickText(msg);\n}\n\nphone = String(phone || '').trim();\ntext = String(text || '').trim();\nif (!phone) {\n  return [];\n}\n\nreturn [{ json: { phone, text } }];"
+      },
+      "id": "a1b2c3d4-0003-4000-8000-normalize0001",
+      "name": "Normalize message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.INVENTORY_API_URL || 'http://backend:8000') + '/whatsapp/actions' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.WHATSAPP_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ phone: $json.phone, text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0004-4000-8000-callapi00001",
+      "name": "Call Inventory API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "needs-json",
+              "leftValue": "={{ $json.needs_json }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0005-4000-8000-ifneedsjson01",
+      "name": "Needs JSON?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [740, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.OLLAMA_URL || 'http://ollama:11434') + '/api/generate' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.2\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"prompt\": \"Convertí el mensaje de WhatsApp a un JSON con exactamente estas claves: action, where, from, elemento, cantidad. action debe ser una de: consulta, retiro, devolucion, ingreso, traslado. cantidad es número o null. Si no se entiende, devolvé {\\\"action\\\": null}. Mensaje: {{ $('Normalize message').item.json.text }}\"\n}",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "id": "a1b2c3d4-0006-4000-8000-tryollama0001",
+      "name": "Try Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [980, 80],
+      "onError": "continueRegularOutput",
+      "notes": "Opcional. Levantá Ollama con: docker compose --profile ollama up -d. Modelo sugerido: llama3.2. Si falla, se pide el JSON a mano."
+    },
+    {
+      "parameters": {
+        "jsCode": "const api = $('Call Inventory API').first().json || {};\nconst phone = api.phone || $('Normalize message').first().json.phone;\nconst incoming = $input.first().json || {};\nlet parsed = null;\ntry {\n  const raw = incoming.response || incoming.message || incoming;\n  const text = typeof raw === 'string' ? raw : JSON.stringify(raw);\n  const match = String(text).match(/\\{[\\s\\S]*\\}/);\n  if (match) parsed = JSON.parse(match[0]);\n} catch (e) {\n  parsed = null;\n}\nconst action = parsed && parsed.action;\nconst valid = ['consulta', 'retiro', 'devolucion', 'ingreso', 'traslado'];\nif (parsed && valid.includes(String(action || '').toLowerCase())) {\n  return [{\n    json: {\n      retry: true,\n      phone,\n      action: String(parsed.action).toLowerCase(),\n      where: parsed.where || null,\n      from: parsed.from || null,\n      elemento: parsed.elemento || null,\n      cantidad: parsed.cantidad ?? null,\n      quien: parsed.quien || null\n    }\n  }];\n}\nreturn [{ json: { retry: false, phone, reply: api.reply, needs_json: true, authorized: api.authorized, ok: false } }];"
+      },
+      "id": "a1b2c3d4-0007-4000-8000-parseollama01",
+      "name": "Parse Ollama JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "retry-api",
+              "leftValue": "={{ $json.retry }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0008-4000-8000-ifollamaok01",
+      "name": "Ollama parsed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1460, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.INVENTORY_API_URL || 'http://backend:8000') + '/whatsapp/actions' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.WHATSAPP_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ phone: $json.phone, action: $json.action, where: $json.where, from: $json.from, elemento: $json.elemento, cantidad: $json.cantidad, quien: $json.quien }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0009-4000-8000-callapijson01",
+      "name": "Call Inventory API JSON",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json || {};\nconst phone = String(data.phone || $('Normalize message').first().json.phone || '').replace(/^\\+/, '');\nconst reply = data.reply || 'No pude procesar el mensaje.';\nreturn [{ json: { ...data, phone, reply } }];"
+      },
+      "id": "a1b2c3d4-0010-4000-8000-preparesend01",
+      "name": "Prepare send",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1940, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "send-wapp",
+              "leftValue": "={{ Boolean($env.WHATSAPP_TOKEN && $env.WHATSAPP_PHONE_NUMBER_ID && $json.phone && $json.reply) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0011-4000-8000-ifsendwapp01",
+      "name": "Send WhatsApp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2180, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $env.WHATSAPP_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.WHATSAPP_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.phone, type: 'text', text: { body: $json.reply } }) }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0012-4000-8000-graphsend001",
+      "name": "Send WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2420, 80]
+    },
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-0013-4000-8000-doneoutput01",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [2660, 200]
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook test": {
+      "main": [
+        [
+          {
+            "node": "Normalize message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize message": {
+      "main": [
+        [
+          {
+            "node": "Call Inventory API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Inventory API": {
+      "main": [
+        [
+          {
+            "node": "Needs JSON?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs JSON?": {
+      "main": [
+        [
+          {
+            "node": "Try Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Try Ollama": {
+      "main": [
+        [
+          {
+            "node": "Parse Ollama JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ollama JSON": {
+      "main": [
+        [
+          {
+            "node": "Ollama parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama parsed?": {
+      "main": [
+        [
+          {
+            "node": "Call Inventory API JSON",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Inventory API JSON": {
+      "main": [
+        [
+          {
+            "node": "Prepare send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare send": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp?": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "whatsapp-inventario-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

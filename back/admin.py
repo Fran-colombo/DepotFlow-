@@ -6,8 +6,9 @@ import math
 
 from database import get_db
 from models import User
-from dtos.userDTO import PaginatedUsersResponse, UpdatePasswordDTO
+from dtos.userDTO import PaginatedUsersResponse, UpdatePasswordDTO, UpdatePhoneDTO
 from auth import get_current_user, get_user_name_by_id, bcrypt_context
+from whatsapp.phone import normalize_phone, find_user_by_phone
 
 router = APIRouter(
     prefix="/admin",
@@ -79,6 +80,7 @@ async def delete_user(
         )
 
     user.status = 0
+    user.phone = None
     db.commit()
 
     return {"message": "Usuario desactivado correctamente"}
@@ -107,6 +109,40 @@ async def update_user_password(
     user.password = bcrypt_context.hash(body.password)
     db.commit()
     return {"message": "Contraseña actualizada correctamente"}
+
+
+@router.put("/users/{user_id}/phone")
+async def update_user_phone(
+    user_id: int,
+    body: UpdatePhoneDTO,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden realizar esta acción",
+        )
+
+    user = db.query(User).filter(User.id == user_id, User.status == 1).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado",
+        )
+
+    phone = normalize_phone(body.phone)
+    if phone:
+        existing = find_user_by_phone(db, phone)
+        if existing and existing.id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Ese número de teléfono ya está registrado",
+            )
+
+    user.phone = phone
+    db.commit()
+    return {"message": "Teléfono actualizado correctamente", "phone": phone}
 
 
 @router.get("/me")

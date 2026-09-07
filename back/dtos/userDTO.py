@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 class CreateUser(BaseModel):
@@ -8,10 +8,15 @@ class CreateUser(BaseModel):
     email: str = Field(..., max_length=100)
     password: str = Field(..., min_length=8, max_length=128)
     role: str = Field(default="user")  # "user" | "admin"
+    phone: Optional[str] = Field(default=None, max_length=32)
 
 
 class UpdatePasswordDTO(BaseModel):
     password: str = Field(..., min_length=8, max_length=128)
+
+
+class UpdatePhoneDTO(BaseModel):
+    phone: Optional[str] = Field(default=None, max_length=32)
 
 
 class LogUser(BaseModel):
@@ -30,7 +35,7 @@ class UserResponse(BaseModel):
     email: str
     role: str
     status: int
-    # created_at: datetime
+    phone: Optional[str] = None
 
     class Config:
         orm_mode = True

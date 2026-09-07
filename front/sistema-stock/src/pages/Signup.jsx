@@ -12,6 +12,7 @@ const SignUp = () => {
     name: "",
     surname: "",
     email: "",
+    phone: "",
     password: "",
     role: "user",
   });
@@ -21,6 +22,7 @@ const SignUp = () => {
     name: useRef(null),
     surname: useRef(null),
     email: useRef(null),
+    phone: useRef(null),
     password: useRef(null),
   };
   const navigate = useNavigate();
@@ -66,7 +68,7 @@ const SignUp = () => {
     }
 
     try {
-      await signup(form);
+      await signup({ ...form, phone: form.phone.trim() || null });
       navigate("/admin/users");
     } catch (error) {
       setServerError(error.message || "Ocurrió un error al crear el usuario.");
@@ -95,21 +97,27 @@ const SignUp = () => {
                 )}
 
                 <form onSubmit={handleSubmit} noValidate>
-                  {["name", "surname", "email"].map((field) => (
+                  {["name", "surname", "email", "phone"].map((field) => (
                     <div key={field} className="mb-3">
                       <label htmlFor={field} className="form-label">
                         {field === "name"
                           ? "Nombre"
                           : field === "surname"
                             ? "Apellido"
-                            : "Email"}
+                            : field === "email"
+                              ? "Email"
+                              : "Teléfono WhatsApp (opcional)"}
                       </label>
                       <input
                         id={field}
                         name={field}
-                        type="text"
+                        type={field === "phone" ? "tel" : "text"}
                         className={`form-control ${errors[field] ? "is-invalid" : ""}`}
-                        placeholder={`Ingresar ${field}`}
+                        placeholder={
+                          field === "phone"
+                            ? "+54 9 11 1234-5678"
+                            : `Ingresar ${field}`
+                        }
                         onChange={handleChange}
                         value={form[field]}
                         ref={refs[field]}

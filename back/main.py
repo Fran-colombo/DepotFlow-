@@ -27,6 +27,7 @@ import zones
 from seed_admin import seed_admin_from_env
 from item_service import ItemServiceError, create_item
 from item_import import build_import_template, import_items_from_excel
+from whatsapp.router import router as whatsapp_router
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -61,6 +62,7 @@ app.include_router(shed.router)
 app.include_router(movements.router)
 app.include_router(admin.router)
 app.include_router(zones.router)
+app.include_router(whatsapp_router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()

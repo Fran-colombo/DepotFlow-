@@ -22,6 +22,8 @@ demo/.env.demo
 
 *.log
 
+n8n/data/
+
 .vscode/
 .idea/
 .DS_Store
