@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
@@ -44,15 +46,10 @@ def whatsapp_template():
         "reply": (
             "Mandá un JSON exacto así:\n"
             f"{JSON_TEMPLATE}\n\n"
-            "Acciones: consulta, retiro, devolucion, ingreso, traslado."
+            "Acciones: consulta, retiro, devolucion, ingreso, traslado.\n"
+            "quien = quién retira o devuelve. Vacío = sos vos."
         ),
-        "template": {
-            "action": "retiro",
-            "where": "C15",
-            "from": "Galpon San Martin",
-            "elemento": "Pala",
-            "cantidad": 2,
-        },
+        "template": json.loads(JSON_TEMPLATE),
     }
 
 

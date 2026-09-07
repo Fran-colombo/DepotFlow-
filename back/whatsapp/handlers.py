@@ -28,9 +28,10 @@ from whatsapp.sessions import clear_pending, load_pending, save_pending
 JSON_TEMPLATE = """{
   "action": "retiro",
   "where": "C15",
-  "from": "Galpon San Martin",
+  "from": "Galpon San Martin / Baño",
   "elemento": "Pala",
-  "cantidad": 2
+  "cantidad": 2,
+  "quien": ""
 }"""
 
 ALLOWED_ACTIONS = {"consulta", "retiro", "devolucion", "ingreso", "traslado"}
@@ -89,7 +90,8 @@ def json_help_reply(extra: str | None = None) -> dict:
             f"{prefix}No entendí el mensaje. Mandá un JSON exacto así:\n"
             f"{JSON_TEMPLATE}\n\n"
             "Acciones: consulta, retiro, devolucion, ingreso, traslado.\n"
-            "where = destino (obra o galpón). from = origen (galpón u obra)."
+            "where = destino (obra o galpón). from = origen (galpón / zona).\n"
+            "quien = quién retira o devuelve. Si va vacío, se asume que sos vos."
         ),
         "template": json.loads(JSON_TEMPLATE),
     }
@@ -146,6 +148,9 @@ def merge_payload(dto: WhatsAppActionDTO) -> dict:
         for key in ("where", "from", "elemento", "quien"):
             if blob.get(key) not in (None, ""):
                 data[key] = str(blob.get(key)).strip()
+        alias_quien = blob.get("quien_retira") or blob.get("quien_devuelve") or blob.get("persona")
+        if not data.get("quien") and alias_quien not in (None, ""):
+            data["quien"] = str(alias_quien).strip()
         if blob.get("cantidad") not in (None, ""):
             try:
                 data["cantidad"] = int(blob.get("cantidad"))

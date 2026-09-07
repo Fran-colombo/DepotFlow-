@@ -98,7 +98,7 @@
         "url": "={{ ($env.OLLAMA_URL || 'http://ollama:11434') + '/api/generate' }}",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"llama3.2\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"prompt\": \"Convertí el mensaje de WhatsApp a un JSON con exactamente estas claves: action, where, from, elemento, cantidad. action debe ser una de: consulta, retiro, devolucion, ingreso, traslado. cantidad es número o null. Si no se entiende, devolvé {\\\"action\\\": null}. Mensaje: {{ $('Normalize message').item.json.text }}\"\n}",
+        "jsonBody": "={\n  \"model\": \"llama3.2\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"prompt\": \"Convertí el mensaje de WhatsApp a un JSON con exactamente estas claves: action, where, from, elemento, cantidad, quien. action debe ser una de: consulta, retiro, devolucion, ingreso, traslado. cantidad es número o null. quien es quién retira o devuelve; vacío o null si es la misma persona que escribe. Si no se entiende, devolvé {\\\"action\\\": null}. Mensaje: {{ $('Normalize message').item.json.text }}\"\n}",
         "options": {
           "timeout": 20000
         }
