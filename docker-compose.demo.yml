@@ -16,6 +16,7 @@ services:
       PYTHONPATH: /app
       DEMO_MODE: ${DEMO_MODE:-1}
       DEMO_RESET: ${DEMO_RESET:-0}
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-demo-whatsapp-api-key}
     volumes:
       - ./demo/shed_data_demo:/app/shed_data
       - ./demo:/demo:ro

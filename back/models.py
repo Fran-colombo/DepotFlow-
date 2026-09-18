@@ -59,6 +59,7 @@ class User(Base):
         password = Column(String, index=True)
         role = Column(Enum(RoleEnum), index=True)
         status = Column(Integer, default=1)
+        phone = Column(String, unique=True, index=True, nullable=True)
 
 class History(Base):
     __tablename__ = "historal"
@@ -122,9 +123,18 @@ class Zone(Base):
     items = relationship("Item", back_populates="zone")
 
 
+class WhatsAppPendingAction(Base):
+    __tablename__ = "whatsapp_pending_actions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phone = Column(String, unique=True, index=True, nullable=False)
+    payload = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class DeletedItem(Base):
     __tablename__ = "deleted_items"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     item_id = Column(Integer, index=True)
     name = Column(String)

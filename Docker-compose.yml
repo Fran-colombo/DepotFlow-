@@ -20,6 +20,7 @@ services:
       ADMIN_USER_PASSWORD: ${ADMIN_USER_PASSWORD:-}
       ADMIN_USER_NAME: ${ADMIN_USER_NAME:-Admin}
       ADMIN_USER_SURNAME: ${ADMIN_USER_SURNAME:-Sistema}
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-cambia-esta-clave-whatsapp}
     volumes:
       - ./shed_data:/app/shed_data
     ports:
@@ -42,6 +43,59 @@ services:
     networks:
       - app-network
 
+  n8n:
+    image: n8nio/n8n:1.109.1
+    container_name: n8n
+    environment:
+      DOCKER: "1"
+      GENERIC_TIMEZONE: America/Argentina/Buenos_Aires
+      TZ: America/Argentina/Buenos_Aires
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-cambia-esta-clave-whatsapp}
+      INVENTORY_API_URL: http://backend:8000
+      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+    volumes:
+      - ./n8n/data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    ports:
+      - "5678:5678"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - app-network
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        mkdir -p /home/node/.n8n
+        if [ ! -f /home/node/.n8n/.workflow_imported ] && [ -f /workflows/whatsapp-inventario.json ]; then
+          n8n import:workflow --input=/workflows/whatsapp-inventario.json || true
+          touch /home/node/.n8n/.workflow_imported || true
+        fi
+        exec n8n start
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    profiles: ["ollama"]
+    volumes:
+      - ollama-data:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    networks:
+      - app-network
+
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  ollama-data:
