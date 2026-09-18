@@ -29,7 +29,8 @@ class Item(Base):
     shed = relationship("Shed", back_populates="items")
     zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
     zone = relationship("Zone", back_populates="items")
-    status = Column(Integer, default=1)  
+    status = Column(Integer, default=1)
+    image_filename = Column(String, nullable=True)  
 
     
     observations = relationship("Observation", back_populates="item")

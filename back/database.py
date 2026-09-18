@@ -121,6 +121,10 @@ def ensure_zone_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR"))
 
+    if not _column_exists("items", "image_filename"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE items ADD COLUMN image_filename VARCHAR"))
+
 def ensure_phone_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         return

@@ -13,6 +13,8 @@ class ItemResponseDTO(BaseModel):
     zone_id: Optional[int] = None
     zone_name: Optional[str] = None
     status: int
+    has_image: bool = False
+    image_filename: Optional[str] = None
 
     class Config:
         from_attributes = True

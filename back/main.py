@@ -30,9 +30,11 @@ from item_import import build_import_template, import_items_from_excel
 from item_transfer import (
     ExportChecklistRequest,
     build_transfer_checklist,
+    resolve_export_items,
     update_items_from_excel,
 )
 from whatsapp.router import router as whatsapp_router
+from item_images import router as item_images_router, delete_stored_image
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -68,6 +70,7 @@ app.include_router(movements.router)
 app.include_router(admin.router)
 app.include_router(zones.router)
 app.include_router(whatsapp_router)
+app.include_router(item_images_router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()
@@ -149,6 +152,7 @@ def read_items(
         for item in items:
             dto = ItemResponseDTO.model_validate(item)
             dto.zone_name = item.zone.name if item.zone else None
+            dto.has_image = bool(item.image_filename)
             data.append(dto)
 
         return {
@@ -253,7 +257,7 @@ def export_transfer_checklist(
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
     try:
-        content = build_transfer_checklist(db, payload.item_ids)
+        content = build_transfer_checklist(db, resolve_export_items(payload))
     except ItemServiceError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -479,6 +483,8 @@ def delete_product(
     db.query(models.Observation).filter(
         models.Observation.item_id == item.id
     ).delete()
+
+    delete_stored_image(item)
 
     # Marcar el item como borrado y cambiar su nombre
     item.status = 0

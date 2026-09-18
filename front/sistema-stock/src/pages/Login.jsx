@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { login } from '../api/auth';
 import useAuth from '../hooks/useAuth';
 import logoConkreto from '../assets/logo-conkreto.png';
+import loginBg from '../assets/login-bg.png';
 
 function LoginPage() {
   const [formData, setFormData] = useState({
@@ -45,8 +46,8 @@ function LoginPage() {
     <div
       className="min-vh-100 d-flex align-items-center justify-content-center"
       style={{
-        background: "url('https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSYkFvWRRoSpdvSHWgcAIWJmIv8S7u3YYjEUw&s') no-repeat center center",
-        backgroundSize: 'cover'
+        background: `linear-gradient(rgba(15, 23, 42, 0.42), rgba(15, 23, 42, 0.42)), url(${loginBg}) no-repeat center center`,
+        backgroundSize: 'cover',
       }}
     >
       <div className="bg-white rounded shadow-lg p-4" style={{ maxWidth: 420, width: '100%' }}>

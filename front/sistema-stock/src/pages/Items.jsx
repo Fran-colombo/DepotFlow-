@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { exportTransferChecklist, getAllItems, getItems } from "../api/items";
+import { getAllItems, getItemImageUrl, getItems, deleteItemImage } from "../api/items";
 import { getSheds } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { getMovements } from "../api/movements";
@@ -13,10 +13,12 @@ import DeleteItemModal from "../components/DeleteItemModal";
 import UpdateItemModal from "../components/UpdateItem";
 import BulkImportModal from "../components/BulkImportModal";
 import BulkUpdateModal from "../components/BulkUpdateModal";
+import TransferExportModal from "../components/TransferExportModal";
 import PackingSlipModal from "../components/CrearRemito";
 import TrasladoModal from "../components/TrasladoModal";
 import PendingLocationsModal from "../components/PendingLocationsModal";
 import ItemHistorialModal from "../components/ItemHistorialModal";
+import ItemImageModal from "../components/ItemImageModal";
 
 const isConsumable = (item) => item?.category === "Materiales consumibles";
 
@@ -41,12 +43,13 @@ const Items = () => {
   const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
   const [selectedById, setSelectedById] = useState({});
   const [isSelectingFiltered, setIsSelectingFiltered] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [showTransferExportModal, setShowTransferExportModal] = useState(false);
   const [pendingRemitoData, setPendingRemitoData] = useState(null);
   const [showRemitoModal, setShowRemitoModal] = useState(false);
   const [showTrasladoModal, setShowTrasladoModal] = useState(false);
   const [showPendingLocationsModal, setShowPendingLocationsModal] = useState(false);
   const [showItemHistorialModal, setShowItemHistorialModal] = useState(false);
+  const [itemImageModal, setItemImageModal] = useState({ open: false, mode: "upload" });
 
   const [openMenuId, setOpenMenuId] = useState(null);
 
@@ -259,22 +262,21 @@ const Items = () => {
     }
   };
 
-  const handleExportSelected = async () => {
+  const handleExportSelected = () => {
     const movable = selectedItems.filter((item) => (item.actualAmount || 0) > 0);
     if (movable.length === 0) {
       alert("Seleccioná al menos un producto con stock para trasladar");
       return;
     }
-    setIsExporting(true);
-    try {
-      await exportTransferChecklist(movable.map((item) => item.id));
-    } catch (err) {
-      console.error("Error exportando traslado:", err);
-      alert(err.message || "No se pudo exportar el Excel de traslado");
-    } finally {
-      setIsExporting(false);
-    }
+    setShowTransferExportModal(true);
   };
+
+  const transferExportItems = selectedItems
+    .filter((item) => (item.actualAmount || 0) > 0)
+    .map((item) => ({
+      ...item,
+      locationLabel: getLocationLabel(item),
+    }));
 
   return (
     <Dashboard title="Inventario">
@@ -403,15 +405,13 @@ const Items = () => {
               type="button"
               className="btn btn-sm btn-primary"
               onClick={handleExportSelected}
-              disabled={isExporting}
             >
-              {isExporting ? "Exportando..." : "Exportar traslado"}
+              Exportar traslado
             </button>
             <button
               type="button"
               className="btn btn-sm btn-outline-secondary"
               onClick={() => setSelectedById({})}
-              disabled={isExporting}
             >
               Limpiar selección
             </button>
@@ -473,19 +473,47 @@ const Items = () => {
                         />
                       </td>
                       <td>
-                        <div className="fw-semibold text-dark">{item.name}</div>
-                        {item.description && (
-                          <div className="app-muted text-truncate" style={{ maxWidth: 280 }}>
-                            {item.description}
+                        <div className="d-flex align-items-start gap-2">
+                          {item.has_image ? (
+                            <img
+                              src={getItemImageUrl(item)}
+                              alt={item.name}
+                              className="item-thumb"
+                              title="Ver imagen"
+                              onClick={() => {
+                                setSelectedItem(item);
+                                setItemImageModal({ open: true, mode: "view" });
+                              }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              className="item-thumb-placeholder"
+                              title="Cargar imagen"
+                              onClick={() => {
+                                setSelectedItem(item);
+                                setItemImageModal({ open: true, mode: "upload" });
+                              }}
+                            >
+                              <i className="bi bi-camera"></i>
+                            </button>
+                          )}
+                          <div>
+                            <div className="fw-semibold text-dark">{item.name}</div>
+                            {item.description && (
+                              <div className="app-muted text-truncate" style={{ maxWidth: 280 }}>
+                                {item.description}
+                              </div>
+                            )}
+                            <span
+                              className={`badge mt-1 ${
+                                isConsumable(item) ? "bg-warning text-dark" : "bg-secondary"
+                              }`}
+                            >
+                              {isConsumable(item) ? "Insumo" : "Herramienta"}
+                            </span>
                           </div>
-                        )}
-                        <span
-                          className={`badge mt-1 ${
-                            isConsumable(item) ? "bg-warning text-dark" : "bg-secondary"
-                          }`}
-                        >
-                          {isConsumable(item) ? "Insumo" : "Herramienta"}
-                        </span>
+                        </div>
                       </td>
                       <td className="text-secondary">{item.category}</td>
                       <td>
@@ -538,6 +566,56 @@ const Items = () => {
                                 style={{ display: "block", position: "absolute", right: 0 }}
                                 onClick={(e) => e.stopPropagation()}
                               >
+                                <li>
+                                  <button
+                                    className="dropdown-item"
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      setSelectedItem(item);
+                                      setItemImageModal({
+                                        open: true,
+                                        mode: "upload",
+                                      });
+                                    }}
+                                  >
+                                    {item.has_image ? "Actualizar imagen" : "Cargar imagen"}
+                                  </button>
+                                </li>
+                                <li>
+                                  <button
+                                    className="dropdown-item"
+                                    type="button"
+                                    disabled={!item.has_image}
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      setSelectedItem(item);
+                                      setItemImageModal({ open: true, mode: "view" });
+                                    }}
+                                  >
+                                    Ver imagen
+                                  </button>
+                                </li>
+                                <li>
+                                  <button
+                                    className="dropdown-item text-danger"
+                                    type="button"
+                                    disabled={!item.has_image}
+                                    onClick={async () => {
+                                      setOpenMenuId(null);
+                                      if (!window.confirm(`¿Eliminar la imagen de "${item.name}"?`)) return;
+                                      try {
+                                        await deleteItemImage(item.id);
+                                        refreshCurrentPage();
+                                      } catch (err) {
+                                        window.alert(err.message || "No se pudo eliminar la imagen");
+                                      }
+                                    }}
+                                  >
+                                    Eliminar imagen
+                                  </button>
+                                </li>
+                                <li><hr className="dropdown-divider" /></li>
                                 <li>
                                   <button
                                     className="dropdown-item"
@@ -836,6 +914,20 @@ const Items = () => {
           setSelectedById({});
           refreshCurrentPage();
         }}
+      />
+
+      <TransferExportModal
+        isOpen={showTransferExportModal}
+        items={transferExportItems}
+        onClose={() => setShowTransferExportModal(false)}
+      />
+
+      <ItemImageModal
+        isOpen={itemImageModal.open}
+        mode={itemImageModal.mode}
+        item={selectedItem}
+        onClose={() => setItemImageModal({ open: false, mode: "upload" })}
+        onSuccess={refreshCurrentPage}
       />
     </Dashboard>
   );

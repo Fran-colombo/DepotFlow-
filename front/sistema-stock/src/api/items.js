@@ -206,16 +206,19 @@ export async function downloadImportTemplate() {
   await downloadExcelBlob(response, "plantilla_carga_inventario.xlsx");
 }
 
-export async function exportTransferChecklist(itemIds) {
+export async function exportTransferChecklist(items) {
   const token = localStorage.getItem("authToken");
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const payload = Array.isArray(items) && items.length && typeof items[0] === "object"
+    ? { items }
+    : { item_ids: items };
   const response = await fetch(base + "/items/export/traslado", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(token && { Authorization: `Bearer ${token}` }),
     },
-    body: JSON.stringify({ item_ids: itemIds }),
+    body: JSON.stringify(payload),
   });
 
   await downloadExcelBlob(response, "traslado_stock.xlsx");
@@ -248,6 +251,48 @@ export async function importItemsUpdateExcel(file) {
   }
 
   return response.json();
+}
+
+export function getItemImageUrl(item) {
+  if (!item?.has_image) return null;
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const version = encodeURIComponent(item.image_filename || "1");
+  return `${base}/items/${item.id}/image?v=${version}`;
+}
+
+export async function uploadItemImage(itemId, file) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${base}/items/${itemId}/image`, {
+    method: "POST",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = "Error al guardar la imagen";
+    try {
+      const errorData = await response.json();
+      message = errorData.detail || message;
+    } catch {
+      const errorText = await response.text();
+      message = errorText || message;
+    }
+    throw new Error(typeof message === "string" ? message : "Error al guardar la imagen");
+  }
+
+  return response.json();
+}
+
+export async function deleteItemImage(itemId) {
+  return apiFetch(`/items/${itemId}/image`, {
+    method: "DELETE",
+  });
 }
 
 export async function importItemsExcel(file) {

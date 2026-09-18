@@ -1,6 +1,6 @@
 from io import BytesIO
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import pytz
 from fastapi import HTTPException
@@ -10,7 +10,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, Protecti
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.page import PageMargins
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 import models
@@ -79,8 +79,36 @@ HEADER_ALIASES = {
 CHECKLIST_COLUMNS = ("salio", "llego", "controlo")
 
 
+class ExportChecklistItem(BaseModel):
+    id: int
+    cantidad: Optional[int] = None
+
+
 class ExportChecklistRequest(BaseModel):
-    item_ids: List[int] = Field(min_length=1)
+    items: Optional[List[ExportChecklistItem]] = None
+    item_ids: Optional[List[int]] = None
+
+
+def resolve_export_items(payload: ExportChecklistRequest) -> List[Tuple[int, Optional[int]]]:
+    if payload.items:
+        seen = set()
+        ordered = []
+        for row in payload.items:
+            if row.id in seen:
+                continue
+            seen.add(row.id)
+            ordered.append((row.id, row.cantidad))
+        if not ordered:
+            raise ItemServiceError("Seleccioná al menos un producto", 400)
+        return ordered
+
+    if payload.item_ids:
+        unique_ids = list(dict.fromkeys(payload.item_ids))
+        if not unique_ids:
+            raise ItemServiceError("Seleccioná al menos un producto", 400)
+        return [(item_id, None) for item_id in unique_ids]
+
+    raise ItemServiceError("Seleccioná al menos un producto", 400)
 
 
 def _cell_value(value):
@@ -337,8 +365,16 @@ def _add_locations_reference(wb, db: Session, traslado_sheet, dest_start_row: in
         dv.add(f"H{dest_start_row}:H{dest_end_row}")
 
 
-def build_transfer_checklist(db: Session, item_ids: List[int]) -> bytes:
-    unique_ids = list(dict.fromkeys(item_ids))
+def build_transfer_checklist(db: Session, export_items: List[Tuple[int, Optional[int]]]) -> bytes:
+    unique_pairs = []
+    seen = set()
+    for item_id, cantidad in export_items:
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        unique_pairs.append((item_id, cantidad))
+
+    unique_ids = [item_id for item_id, _ in unique_pairs]
     items = (
         db.query(models.Item)
         .options(joinedload(models.Item.shed), joinedload(models.Item.zone))
@@ -346,18 +382,36 @@ def build_transfer_checklist(db: Session, item_ids: List[int]) -> bytes:
         .all()
     )
     by_id = {item.id: item for item in items}
-    ordered = [by_id[item_id] for item_id in unique_ids if item_id in by_id]
+
+    ordered = []
+    for item_id, requested_qty in unique_pairs:
+        item = by_id.get(item_id)
+        if not item or (item.actualAmount or 0) <= 0:
+            continue
+        if requested_qty is None:
+            quantity = item.actualAmount
+        else:
+            try:
+                quantity = int(requested_qty)
+            except (TypeError, ValueError):
+                raise ItemServiceError(f"Cantidad inválida para {item.name}", 400)
+            if quantity <= 0:
+                raise ItemServiceError(
+                    f"La cantidad a trasladar de '{item.name}' debe ser mayor a 0",
+                    400,
+                )
+            if quantity > item.actualAmount:
+                raise ItemServiceError(
+                    f"'{item.name}' solo tiene {item.actualAmount} en stock",
+                    400,
+                )
+        ordered.append((item, quantity))
 
     if not ordered:
-        raise ItemServiceError("No se encontraron productos activos para exportar", 400)
-
-    with_stock = [item for item in ordered if (item.actualAmount or 0) > 0]
-    if not with_stock:
         raise ItemServiceError(
             "Ninguno de los productos seleccionados tiene stock para trasladar",
             400,
         )
-    ordered = with_stock
 
     wb = Workbook()
     sheet = wb.active
@@ -427,7 +481,7 @@ def build_transfer_checklist(db: Session, item_ids: List[int]) -> bytes:
     sheet.auto_filter.ref = f"A{header_row}:L{header_row + len(ordered)}"
     sheet.freeze_panes = "A7"
 
-    for offset, item in enumerate(ordered):
+    for offset, (item, quantity) in enumerate(ordered):
         row = header_row + 1 + offset
         shed_name = item.shed.name if item.shed else ""
         zone_name = item.zone.name if item.zone else ""
@@ -436,7 +490,7 @@ def build_transfer_checklist(db: Session, item_ids: List[int]) -> bytes:
             "nombre": item.name or "",
             "descripcion": item.description or "",
             "categoria": item.category or "",
-            "cantidad": item.actualAmount,
+            "cantidad": quantity,
             "deposito_origen": shed_name,
             "zona_origen": zone_name,
             "deposito_destino": shed_name,
@@ -502,7 +556,7 @@ def build_transfer_checklist(db: Session, item_ids: List[int]) -> bytes:
         "9. No se puede trasladar un producto sin stock.",
         "10. Si en destino ya existe el mismo producto, el stock se fusiona ahí.",
         "11. Si deposito_destino y zona_destino siguen iguales al origen, esa fila se omite.",
-        "12. cantidad indica cuánto mover. Si la dejás vacía se mueve el stock actual del producto.",
+        "11. cantidad es cuánto se mueve (la elegís al exportar). Si la dejás vacía se mueve el stock actual.",
         "13. controlo es opcional: si lo completás, queda como responsable del movimiento.",
         "14. Guardá el archivo como .xlsx (Excel).",
     ]

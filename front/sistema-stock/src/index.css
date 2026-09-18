@@ -116,6 +116,59 @@ body {
   color: #027a48;
 }
 
+.item-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  border: 1px solid #eaecf0;
+  background: #f2f4f7;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.item-thumb-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 0.5rem;
+  border: 1px dashed #d0d5dd;
+  background: #f9fafb;
+  color: #98a2b3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.item-thumb-placeholder:hover,
+.item-thumb:hover {
+  border-color: #98a2b3;
+}
+
+.item-image-preview {
+  background: #f9fafb;
+  border: 1px solid #eaecf0;
+  border-radius: 0.75rem;
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.item-image-preview img {
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.item-image-empty {
+  color: #98a2b3;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
 .app-row-selected {
   background-color: #eff8ff !important;
 }
