@@ -127,6 +127,18 @@ body {
   font-weight: 600;
 }
 
+.app-selection-bar {
+  background: #eff8ff;
+  border: 1px solid #b2ddff;
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: #175cd3;
+}
+
+.app-table tbody tr.is-selected td {
+  background: #f5faff;
+}
+
 table {
   font-size: 0.875rem;
 }

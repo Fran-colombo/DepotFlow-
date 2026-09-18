@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { getItems} from "../api/items";
+import { useEffect, useMemo, useState } from "react";
+import { exportTransferChecklist, getAllItems, getItems } from "../api/items";
 import { getSheds } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { getMovements } from "../api/movements";
@@ -12,6 +12,7 @@ import RetirarItemModal from "../components/RetiroModal";
 import DeleteItemModal from "../components/DeleteItemModal";
 import UpdateItemModal from "../components/UpdateItem";
 import BulkImportModal from "../components/BulkImportModal";
+import BulkUpdateModal from "../components/BulkUpdateModal";
 import PackingSlipModal from "../components/CrearRemito";
 import TrasladoModal from "../components/TrasladoModal";
 import PendingLocationsModal from "../components/PendingLocationsModal";
@@ -37,6 +38,10 @@ const Items = () => {
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10, totalRecords: 0, totalPages: 1 });
   const [itemModal, setItemModal] = useState({ open: false, mode: "create", itemId: null });
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [showBulkUpdateModal, setShowBulkUpdateModal] = useState(false);
+  const [selectedById, setSelectedById] = useState({});
+  const [isSelectingFiltered, setIsSelectingFiltered] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [pendingRemitoData, setPendingRemitoData] = useState(null);
   const [showRemitoModal, setShowRemitoModal] = useState(false);
   const [showTrasladoModal, setShowTrasladoModal] = useState(false);
@@ -134,6 +139,12 @@ const Items = () => {
     item.name.toLowerCase().includes(filters.name.toLowerCase())
   );
 
+  const movableOnPage = filteredItems.filter((item) => (item.actualAmount || 0) > 0);
+  const selectedItems = useMemo(() => Object.values(selectedById), [selectedById]);
+  const selectedCount = selectedItems.length;
+  const selectedOnPageCount = movableOnPage.filter((item) => selectedById[item.id]).length;
+  const allPageSelected = movableOnPage.length > 0 && selectedOnPageCount === movableOnPage.length;
+
   const handlePageChange = async (newPage) => {
     setIsLoading(true);
     try {
@@ -196,6 +207,73 @@ const Items = () => {
   const handleShowRetirarModal = (item) => {
     setSelectedItem(item);
     setShowRetirarModal(true);
+  };
+
+  const toggleItemSelection = (item) => {
+    if ((item.actualAmount || 0) <= 0) return;
+    setSelectedById((prev) => {
+      const next = { ...prev };
+      if (next[item.id]) {
+        delete next[item.id];
+      } else {
+        next[item.id] = item;
+      }
+      return next;
+    });
+  };
+
+  const togglePageSelection = () => {
+    setSelectedById((prev) => {
+      const next = { ...prev };
+      if (allPageSelected) {
+        movableOnPage.forEach((item) => {
+          delete next[item.id];
+        });
+      } else {
+        movableOnPage.forEach((item) => {
+          next[item.id] = item;
+        });
+      }
+      return next;
+    });
+  };
+
+  const handleSelectFiltered = async () => {
+    setIsSelectingFiltered(true);
+    try {
+      const all = await getAllItems(filters);
+      setSelectedById((prev) => {
+        const next = { ...prev };
+        all.forEach((item) => {
+          if ((item.actualAmount || 0) > 0) {
+            next[item.id] = item;
+          }
+        });
+        return next;
+      });
+    } catch (err) {
+      console.error("Error seleccionando filtrados:", err);
+      alert(err.message || "No se pudieron seleccionar los productos filtrados");
+    } finally {
+      setIsSelectingFiltered(false);
+    }
+  };
+
+  const handleExportSelected = async () => {
+    const movable = selectedItems.filter((item) => (item.actualAmount || 0) > 0);
+    if (movable.length === 0) {
+      alert("Seleccioná al menos un producto con stock para trasladar");
+      return;
+    }
+    setIsExporting(true);
+    try {
+      await exportTransferChecklist(movable.map((item) => item.id));
+    } catch (err) {
+      console.error("Error exportando traslado:", err);
+      alert(err.message || "No se pudo exportar el Excel de traslado");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -269,9 +347,19 @@ const Items = () => {
       </div>
 
       <div className="d-flex justify-content-between align-items-center mb-3">
-        <p className="app-muted mb-0">
-          {pagination.totalRecords} producto{pagination.totalRecords === 1 ? "" : "s"}
-        </p>
+        <div className="d-flex align-items-center gap-3">
+          <p className="app-muted mb-0">
+            {pagination.totalRecords} producto{pagination.totalRecords === 1 ? "" : "s"}
+          </p>
+          <button
+            type="button"
+            className="btn btn-link btn-sm text-decoration-none px-0"
+            onClick={handleSelectFiltered}
+            disabled={isSelectingFiltered || isLoading || pagination.totalRecords === 0}
+          >
+            {isSelectingFiltered ? "Seleccionando..." : "Seleccionar filtrados"}
+          </button>
+        </div>
         <div className="d-flex gap-2">
           <button
             onClick={() => setShowBulkImportModal(true)}
@@ -279,6 +367,13 @@ const Items = () => {
             disabled={isLoading}
           >
             Carga masiva
+          </button>
+          <button
+            onClick={() => setShowBulkUpdateModal(true)}
+            className="btn btn-outline-primary btn-sm"
+            disabled={isLoading}
+          >
+            Actualización masiva
           </button>
           <button
             onClick={() => setItemModal({ open: true, mode: "create", itemId: null })}
@@ -289,6 +384,40 @@ const Items = () => {
           </button>
         </div>
       </div>
+
+      {selectedCount > 0 && (
+        <div className="app-selection-bar d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <span className="fw-semibold">
+            {selectedCount} producto{selectedCount === 1 ? "" : "s"} seleccionado{selectedCount === 1 ? "" : "s"}
+          </span>
+          <div className="d-flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              onClick={handleSelectFiltered}
+              disabled={isSelectingFiltered || isLoading}
+            >
+              {isSelectingFiltered ? "Seleccionando..." : "Seleccionar filtrados"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={handleExportSelected}
+              disabled={isExporting}
+            >
+              {isExporting ? "Exportando..." : "Exportar traslado"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary"
+              onClick={() => setSelectedById({})}
+              disabled={isExporting}
+            >
+              Limpiar selección
+            </button>
+          </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="text-center my-5">
@@ -302,6 +431,21 @@ const Items = () => {
             <table className="table app-table mb-0">
               <thead>
                 <tr>
+                  <th style={{ width: 42 }}>
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={allPageSelected}
+                      ref={(el) => {
+                        if (el) {
+                          el.indeterminate = selectedOnPageCount > 0 && !allPageSelected;
+                        }
+                      }}
+                      onChange={togglePageSelection}
+                      disabled={movableOnPage.length === 0}
+                      title="Seleccionar productos con stock de esta página"
+                    />
+                  </th>
                   <th>Producto</th>
                   <th>Categoría</th>
                   <th>Ubicación</th>
@@ -316,7 +460,18 @@ const Items = () => {
                   const cantEliminate = item.actualAmount != item.totalAmount;
                   const canReturn = item.actualAmount !== item.totalAmount;
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} className={selectedById[item.id] ? "is-selected" : ""}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={Boolean(selectedById[item.id])}
+                          onChange={() => toggleItemSelection(item)}
+                          disabled={isOutOfStock}
+                          title={isOutOfStock ? "Sin stock: no se puede trasladar" : `Seleccionar ${item.name}`}
+                          aria-label={`Seleccionar ${item.name}`}
+                        />
+                      </td>
                       <td>
                         <div className="fw-semibold text-dark">{item.name}</div>
                         {item.description && (
@@ -502,7 +657,7 @@ const Items = () => {
                   );
                 })) : (
                   <tr>
-                    <td colSpan="5" className="text-center text-muted py-5">
+                    <td colSpan="6" className="text-center text-muted py-5">
                       No se encontraron productos con los filtros aplicados
                     </td>
                   </tr>
@@ -672,6 +827,15 @@ const Items = () => {
         isOpen={showBulkImportModal}
         onClose={() => setShowBulkImportModal(false)}
         onSuccess={refreshCurrentPage}
+      />
+
+      <BulkUpdateModal
+        isOpen={showBulkUpdateModal}
+        onClose={() => setShowBulkUpdateModal(false)}
+        onSuccess={() => {
+          setSelectedById({});
+          refreshCurrentPage();
+        }}
       />
     </Dashboard>
   );

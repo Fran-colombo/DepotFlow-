@@ -8,13 +8,30 @@ export const getItems = (filters = {}, page = 1, pageSize = 10) => {
     shed_id: filters.shed || undefined,
     zone_id: filters.zone || undefined,
     page: page,
-    pageSize: pageSize,
+    page_size: pageSize,
   };
   return apiFetch("/", {
     method: "GET",
     params: params,
   });
 };
+
+export async function getAllItems(filters = {}) {
+  const pageSize = 100;
+  const all = [];
+  let page = 1;
+  let hasNext = true;
+
+  while (hasNext) {
+    const res = await getItems(filters, page, pageSize);
+    all.push(...(res.data || []));
+    hasNext = Boolean(res.pagination?.has_next);
+    page += 1;
+    if (page > 200) break;
+  }
+
+  return all;
+}
 
 export async function searchItems(name) {
   return apiFetch(`/search?name=${encodeURIComponent(name)}`);
@@ -148,6 +165,34 @@ export const getFilteredHistorial = async (filters = {}, page = 1, pageSize = 10
   });
 };
 
+async function downloadExcelBlob(response, fallbackName) {
+  if (!response.ok) {
+    let message = "Error al descargar el archivo";
+    try {
+      const errorData = await response.json();
+      message = errorData.detail || message;
+    } catch {
+      const errorText = await response.text();
+      message = errorText || message;
+    }
+    throw new Error(typeof message === "string" ? message : "Error al descargar el archivo");
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+  const filename = match ? match[1].replace(/['"]/g, "") : fallbackName;
+
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export async function downloadImportTemplate() {
   const token = localStorage.getItem("authToken");
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
@@ -158,20 +203,51 @@ export async function downloadImportTemplate() {
     },
   });
 
+  await downloadExcelBlob(response, "plantilla_carga_inventario.xlsx");
+}
+
+export async function exportTransferChecklist(itemIds) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const response = await fetch(base + "/items/export/traslado", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify({ item_ids: itemIds }),
+  });
+
+  await downloadExcelBlob(response, "traslado_stock.xlsx");
+}
+
+export async function importItemsUpdateExcel(file) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(base + "/items/import/update", {
+    method: "POST",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: formData,
+  });
+
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(errorText || "Error al descargar la plantilla");
+    let message = "Error al actualizar el archivo";
+    try {
+      const errorData = await response.json();
+      message = errorData.detail || message;
+    } catch {
+      const errorText = await response.text();
+      message = errorText || message;
+    }
+    throw new Error(typeof message === "string" ? message : "Error al actualizar el archivo");
   }
 
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "plantilla_carga_inventario.xlsx";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  return response.json();
 }
 
 export async function importItemsExcel(file) {

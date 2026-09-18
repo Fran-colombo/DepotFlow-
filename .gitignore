@@ -2,6 +2,8 @@ front/sistema-stock/node_modules/
 front/sistema-stock/dist/
 front/sistema-stock/.env
 
+mobile
+
 __pycache__/
 *.pyc
 *.pyo

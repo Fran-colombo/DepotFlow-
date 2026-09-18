@@ -27,6 +27,11 @@ import zones
 from seed_admin import seed_admin_from_env
 from item_service import ItemServiceError, create_item
 from item_import import build_import_template, import_items_from_excel
+from item_transfer import (
+    ExportChecklistRequest,
+    build_transfer_checklist,
+    update_items_from_excel,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -223,6 +228,53 @@ async def import_items_excel(
 
     try:
         return import_items_from_excel(db, file_bytes, current_user)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@app.post("/items/export/traslado")
+def export_transfer_checklist(
+    payload: ExportChecklistRequest,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    try:
+        content = build_transfer_checklist(db, payload.item_ids)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+    filename = f"traslado_stock_{datetime.now(TIMEZONE).strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.post("/items/import/update")
+async def import_items_update_excel(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    file: UploadFile = File(...),
+):
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".xlsx"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo debe ser un Excel (.xlsx)",
+        )
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo está vacío",
+        )
+
+    try:
+        return update_items_from_excel(db, file_bytes, current_user)
     except ItemServiceError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     except ValueError as e:
