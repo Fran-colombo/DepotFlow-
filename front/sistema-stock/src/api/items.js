@@ -8,12 +8,28 @@ export const getItems = (filters = {}, page = 1, pageSize = 10) => {
     shed_id: filters.shed || undefined,
     zone_id: filters.zone || undefined,
     page: page,
-    pageSize: pageSize,
+    page_size: pageSize,
   };
   return apiFetch("/", {
     method: "GET",
     params: params,
   });
+};
+
+export async function getAllItems(filters = {}) {
+  const pageSize = 100;
+  const all = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res = await getItems(filters, page, pageSize);
+    all.push(...(res.data || []));
+    totalPages = res.pagination?.total_pages || 1;
+    page += 1;
+  } while (page <= totalPages);
+
+  return all;
 };
 
 export async function searchItems(name) {

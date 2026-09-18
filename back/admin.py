@@ -8,7 +8,8 @@ from database import get_db
 from models import User
 from dtos.userDTO import PaginatedUsersResponse, UpdatePasswordDTO, UpdatePhoneDTO
 from auth import get_current_user, get_user_name_by_id, bcrypt_context
-from whatsapp.phone import normalize_phone, find_user_by_phone
+from sqlalchemy.exc import IntegrityError
+from whatsapp.phone import normalize_phone, phone_in_use
 
 router = APIRouter(
     prefix="/admin",
@@ -132,16 +133,21 @@ async def update_user_phone(
         )
 
     phone = normalize_phone(body.phone)
-    if phone:
-        existing = find_user_by_phone(db, phone)
-        if existing and existing.id != user.id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Ese número de teléfono ya está registrado",
-            )
+    if phone and phone_in_use(db, phone, exclude_user_id=user.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ese número de teléfono ya está registrado",
+        )
 
     user.phone = phone
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ese número de teléfono ya está registrado",
+        )
     return {"message": "Teléfono actualizado correctamente", "phone": phone}
 
 

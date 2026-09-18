@@ -21,12 +21,61 @@ def normalize_phone(raw: Optional[str]) -> Optional[str]:
     if digits.startswith("00"):
         digits = digits[2:]
     if digits.startswith("54"):
-        return f"+{digits}"
+        rest = digits[2:]
+        if rest.startswith("15") and len(rest) == 10:
+            rest = rest[2:]
+        if rest.startswith("9"):
+            rest = rest[1:]
+        if len(rest) == 10:
+            return f"+549{rest}"
+        return f"+54{rest}"
     if digits.startswith("0"):
         digits = digits.lstrip("0")
+    if len(digits) >= 12 and digits[2:4] == "15":
+        digits = digits[:2] + digits[4:]
+    elif digits.startswith("15") and len(digits) == 10:
+        digits = digits[2:]
+    if len(digits) == 11 and digits.startswith("9"):
+        digits = digits[1:]
     if len(digits) == 10:
         return f"+549{digits}"
     return f"+{digits}"
+
+
+def phone_in_use(db: Session, raw: str, exclude_user_id: int | None = None) -> Optional[User]:
+    normalized = normalize_phone(raw)
+    if not normalized:
+        return None
+    query = db.query(User).filter(User.phone.isnot(None))
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+    for user in query.all():
+        if normalize_phone(user.phone) == normalized:
+            return user
+    return None
+
+
+def canonicalize_stored_phones(db: Session) -> None:
+    seen: dict[str, int] = {}
+    users = db.query(User).filter(User.phone.isnot(None), User.phone != "").all()
+    changed = False
+    for user in users:
+        canon = normalize_phone(user.phone)
+        if not canon:
+            user.phone = None
+            changed = True
+            continue
+        owner = seen.get(canon)
+        if owner is not None and owner != user.id:
+            user.phone = None
+            changed = True
+            continue
+        seen[canon] = user.id
+        if user.phone != canon:
+            user.phone = canon
+            changed = True
+    if changed:
+        db.commit()
 
 
 def phone_lookup_variants(raw: str) -> list[str]:

@@ -55,7 +55,11 @@ const UsersPage = () => {
       });
       setError("");
     } catch (err) {
-      setError(err.message);
+      const message =
+        err.message === "Not Found"
+          ? "El front no está hablando con este backend. En local usá el puerto 8001 (otro sistema ocupa el 8000)."
+          : err.message;
+      setError(message);
       if (err.message.includes("autorizados")) {
         navigate("/");
       }
@@ -169,10 +173,10 @@ const UsersPage = () => {
   return (
     <Dashboard>
       <div>
-        <div className="d-flex justify-content-between align-items-center mb-3">
-          <h2 className="mb-0">Gestión de usuarios</h2>
+        <div className="d-flex flex-column flex-sm-row gap-2 justify-content-between align-items-stretch align-items-sm-center mb-3">
+          <h2 className="h4 mb-0">Gestión de usuarios</h2>
           <button
-            className="btn btn-success d-flex align-items-center gap-2 shadow-sm"
+            className="btn btn-success d-flex align-items-center justify-content-center gap-2 shadow-sm"
             onClick={() => navigate("/signup")}
           >
             <i className="bi bi-plus-circle" />
@@ -219,7 +223,56 @@ const UsersPage = () => {
           <div className="alert alert-danger">{error}</div>
         ) : (
           <>
-            <div className="table-responsive">
+            <div className="d-md-none d-flex flex-column gap-3">
+              {users.map((user) => (
+                <div key={user.id} className="border rounded-3 p-3">
+                  <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div>
+                      <div className="fw-semibold">
+                        {user.name} {user.surname}
+                      </div>
+                      <div className="text-muted small">{user.email}</div>
+                    </div>
+                    <span
+                      className={`badge ${
+                        user.role === "admin" ? "bg-danger" : "bg-primary"
+                      }`}
+                    >
+                      {user.role === "admin" ? "Admin" : "Usuario"}
+                    </span>
+                  </div>
+                  <div className="small mb-3">
+                    Teléfono: {user.phone || "—"}
+                  </div>
+                  <div className="d-grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openPhoneModal(user)}
+                      className="btn btn-sm btn-outline-secondary"
+                    >
+                      Teléfono
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openPasswordModal(user)}
+                      className="btn btn-sm btn-outline-primary"
+                    >
+                      Cambiar contraseña
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUser(user.id)}
+                      className="btn btn-sm btn-outline-danger"
+                      disabled={user.role === "admin"}
+                    >
+                      Desactivar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="table-responsive d-none d-md-block">
               <table className="table table-striped table-hover">
                 <thead className="table-dark">
                   <tr>
@@ -254,7 +307,7 @@ const UsersPage = () => {
                         <span className="badge bg-success">Activo</span>
                       </td>
                       <td>
-                        <div className="d-inline-flex gap-1">
+                        <div className="d-flex flex-wrap gap-1">
                           <button
                             type="button"
                             onClick={() => openPhoneModal(user)}
@@ -267,7 +320,7 @@ const UsersPage = () => {
                             onClick={() => openPasswordModal(user)}
                             className="btn btn-sm btn-outline-primary"
                           >
-                            Cambiar contraseña
+                            Contraseña
                           </button>
                           <button
                             type="button"
@@ -285,7 +338,7 @@ const UsersPage = () => {
               </table>
             </div>
 
-            <div className="d-flex justify-content-between align-items-center mt-3">
+            <div className="d-flex flex-column flex-sm-row gap-2 justify-content-between align-items-stretch align-items-sm-center mt-3">
               <div>
                 <select
                   value={pagination.pageSize}

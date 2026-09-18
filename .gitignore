@@ -14,6 +14,7 @@ back/adminSeed.py
 *.sqlite3
 *.db
 
+mobile
 
 shed_data/
 

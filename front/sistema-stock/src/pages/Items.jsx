@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { getItems} from "../api/items";
+import { useEffect, useMemo, useState } from "react";
+import { getItems, getAllItems } from "../api/items";
 import { getSheds } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { getMovements } from "../api/movements";
@@ -16,6 +16,7 @@ import PackingSlipModal from "../components/CrearRemito";
 import TrasladoModal from "../components/TrasladoModal";
 import PendingLocationsModal from "../components/PendingLocationsModal";
 import ItemHistorialModal from "../components/ItemHistorialModal";
+import MoveChecklistModal from "../components/MoveChecklistModal";
 
 const isConsumable = (item) => item?.category === "Materiales consumibles";
 
@@ -42,6 +43,9 @@ const Items = () => {
   const [showTrasladoModal, setShowTrasladoModal] = useState(false);
   const [showPendingLocationsModal, setShowPendingLocationsModal] = useState(false);
   const [showItemHistorialModal, setShowItemHistorialModal] = useState(false);
+  const [selectedById, setSelectedById] = useState({});
+  const [showChecklistModal, setShowChecklistModal] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
 
   const [openMenuId, setOpenMenuId] = useState(null);
 
@@ -134,12 +138,18 @@ const Items = () => {
     item.name.toLowerCase().includes(filters.name.toLowerCase())
   );
 
-  const handlePageChange = async (newPage) => {
+  const handlePageChange = async (newPage, pageSize = pagination.pageSize) => {
     setIsLoading(true);
     try {
-      const itemsData = await getItems(filters, newPage, pagination.pageSize);
+      const itemsData = await getItems(filters, newPage, pageSize);
       setItems(itemsData.data);
-      setPagination(prev => ({ ...prev, page: newPage }));
+      setPagination((prev) => ({
+        ...prev,
+        page: newPage,
+        pageSize,
+        totalRecords: itemsData.pagination.total_records,
+        totalPages: itemsData.pagination.total_pages,
+      }));
     } catch (err) {
       console.error("Error cambiando página:", err);
     } finally {
@@ -148,8 +158,8 @@ const Items = () => {
   };
 
   const getShedName = (shedId) => {
-    const shed = sheds.find(s => s.id === shedId);
-    return shed ? shed.name : 'Sin asignar';
+    const shed = sheds.find((s) => String(s.id) === String(shedId));
+    return shed ? shed.name : "Sin asignar";
   };
 
   const getLocationLabel = (item) => {
@@ -196,6 +206,68 @@ const Items = () => {
   const handleShowRetirarModal = (item) => {
     setSelectedItem(item);
     setShowRetirarModal(true);
+  };
+
+  const snapshotItem = (item) => ({
+    id: item.id,
+    name: item.name,
+    description: item.description || "",
+    category: item.category || "",
+    actualAmount: item.actualAmount,
+    totalAmount: item.totalAmount,
+    location: getLocationLabel(item),
+    type: isConsumable(item) ? "Material consumible" : "Herramienta",
+  });
+
+  const selectedItems = useMemo(() => Object.values(selectedById), [selectedById]);
+  const selectedCount = selectedItems.length;
+  const pageSelectedCount = filteredItems.filter((item) => selectedById[item.id]).length;
+  const allPageSelected = filteredItems.length > 0 && pageSelectedCount === filteredItems.length;
+
+  const toggleItemSelection = (item) => {
+    setSelectedById((prev) => {
+      if (prev[item.id]) {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      }
+      return { ...prev, [item.id]: snapshotItem(item) };
+    });
+  };
+
+  const togglePageSelection = () => {
+    setSelectedById((prev) => {
+      const next = { ...prev };
+      if (allPageSelected) {
+        filteredItems.forEach((item) => {
+          delete next[item.id];
+        });
+      } else {
+        filteredItems.forEach((item) => {
+          next[item.id] = snapshotItem(item);
+        });
+      }
+      return next;
+    });
+  };
+
+  const selectAllFiltered = async () => {
+    setSelectingAll(true);
+    try {
+      const allItems = await getAllItems(filters);
+      setSelectedById((prev) => {
+        const next = { ...prev };
+        allItems.forEach((item) => {
+          next[item.id] = snapshotItem(item);
+        });
+        return next;
+      });
+    } catch (err) {
+      console.error("Error seleccionando todos los filtrados:", err);
+      alert("No se pudieron seleccionar todos los ítems filtrados");
+    } finally {
+      setSelectingAll(false);
+    }
   };
 
   return (
@@ -271,8 +343,26 @@ const Items = () => {
       <div className="d-flex justify-content-between align-items-center mb-3">
         <p className="app-muted mb-0">
           {pagination.totalRecords} producto{pagination.totalRecords === 1 ? "" : "s"}
+          {selectedCount > 0 && (
+            <span className="ms-2">· {selectedCount} para mudanza</span>
+          )}
         </p>
-        <div className="d-flex gap-2">
+        <div className="d-flex gap-2 flex-wrap justify-content-end">
+          <button
+            onClick={selectAllFiltered}
+            className="btn btn-outline-secondary btn-sm"
+            disabled={isLoading || selectingAll || pagination.totalRecords === 0}
+            title="Seleccionar todos los productos que coinciden con los filtros"
+          >
+            {selectingAll ? "Seleccionando..." : "Seleccionar filtrados"}
+          </button>
+          <button
+            onClick={() => setShowChecklistModal(true)}
+            className="btn btn-outline-primary btn-sm"
+            disabled={selectedCount === 0}
+          >
+            Exportar chequeo
+          </button>
           <button
             onClick={() => setShowBulkImportModal(true)}
             className="btn btn-outline-primary btn-sm"
@@ -302,6 +392,17 @@ const Items = () => {
             <table className="table app-table mb-0">
               <thead>
                 <tr>
+                  <th style={{ width: 42 }}>
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={allPageSelected}
+                      onChange={togglePageSelection}
+                      disabled={filteredItems.length === 0}
+                      aria-label="Seleccionar página"
+                      title="Seleccionar página"
+                    />
+                  </th>
                   <th>Producto</th>
                   <th>Categoría</th>
                   <th>Ubicación</th>
@@ -316,7 +417,16 @@ const Items = () => {
                   const cantEliminate = item.actualAmount != item.totalAmount;
                   const canReturn = item.actualAmount !== item.totalAmount;
                   return (
-                    <tr key={item.id}>
+                    <tr key={item.id} className={selectedById[item.id] ? "app-row-selected" : ""}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          className="form-check-input"
+                          checked={Boolean(selectedById[item.id])}
+                          onChange={() => toggleItemSelection(item)}
+                          aria-label={`Seleccionar ${item.name}`}
+                        />
+                      </td>
                       <td>
                         <div className="fw-semibold text-dark">{item.name}</div>
                         {item.description && (
@@ -502,7 +612,7 @@ const Items = () => {
                   );
                 })) : (
                   <tr>
-                    <td colSpan="5" className="text-center text-muted py-5">
+                    <td colSpan="6" className="text-center text-muted py-5">
                       No se encontraron productos con los filtros aplicados
                     </td>
                   </tr>
@@ -544,12 +654,8 @@ const Items = () => {
                 <select
                   value={pagination.pageSize}
                   onChange={(e) => {
-                    setPagination({
-                      ...pagination,
-                      pageSize: Number(e.target.value),
-                      page: 1
-                    });
-                    handlePageChange(1);
+                    const pageSize = Number(e.target.value);
+                    handlePageChange(1, pageSize);
                   }}
                   className="form-select form-select-sm w-auto"
                   disabled={isLoading}
@@ -672,6 +778,37 @@ const Items = () => {
         isOpen={showBulkImportModal}
         onClose={() => setShowBulkImportModal(false)}
         onSuccess={refreshCurrentPage}
+      />
+
+      {selectedCount > 0 && (
+        <div className="app-selection-bar">
+          <span className="fw-semibold">
+            {selectedCount} ítem{selectedCount === 1 ? "" : "s"} para mudanza
+          </span>
+          <div className="d-flex gap-2 flex-wrap">
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-light"
+              onClick={() => setSelectedById({})}
+            >
+              Limpiar
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => setShowChecklistModal(true)}
+            >
+              Exportar chequeo
+            </button>
+          </div>
+        </div>
+      )}
+
+      <MoveChecklistModal
+        isOpen={showChecklistModal}
+        items={selectedItems}
+        defaultOrigin={filters.shed ? getShedName(Number(filters.shed) || filters.shed) : ""}
+        onClose={() => setShowChecklistModal(false)}
       />
     </Dashboard>
   );

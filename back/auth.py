@@ -10,7 +10,8 @@ from dtos.userDTO import CreateUser, Token
 from passlib.context import CryptContext
 from models import RoleEnum, User
 from database import get_db
-from whatsapp.phone import normalize_phone, find_user_by_phone
+from sqlalchemy.exc import IntegrityError
+from whatsapp.phone import normalize_phone, phone_in_use
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -110,7 +111,7 @@ async def create_user(
     new_role = RoleEnum.admin if role_value == "admin" else RoleEnum.user
 
     phone = normalize_phone(user.phone)
-    if phone and find_user_by_phone(db, phone):
+    if phone and phone_in_use(db, phone):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Ese número de teléfono ya está registrado",
@@ -127,7 +128,14 @@ async def create_user(
     )
 
     db.add(new_user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ese número de teléfono ya está registrado",
+        )
     db.refresh(new_user)
 
     return {"message": "User created successfully"}
