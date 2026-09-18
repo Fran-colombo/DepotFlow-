@@ -1,18 +1,52 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, History, Clock, LogOut, Users, Trash2, Warehouse } from "lucide-react"
+import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
+import { createTelegramLink, getTelegramBot } from "../api/auth"
 
 const Dashboard = ({ title, children }) => {
   const { logout, role } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
+  const [telegramBot, setTelegramBot] = useState(null)
+  const [openingTelegram, setOpeningTelegram] = useState(false)
 
   useEffect(() => {
     setNavOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    let cancelled = false
+    getTelegramBot()
+      .then((data) => {
+        if (!cancelled) setTelegramBot(data)
+      })
+      .catch(() => {
+        if (!cancelled) setTelegramBot(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const openTelegram = async () => {
+    if (openingTelegram) return
+    setOpeningTelegram(true)
+    try {
+      const data = await createTelegramLink()
+      window.open(data.url, "_blank", "noopener,noreferrer")
+    } catch (err) {
+      if (telegramBot?.url) {
+        window.open(telegramBot.url, "_blank", "noopener,noreferrer")
+      } else {
+        window.alert(err.message || "No se pudo abrir Telegram.")
+      }
+    } finally {
+      setOpeningTelegram(false)
+    }
+  }
 
   const isActive = (path) => location.pathname === path
 
@@ -66,6 +100,16 @@ const Dashboard = ({ title, children }) => {
               <button onClick={() => go("/deleted-items")} className={navLinkClass("/deleted-items")}>
                 <Trash2 className="me-1" size={18} />
                 Eliminados
+              </button>
+
+              <button
+                type="button"
+                onClick={openTelegram}
+                disabled={openingTelegram}
+                className="btn btn-link text-decoration-none d-flex align-items-center fs-6 px-2 py-2 py-lg-1 text-secondary w-100"
+              >
+                <Send className="me-1" size={18} />
+                {openingTelegram ? "Abriendo…" : "Telegram"}
               </button>
 
               {role === "admin" && (

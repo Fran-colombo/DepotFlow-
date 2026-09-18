@@ -62,6 +62,8 @@ class User(Base):
         status = Column(Integer, default=1)
         phone = Column(String, unique=True, index=True, nullable=True)
         telegram_id = Column(String, unique=True, index=True, nullable=True)
+        telegram_link_token = Column(String, unique=True, index=True, nullable=True)
+        telegram_link_expires = Column(DateTime, nullable=True)
 
 class History(Base):
     __tablename__ = "historal"

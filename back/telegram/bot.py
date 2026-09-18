@@ -2,19 +2,30 @@ import logging
 import os
 import threading
 import time
+from typing import Annotated
 
 import requests
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
-from database import SessionLocal
-from telegram.identity import normalize_telegram_id
+from auth import get_current_user
+from database import SessionLocal, get_db
+from sqlalchemy.orm import Session
+from telegram.identity import (
+    consume_link_token,
+    create_link_token,
+    link_telegram_user,
+    normalize_telegram_id,
+)
 from whatsapp.handlers import WhatsAppActionDTO, handle_action
 
 logger = logging.getLogger(__name__)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
 TELEGRAM_API = "https://api.telegram.org"
+_bot_username_cache: str | None = None
 
 
 def bot_token() -> str:
@@ -33,6 +44,36 @@ def _api(method: str) -> str:
     return f"{TELEGRAM_API}/bot{bot_token()}/{method}"
 
 
+def bot_username() -> str | None:
+    global _bot_username_cache
+    env_name = (os.getenv("TELEGRAM_BOT_USERNAME") or "").strip().lstrip("@")
+    if env_name:
+        return env_name
+    if _bot_username_cache:
+        return _bot_username_cache
+    if not bot_token():
+        return None
+    try:
+        response = requests.get(_api("getMe"), timeout=15)
+        response.raise_for_status()
+        username = (response.json().get("result") or {}).get("username")
+        if username:
+            _bot_username_cache = username
+            return username
+    except requests.RequestException:
+        logger.exception("No se pudo obtener el usuario del bot de Telegram")
+    return None
+
+
+def bot_deeplink(start: str | None = None) -> str | None:
+    username = bot_username()
+    if not username:
+        return None
+    if start:
+        return f"https://t.me/{username}?start={start}"
+    return f"https://t.me/{username}"
+
+
 def send_message(chat_id: int | str, text: str) -> None:
     token = bot_token()
     if not token or not text:
@@ -49,6 +90,29 @@ def send_message(chat_id: int | str, text: str) -> None:
         logger.exception("No se pudo enviar mensaje de Telegram a %s", chat_id)
 
 
+def _link_from_start_payload(payload: str, telegram_id: str) -> str:
+    db = SessionLocal()
+    try:
+        user_id = consume_link_token(db, payload)
+        if user_id is None:
+            return (
+                "El enlace de vinculación expiró o ya se usó.\n"
+                "Pedile a un admin un link nuevo en Usuarios, o tocá Telegram en el menú."
+            )
+        user = link_telegram_user(db, user_id, telegram_id)
+        return (
+            f"Listo {user.name}. Este Telegram quedó vinculado a tu usuario.\n"
+            "Ya podés consultar o mover stock por acá."
+        )
+    except ValueError as exc:
+        return str(exc)
+    except Exception:
+        logger.exception("Error vinculando Telegram")
+        return "No pude vincular este Telegram. Pedile a un admin un link nuevo."
+    finally:
+        db.close()
+
+
 def process_update(update: dict) -> None:
     message = update.get("message") or update.get("edited_message") or {}
     if not message:
@@ -63,6 +127,12 @@ def process_update(update: dict) -> None:
     if not text:
         send_message(chat_id, "Mandá un mensaje de texto para consultar o mover stock.")
         return
+
+    if text.lower().startswith("/start"):
+        parts = text.split(maxsplit=1)
+        if len(parts) > 1:
+            send_message(chat_id, _link_from_start_payload(parts[1], telegram_id))
+            return
 
     dto = WhatsAppActionDTO(telegram_id=telegram_id, text=text)
     db = SessionLocal()
@@ -111,6 +181,16 @@ def _poll_loop() -> None:
             for update in response.json().get("result") or []:
                 offset = max(offset, int(update.get("update_id", 0)) + 1)
                 process_update(update)
+        except requests.HTTPError as exc:
+            code = exc.response.status_code if exc.response is not None else None
+            if code == 409:
+                logger.warning(
+                    "Telegram getUpdates en conflicto (otro proceso ya está escuchando). Reintento en 10s."
+                )
+                time.sleep(10)
+            else:
+                logger.warning("Telegram getUpdates HTTP %s", code)
+                time.sleep(5)
         except requests.RequestException:
             logger.exception("Error en getUpdates de Telegram")
             time.sleep(5)
@@ -124,6 +204,10 @@ def start_telegram_bot() -> None:
     if not token:
         logger.info("Telegram omitido: falta TELEGRAM_BOT_TOKEN")
         return
+
+    username = bot_username()
+    if username:
+        logger.info("Bot de Telegram: @%s (%s)", username, bot_deeplink())
 
     url = webhook_url()
     if url:
@@ -153,3 +237,45 @@ async def telegram_webhook(
     update = await request.json()
     process_update(update if isinstance(update, dict) else {})
     return {"ok": True}
+
+
+@router.get("/bot")
+def telegram_bot_info():
+    username = bot_username()
+    url = bot_deeplink()
+    return {
+        "configured": bool(bot_token() and username),
+        "username": username,
+        "url": url,
+    }
+
+
+@router.post("/link")
+def telegram_link(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    db: Session = Depends(get_db),
+):
+    return issue_user_deeplink(db, current_user["user_id"])
+
+
+def issue_user_deeplink(db: Session, user_id: int) -> dict:
+    if not bot_token():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Telegram no está configurado en el servidor.",
+        )
+    username = bot_username()
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No se pudo obtener el usuario del bot. Probá más tarde.",
+        )
+    try:
+        token, expires = create_link_token(db, user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return {
+        "url": bot_deeplink(token),
+        "username": username,
+        "expires_at": expires.isoformat() + "Z",
+    }

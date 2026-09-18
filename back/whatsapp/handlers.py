@@ -77,8 +77,10 @@ class WhatsAppActionDTO(BaseModel):
 def unauthorized_reply(telegram_id: str | None = None) -> dict:
     if telegram_id:
         reply = (
-            f"Tu Telegram ID es {telegram_id}. Pedile a un administrador "
-            "que lo registre en Usuarios."
+            "Este Telegram no está vinculado a tu usuario.\n\n"
+            "Entrá a la web con tu cuenta y tocá Telegram en el menú: "
+            "se abre el bot y queda vinculado solo.\n\n"
+            f"Si lo carga un admin, tu ID es {telegram_id}."
         )
     else:
         reply = (

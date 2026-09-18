@@ -109,6 +109,26 @@ export async function updateUserTelegram(userId, telegramId) {
   })
 }
 
+export async function getTelegramBot() {
+  return apiFetch("/telegram/bot")
+}
+
+export async function createTelegramLink() {
+  return apiFetch("/telegram/link", {
+    method: "POST",
+  })
+}
+
+export async function createUserTelegramLink(userId) {
+  const token = localStorage.getItem("authToken")
+  return apiFetch(`/admin/users/${userId}/telegram-link`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
 export const getCurrentUserName = async (token) => {
   const data = await apiFetch("/admin/me", {
     headers: {

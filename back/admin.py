@@ -11,6 +11,7 @@ from auth import get_current_user, get_user_name_by_id, bcrypt_context
 from sqlalchemy.exc import IntegrityError
 from whatsapp.phone import normalize_phone, phone_in_use
 from telegram.identity import normalize_telegram_id, telegram_id_in_use
+from telegram.bot import issue_user_deeplink
 
 router = APIRouter(
     prefix="/admin",
@@ -84,6 +85,8 @@ async def delete_user(
     user.status = 0
     user.phone = None
     user.telegram_id = None
+    user.telegram_link_token = None
+    user.telegram_link_expires = None
     db.commit()
 
     return {"message": "Usuario desactivado correctamente"}
@@ -195,6 +198,28 @@ async def update_user_telegram(
             detail="Ese Telegram ID ya está registrado",
         )
     return {"message": "Telegram ID actualizado correctamente", "telegram_id": telegram_id}
+
+
+# POST /admin/users/{id}/telegram-link → t.me/bot?start=TOKEN (7 días, un uso)
+@router.post("/users/{user_id}/telegram-link")
+async def create_user_telegram_link(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user["role"] != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden realizar esta acción",
+        )
+
+    user = db.query(User).filter(User.id == user_id, User.status == 1).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado",
+        )
+    return issue_user_deeplink(db, user.id)
 
 
 @router.get("/me")

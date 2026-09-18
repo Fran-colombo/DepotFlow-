@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram } from "../api/auth";
+import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram, createUserTelegramLink } from "../api/auth";
 import Dashboard from "./Dashboard";
 
 const UsersPage = () => {
@@ -34,6 +34,14 @@ const UsersPage = () => {
     user: null,
     telegramId: "",
     saving: false,
+  });
+  const [linkModal, setLinkModal] = useState({
+    open: false,
+    user: null,
+    url: "",
+    expiresAt: "",
+    loading: false,
+    copied: false,
   });
   const [feedbackModal, setFeedbackModal] = useState({
     open: false,
@@ -133,6 +141,58 @@ const UsersPage = () => {
     setTelegramModal({ open: false, user: null, telegramId: "", saving: false });
   };
 
+  const closeLinkModal = () => {
+    setLinkModal({
+      open: false,
+      user: null,
+      url: "",
+      expiresAt: "",
+      loading: false,
+      copied: false,
+    });
+  };
+
+  const openTelegramLinkModal = async (user) => {
+    setLinkModal({
+      open: true,
+      user,
+      url: "",
+      expiresAt: "",
+      loading: true,
+      copied: false,
+    });
+    try {
+      const data = await createUserTelegramLink(user.id);
+      setLinkModal((prev) => ({
+        ...prev,
+        url: data.url,
+        expiresAt: data.expires_at || "",
+        loading: false,
+      }));
+    } catch (err) {
+      closeLinkModal();
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: err.message || "No se pudo generar el link de Telegram.",
+      });
+    }
+  };
+
+  const copyTelegramLink = async () => {
+    if (!linkModal.url) return;
+    try {
+      await navigator.clipboard.writeText(linkModal.url);
+      setLinkModal((prev) => ({ ...prev, copied: true }));
+    } catch {
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: "No se pudo copiar. Seleccioná el link y copialo a mano.",
+      });
+    }
+  };
+
   const handleUpdateTelegram = async (e) => {
     e.preventDefault();
     if (!telegramModal.user) return;
@@ -227,6 +287,12 @@ const UsersPage = () => {
           </button>
         </div>
 
+        <div className="alert alert-light border mb-4">
+          Para Telegram: en cada usuario tocá <strong>Link Telegram</strong>, copiá el
+          enlace y mandáselo. Lo abre en Telegram y queda vinculado, sin entrar a la web.
+          El link vale 7 días y se invalida si generás otro.
+        </div>
+
         <div className="card mb-4 shadow-sm">
           <div className="card-body">
             <div className="row g-3">
@@ -306,6 +372,13 @@ const UsersPage = () => {
                     </button>
                     <button
                       type="button"
+                      onClick={() => openTelegramLinkModal(user)}
+                      className="btn btn-sm btn-outline-primary"
+                    >
+                      Link Telegram
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => openPasswordModal(user)}
                       className="btn btn-sm btn-outline-primary"
                     >
@@ -375,6 +448,13 @@ const UsersPage = () => {
                             className="btn btn-sm btn-outline-secondary"
                           >
                             Telegram
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openTelegramLinkModal(user)}
+                            className="btn btn-sm btn-outline-primary"
+                          >
+                            Link Telegram
                           </button>
                           <button
                             type="button"
@@ -610,7 +690,8 @@ const UsersPage = () => {
                     autoFocus
                   />
                   <div className="form-text">
-                    Que le escriba al bot: le responde su ID. Vacío lo desvincula.
+                    Lo más simple: generá un <strong>Link Telegram</strong> y mandáselo.
+                    Esto queda para cargar el ID a mano si hace falta. Vacío lo desvincula.
                   </div>
                 </div>
                 <div className="modal-footer">
@@ -631,6 +712,85 @@ const UsersPage = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {linkModal.open && linkModal.user && (
+        <div
+          className="modal show d-block fade"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={closeLinkModal}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  Link Telegram — {linkModal.user.name} {linkModal.user.surname}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={closeLinkModal}
+                ></button>
+              </div>
+              <div className="modal-body">
+                {linkModal.user.telegram_id && (
+                  <div className="alert alert-warning py-2">
+                    Ya tiene Telegram vinculado ({linkModal.user.telegram_id}).
+                    Si abre este link, se reasocia a esta cuenta.
+                  </div>
+                )}
+                {linkModal.loading ? (
+                  <div className="text-center py-3">
+                    <div className="spinner-border text-primary" role="status">
+                      <span className="visually-hidden">Generando...</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <label className="form-label">Mandale este link</label>
+                    <div className="input-group">
+                      <input
+                        type="text"
+                        className="form-control"
+                        value={linkModal.url}
+                        readOnly
+                        onFocus={(e) => e.target.select()}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={copyTelegramLink}
+                        disabled={!linkModal.url}
+                      >
+                        {linkModal.copied ? "Copiado" : "Copiar"}
+                      </button>
+                    </div>
+                    <div className="form-text">
+                      Lo abre en Telegram y queda vinculado, sin entrar a la web.
+                      {linkModal.expiresAt
+                        ? ` Vence el ${new Date(linkModal.expiresAt).toLocaleString("es-AR")}.`
+                        : " Vence en 7 días."}{" "}
+                      Si generás otro, el anterior deja de andar.
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary"
+                  onClick={closeLinkModal}
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -129,6 +129,14 @@ def ensure_zone_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_id VARCHAR"))
 
+    if not _column_exists("users", "telegram_link_token"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN telegram_link_token VARCHAR"))
+
+    if not _column_exists("users", "telegram_link_expires"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN telegram_link_expires DATETIME"))
+
 def ensure_phone_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         return
@@ -146,12 +154,16 @@ def ensure_phone_unique_index():
 def ensure_telegram_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         return
-    if not _column_exists("users", "telegram_id"):
-        return
     try:
         with engine.begin() as conn:
-            conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id)"
-            ))
+            if _column_exists("users", "telegram_id"):
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id)"
+                ))
+            if _column_exists("users", "telegram_link_token"):
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_link_token "
+                    "ON users (telegram_link_token)"
+                ))
     except Exception:
         pass
