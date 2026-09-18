@@ -1,0 +1,291 @@
+{
+  "name": "Telegram Inventario",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "inventario-telegram",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "b1c2d3e4-0001-4000-8000-tgwebhook0001",
+      "name": "Webhook Telegram",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 200],
+      "webhookId": "inventario-telegram",
+      "notes": "POST {\"telegram_id\":\"123\",\"chat_id\":123,\"text\":\"stock pala\"} desde el backend."
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json || {};\nconst body = item.body || item;\nconst telegram_id = String(body.telegram_id || body.from || '').trim();\nconst chat_id = body.chat_id ?? body.chatId ?? telegram_id;\nlet text = body.text || body.message || '';\nif (typeof text !== 'string') text = text.body || '';\ntext = String(text || '').trim();\nif (!telegram_id) return [];\nreturn [{ json: { telegram_id, chat_id, text } }];"
+      },
+      "id": "b1c2d3e4-0002-4000-8000-tgnormalize01",
+      "name": "Normalize message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [260, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.INVENTORY_API_URL || 'http://backend:8000') + '/whatsapp/actions' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.WHATSAPP_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $json.telegram_id, text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "b1c2d3e4-0003-4000-8000-tgcallapi0001",
+      "name": "Call Inventory API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "needs-json",
+              "leftValue": "={{ $json.needs_json }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1c2d3e4-0004-4000-8000-tgifneedsjson",
+      "name": "Needs JSON?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [740, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.OLLAMA_URL || 'http://ollama:11434') + '/api/generate' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama3.2:1b\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"options\": { \"temperature\": 0, \"num_predict\": 180 },\n  \"prompt\": \"Sos un parser de inventario. Devolvé SOLO un JSON con claves action, where, from, elemento, cantidad, quien.\\naction: consulta | retiro | devolucion | ingreso | traslado.\\ncantidad: número o null. quien: nombre o null si es quien escribe.\\nEjemplos:\\nconsulta pala / stock pala / dónde está pala -> {\\\"action\\\":\\\"consulta\\\",\\\"where\\\":null,\\\"from\\\":null,\\\"elemento\\\":\\\"Pala\\\",\\\"cantidad\\\":null,\\\"quien\\\":null}\\nstock todo / inventario -> {\\\"action\\\":\\\"consulta\\\",\\\"where\\\":null,\\\"from\\\":null,\\\"elemento\\\":null,\\\"cantidad\\\":null,\\\"quien\\\":null}\\ninventario Oficina -> {\\\"action\\\":\\\"consulta\\\",\\\"where\\\":null,\\\"from\\\":\\\"Oficina\\\",\\\"elemento\\\":null,\\\"cantidad\\\":null,\\\"quien\\\":null}\\nsacá 2 palas a C15 desde Galpon San Martin / Baño -> {\\\"action\\\":\\\"retiro\\\",\\\"where\\\":\\\"C15\\\",\\\"from\\\":\\\"Galpon San Martin / Baño\\\",\\\"elemento\\\":\\\"Pala\\\",\\\"cantidad\\\":2,\\\"quien\\\":null}\\ndevuelve 1 maquina bombeo -> {\\\"action\\\":\\\"devolucion\\\",\\\"where\\\":null,\\\"from\\\":null,\\\"elemento\\\":\\\"Maquina bombeo\\\",\\\"cantidad\\\":1,\\\"quien\\\":null}\\nSi no se entiende: {\\\"action\\\":null,\\\"where\\\":null,\\\"from\\\":null,\\\"elemento\\\":null,\\\"cantidad\\\":null,\\\"quien\\\":null}\\nMensaje: {{ $('Normalize message').item.json.text }}\"\n}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "b1c2d3e4-0005-4000-8000-tgtryollama01",
+      "name": "Try Ollama",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [980, 80],
+      "onError": "continueRegularOutput",
+      "notes": "Opcional. docker compose --profile ollama up -d. Modelo: llama3.2:1b"
+    },
+    {
+      "parameters": {
+        "jsCode": "const api = $('Call Inventory API').first().json || {};\nconst telegram_id = api.telegram_id || $('Normalize message').first().json.telegram_id;\nconst chat_id = $('Normalize message').first().json.chat_id;\nconst incoming = $input.first().json || {};\nlet parsed = null;\ntry {\n  let raw = incoming.response ?? incoming.message;\n  if (raw && typeof raw === 'object' && raw.action) parsed = raw;\n  else if (typeof raw === 'string') {\n    const match = raw.match(/\\{[\\s\\S]*\\}/);\n    parsed = JSON.parse(match ? match[0] : raw);\n  }\n} catch (e) {\n  parsed = null;\n}\nconst action = parsed && parsed.action;\nconst valid = ['consulta', 'retiro', 'devolucion', 'ingreso', 'traslado'];\nif (parsed && valid.includes(String(action || '').toLowerCase())) {\n  return [{\n    json: {\n      retry: true,\n      telegram_id,\n      chat_id,\n      action: String(parsed.action).toLowerCase(),\n      where: parsed.where || null,\n      from: parsed.from || null,\n      elemento: parsed.elemento || null,\n      cantidad: parsed.cantidad ?? null,\n      quien: parsed.quien || null\n    }\n  }];\n}\nreturn [{ json: { retry: false, telegram_id, chat_id, reply: api.reply, needs_json: true, authorized: api.authorized, ok: false } }];"
+      },
+      "id": "b1c2d3e4-0006-4000-8000-tgparseollama",
+      "name": "Parse Ollama JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1220, 80]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "retry-api",
+              "leftValue": "={{ $json.retry }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b1c2d3e4-0007-4000-8000-tgifollamaok",
+      "name": "Ollama parsed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1460, 80]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.INVENTORY_API_URL || 'http://backend:8000') + '/whatsapp/actions' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.WHATSAPP_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ telegram_id: $json.telegram_id, action: $json.action, where: $json.where, from: $json.from, elemento: $json.elemento, cantidad: $json.cantidad, quien: $json.quien }) }}",
+        "options": {}
+      },
+      "id": "b1c2d3e4-0008-4000-8000-tgcallapijson",
+      "name": "Call Inventory API JSON",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1700, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json || {};\nconst norm = $('Normalize message').first().json;\nconst telegram_id = String(data.telegram_id || norm.telegram_id || '');\nconst chat_id = data.chat_id ?? norm.chat_id;\nconst reply = data.reply || 'No pude procesar el mensaje.';\nreturn [{ json: { ...data, telegram_id, chat_id, reply } }];"
+      },
+      "id": "b1c2d3e4-0009-4000-8000-tgpreparesend",
+      "name": "Prepare reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1940, 200]
+    }
+  ],
+  "connections": {
+    "Webhook Telegram": {
+      "main": [
+        [
+          {
+            "node": "Normalize message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize message": {
+      "main": [
+        [
+          {
+            "node": "Call Inventory API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Inventory API": {
+      "main": [
+        [
+          {
+            "node": "Needs JSON?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs JSON?": {
+      "main": [
+        [
+          {
+            "node": "Try Ollama",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Try Ollama": {
+      "main": [
+        [
+          {
+            "node": "Parse Ollama JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ollama JSON": {
+      "main": [
+        [
+          {
+            "node": "Ollama parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama parsed?": {
+      "main": [
+        [
+          {
+            "node": "Call Inventory API JSON",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Inventory API JSON": {
+      "main": [
+        [
+          {
+            "node": "Prepare reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "versionId": "telegram-inventario-v1",
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

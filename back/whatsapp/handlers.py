@@ -37,6 +37,26 @@ JSON_TEMPLATE = """{
 
 ALLOWED_ACTIONS = {"consulta", "retiro", "devolucion", "ingreso", "traslado"}
 
+HELP_EXAMPLES = """Ejemplos:
+• stock pala
+• dónde está pala
+• stock todo
+• inventario Oficina
+• retirar 2 pala a Obra Norte
+• devolver 1 pala
+• ingresar 5 cemento
+• trasladar 3 pala de Oficina a Galpón
+
+Para confirmar un movimiento pendiente: sí / no
+Escribí ayuda cuando quieras ver esto de nuevo."""
+
+
+def help_reply(user_name: str, channel: str) -> dict:
+    return ok_reply(
+        f"Hola {user_name}. Podés consultar o mover stock por {channel}.\n\n"
+        f"{HELP_EXAMPLES}"
+    )
+
 
 class WhatsAppActionDTO(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
@@ -78,9 +98,9 @@ def unauthorized_reply(telegram_id: str | None = None) -> dict:
     if telegram_id:
         reply = (
             "Este Telegram no está vinculado a tu usuario.\n\n"
-            "Entrá a la web con tu cuenta y tocá Telegram en el menú: "
-            "se abre el bot y queda vinculado solo.\n\n"
-            f"Si lo carga un admin, tu ID es {telegram_id}."
+            "Pedile a un admin que en Usuarios toque Link Telegram "
+            "y te mande el enlace (o tocá Telegram en el menú de la web).\n\n"
+            f"Tu Telegram ID es {telegram_id}."
         )
     else:
         reply = (
@@ -118,11 +138,10 @@ def json_help_reply(extra: str | None = None) -> dict:
         "needs_json": True,
         "needs_confirm": False,
         "reply": (
-            f"{prefix}No entendí el mensaje. Mandá un JSON exacto así:\n"
-            f"{JSON_TEMPLATE}\n\n"
-            "Acciones: consulta, retiro, devolucion, ingreso, traslado.\n"
-            "where = destino (obra o galpón). from = origen (galpón / zona).\n"
-            "quien = quién retira o devuelve. Si va vacío, se asume que sos vos."
+            f"{prefix}No entendí el mensaje.\n\n"
+            f"{HELP_EXAMPLES}\n\n"
+            "También podés mandar JSON:\n"
+            f"{JSON_TEMPLATE}"
         ),
         "template": json.loads(JSON_TEMPLATE),
     }
@@ -237,13 +256,37 @@ def parse_free_text(text: str) -> dict:
     if not compact or compact.startswith("{"):
         return {}
 
-    consulta = re.match(
-        r"^(?:consulta(?:r)?|stock|inventario)\s+(?:de\s+)?(.+)$",
+    if re.match(
+        r"^(?:stock|inventario|consulta(?:r)?)\s*(?:todo|completo|general)?$",
+        compact,
+        re.I,
+    ):
+        return {"action": "consulta"}
+
+    inventario_lugar = re.match(
+        r"^(?:stock|inventario|consulta(?:r)?)\s+(?:en\s+|de\s+)?(.+)$",
         compact,
         re.I,
     )
-    if consulta:
-        elemento = _singularize(consulta.group(1).strip(" .?!"))
+    if inventario_lugar:
+        rest = inventario_lugar.group(1).strip(" .?!")
+        if re.match(r"^(?:todo|completo|general)$", rest, re.I):
+            return {"action": "consulta"}
+        if re.match(r"^(?:de\s+)?todo(?:\s+el\s+inventario)?$", rest, re.I):
+            return {"action": "consulta"}
+        # "stock pala" = ítem; "inventario Oficina" = depósito
+        if re.match(r"^(?:stock|consulta(?:r)?)\b", compact, re.I):
+            elemento = _singularize(rest)
+            return {"action": "consulta", "elemento": elemento} if elemento else {}
+        return {"action": "consulta", "from": rest}
+
+    donde = re.match(
+        r"^(?:d[oó]nde\s+(?:est[aá]|hay)|ubicaci[oó]n\s+de)\s+(.+)$",
+        compact,
+        re.I,
+    )
+    if donde:
+        elemento = _singularize(donde.group(1).strip(" .?!"))
         return {"action": "consulta", "elemento": elemento} if elemento else {}
 
     cuanto = re.match(
@@ -330,10 +373,8 @@ def handle_action(db: Session, dto: WhatsAppActionDTO) -> dict:
     text = (dto.text or "").strip()
     channel = "Telegram" if telegram_id else "WhatsApp"
 
-    if text.lower().startswith("/start") or text.lower() in ("/help", "ayuda"):
-        return ok_reply(
-            f"Hola {user.name}. Ya podés consultar o mover stock por {channel}."
-        )
+    if text.lower().startswith("/start") or text.lower() in ("/help", "ayuda", "help"):
+        return help_reply(user.name, channel)
 
     if dto.confirm is True or (text and is_confirm_yes(text)):
         if not pending:

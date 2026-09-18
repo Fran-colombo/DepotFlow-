@@ -40,6 +40,10 @@ def webhook_url() -> str:
     return (os.getenv("TELEGRAM_WEBHOOK_URL") or "").strip()
 
 
+def n8n_webhook_url() -> str:
+    return (os.getenv("TELEGRAM_N8N_WEBHOOK_URL") or "").strip()
+
+
 def _api(method: str) -> str:
     return f"{TELEGRAM_API}/bot{bot_token()}/{method}"
 
@@ -113,6 +117,35 @@ def _link_from_start_payload(payload: str, telegram_id: str) -> str:
         db.close()
 
 
+def _forward_to_n8n(telegram_id: str, chat_id: int | str, text: str) -> str | None:
+    url = n8n_webhook_url()
+    if not url:
+        return None
+    try:
+        response = requests.post(
+            url,
+            json={"telegram_id": telegram_id, "chat_id": chat_id, "text": text},
+            timeout=120,
+        )
+        if not response.ok:
+            logger.warning(
+                "n8n Telegram webhook falló: %s %s",
+                response.status_code,
+                response.text[:300],
+            )
+            return None
+        data = response.json() if response.content else {}
+        if isinstance(data, list) and data:
+            data = data[0]
+        if isinstance(data, dict):
+            reply = data.get("reply") or (data.get("json") or {}).get("reply")
+            if reply:
+                return str(reply)
+    except requests.RequestException:
+        logger.exception("No se pudo llamar al webhook n8n de Telegram")
+    return None
+
+
 def process_update(update: dict) -> None:
     message = update.get("message") or update.get("edited_message") or {}
     if not message:
@@ -133,6 +166,11 @@ def process_update(update: dict) -> None:
         if len(parts) > 1:
             send_message(chat_id, _link_from_start_payload(parts[1], telegram_id))
             return
+
+    n8n_reply = _forward_to_n8n(telegram_id, chat_id, text)
+    if n8n_reply:
+        send_message(chat_id, n8n_reply)
+        return
 
     dto = WhatsAppActionDTO(telegram_id=telegram_id, text=text)
     db = SessionLocal()
@@ -208,6 +246,10 @@ def start_telegram_bot() -> None:
     username = bot_username()
     if username:
         logger.info("Bot de Telegram: @%s (%s)", username, bot_deeplink())
+    if n8n_webhook_url():
+        logger.info("Telegram → n8n: %s", n8n_webhook_url())
+    else:
+        logger.info("Telegram sin n8n (TELEGRAM_N8N_WEBHOOK_URL vacío): respuestas directas")
 
     url = webhook_url()
     if url:

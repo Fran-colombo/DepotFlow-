@@ -25,6 +25,7 @@ services:
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      TELEGRAM_N8N_WEBHOOK_URL: ${TELEGRAM_N8N_WEBHOOK_URL:-http://n8n:5678/webhook/inventario-telegram}
     volumes:
       - ./shed_data:/app/shed_data
     ports:
@@ -63,6 +64,7 @@ services:
       INVENTORY_API_URL: http://backend:8000
       WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
     volumes:
       - ./n8n/data:/home/node/.n8n
@@ -82,6 +84,10 @@ services:
         if [ ! -f /home/node/.n8n/.workflow_imported ] && [ -f /workflows/whatsapp-inventario.json ]; then
           n8n import:workflow --input=/workflows/whatsapp-inventario.json || true
           touch /home/node/.n8n/.workflow_imported || true
+        fi
+        if [ ! -f /home/node/.n8n/.telegram_workflow_imported ] && [ -f /workflows/telegram-inventario.json ]; then
+          n8n import:workflow --input=/workflows/telegram-inventario.json || true
+          touch /home/node/.n8n/.telegram_workflow_imported || true
         fi
         exec n8n start
 
