@@ -18,7 +18,10 @@ function LoginPage() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => ({
+      ...prev,
+      [name]: name === "username" ? value.toLowerCase() : value,
+    }));
   };
 
   const handleShowPassword = () => {
@@ -31,7 +34,10 @@ function LoginPage() {
     setError('');
 
     try {
-      const { access_token } = await login(formData);
+      const { access_token } = await login({
+        ...formData,
+        username: formData.username.trim().toLowerCase(),
+      });
       authLogin(access_token);
       navigate('/');
     } catch (err) {

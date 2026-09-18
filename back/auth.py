@@ -4,6 +4,7 @@ from jose import jwt, JWTError
 from fastapi import HTTPException, APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import Annotated
 from starlette import status
 from dtos.userDTO import CreateUser, Token
@@ -61,8 +62,17 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         )
 
 
+def normalize_email(email: str | None) -> str:
+    return (email or "").strip().lower()
+
+
 def authenticate_user(db: Session, username: str, password: str):
-    user = db.query(User).filter(User.email == username, User.status == 1).first()
+    email = normalize_email(username)
+    user = (
+        db.query(User)
+        .filter(func.lower(User.email) == email, User.status == 1)
+        .first()
+    )
     if not user:
         return False
     try:
@@ -85,7 +95,10 @@ async def create_user(
             detail="Solo los administradores pueden crear usuarios",
         )
 
-    existing_user = db.query(User).filter(User.email == user.email).first()
+    email = normalize_email(user.email)
+    existing_user = (
+        db.query(User).filter(func.lower(User.email) == email).first()
+    )
     if existing_user:
         if existing_user.status == 1:
             raise HTTPException(
@@ -121,7 +134,7 @@ async def create_user(
         name=user.name.lower().capitalize(),
         surname=user.surname.lower().capitalize(),
         password=hashed_password,
-        email=user.email,
+        email=email,
         role=new_role,
         status=1,
         phone=phone,
@@ -143,7 +156,12 @@ async def create_user(
 
 @router.post("/login", response_model=Token)
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency):
-    user = db.query(User).filter(User.email == form_data.username).first()
+    email = normalize_email(form_data.username)
+    user = (
+        db.query(User)
+        .filter(func.lower(User.email) == email)
+        .first()
+    )
 
     if not user or not bcrypt_context.verify(form_data.password, user.password):
         raise HTTPException(

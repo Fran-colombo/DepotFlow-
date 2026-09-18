@@ -427,7 +427,7 @@ const Items = () => {
         </div>
       ) : (
         <>
-          <div className="table-responsive">
+          <div className={`table-responsive${openMenuId != null ? " table-menu-open" : ""}`}>
             <table className="table app-table mb-0">
               <thead>
                 <tr>
@@ -455,10 +455,12 @@ const Items = () => {
               </thead>
               <tbody>
                 {filteredItems.length > 0 ? (
-                filteredItems.map((item) => {
+                filteredItems.map((item, rowIndex) => {
                   const isOutOfStock = item.actualAmount === 0;
                   const cantEliminate = item.actualAmount != item.totalAmount;
                   const canReturn = item.actualAmount !== item.totalAmount;
+                  const menuDropUp =
+                    filteredItems.length <= 3 || rowIndex >= filteredItems.length - 2;
                   return (
                     <tr key={item.id} className={selectedById[item.id] ? "is-selected" : ""}>
                       <td>
@@ -546,7 +548,7 @@ const Items = () => {
                           >
                             Devolver
                           </button>
-                          <div className="dropdown">
+                          <div className={`dropdown${menuDropUp ? " dropup" : ""}`}>
                             <button
                               className="btn btn-sm btn-light border"
                               type="button"
@@ -562,8 +564,17 @@ const Items = () => {
                             </button>
                             {openMenuId === item.id && (
                               <ul
-                                className="dropdown-menu dropdown-menu-end show shadow-sm"
-                                style={{ display: "block", position: "absolute", right: 0 }}
+                                className="dropdown-menu dropdown-menu-end show shadow-sm item-actions-menu"
+                                style={{
+                                  display: "block",
+                                  position: "absolute",
+                                  right: 0,
+                                  left: "auto",
+                                  zIndex: 1055,
+                                  ...(menuDropUp
+                                    ? { bottom: "100%", top: "auto", marginBottom: "0.25rem" }
+                                    : { top: "100%", marginTop: "0.25rem" }),
+                                }}
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 <li>

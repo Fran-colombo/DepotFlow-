@@ -173,6 +173,16 @@ body {
   background-color: #eff8ff !important;
 }
 
+.table-responsive.table-menu-open {
+  overflow: visible !important;
+}
+
+.item-actions-menu {
+  min-width: 14rem;
+  max-height: min(70vh, 28rem);
+  overflow-y: auto;
+}
+
 .app-selection-bar {
   position: sticky;
   bottom: 1rem;

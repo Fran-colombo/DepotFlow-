@@ -131,3 +131,53 @@ def format_item_list(items: list[models.Item], limit: int = 30) -> str:
     if len(items) > limit:
         lines.append(f"... y {len(items) - limit} más")
     return "\n".join(lines)
+
+
+def pending_outside_lines(
+    db: Session,
+    items: list[models.Item],
+    elemento: str | None = None,
+    limit: int = 30,
+) -> list[str]:
+    """Pending retiros (obra) for the given items / name, aggregated by place."""
+    item_ids = [item.id for item in items] if items else []
+    if not item_ids and elemento:
+        item_ids = [item.id for item in find_items(db, elemento)]
+    if not item_ids:
+        return []
+
+    rows = (
+        db.query(models.History)
+        .options(joinedload(models.History.item))
+        .filter(
+            models.History.itemId.in_(item_ids),
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,  # noqa: E712
+            models.History.amountNotReturned > 0,
+        )
+        .order_by(models.History.place.asc(), models.History.date.asc())
+        .all()
+    )
+    by_key: dict[tuple[str, str], dict] = {}
+    for history in rows:
+        place = (history.place or "").strip()
+        if not place or "→" in place:
+            continue
+        item_name = history.item.name if history.item else (elemento or "Ítem")
+        key = (item_name, place)
+        entry = by_key.setdefault(
+            key,
+            {"name": item_name, "place": place, "amount": 0, "persons": []},
+        )
+        entry["amount"] += int(history.amountNotReturned or 0)
+        person = (history.personWhoTook or history.userName or "").strip()
+        if person and person not in entry["persons"]:
+            entry["persons"].append(person)
+
+    lines = []
+    for entry in list(by_key.values())[:limit]:
+        who = f" ({', '.join(entry['persons'])})" if entry["persons"] else ""
+        lines.append(f"- {entry['name']} | en obra {entry['place']} | {entry['amount']}{who}")
+    if len(by_key) > limit:
+        lines.append(f"... y {len(by_key) - limit} más")
+    return lines

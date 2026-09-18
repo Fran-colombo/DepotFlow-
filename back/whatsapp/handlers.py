@@ -22,6 +22,7 @@ from whatsapp.resolve import (
     find_sheds,
     format_item_list,
     item_label,
+    pending_outside_lines,
     resolve_from_location,
 )
 from whatsapp.sessions import clear_pending, load_pending, save_pending
@@ -48,7 +49,47 @@ HELP_EXAMPLES = """Ejemplos:
 • trasladar 3 pala de Oficina a Galpón
 
 Para confirmar un movimiento pendiente: sí / no
-Escribí ayuda cuando quieras ver esto de nuevo."""
+Escribí /ayuda cuando quieras ver esto de nuevo."""
+
+COMMAND_HINTS = {
+    "stock": (
+        "Consultá stock así:\n"
+        "• stock pala\n"
+        "• dónde está pala\n"
+        "• stock todo\n"
+        "• inventario Oficina"
+    ),
+    "donde": (
+        "Preguntá la ubicación así:\n"
+        "• dónde está pala\n"
+        "• stock pala"
+    ),
+    "retirar": (
+        "Para retirar:\n"
+        "• retirar 2 pala a C15\n"
+        "• retirar 4 pala a TVS de Av. San Martin / Oficina"
+    ),
+    "devolver": (
+        "Para devolver:\n"
+        "• devolver 1 pala\n"
+        "• devolver 2 pala de C15"
+    ),
+    "ingresar": (
+        "Para ingresar stock:\n"
+        "• ingresar 5 cemento\n"
+        "• ingresar 10 pala a Oficina"
+    ),
+    "trasladar": (
+        "Para trasladar:\n"
+        "• trasladar 3 pala de Oficina a Galpón\n"
+        "• trasladar 2 pala de C15 a TVS"
+    ),
+    "pendientes": (
+        "Si el bot te pide confirmación, respondé sí o no.\n"
+        "Los retiros sin devolver aparecen en Pendientes de la web "
+        "y también cuando preguntás stock / dónde está."
+    ),
+}
 
 
 def help_reply(user_name: str, channel: str) -> dict:
@@ -56,6 +97,21 @@ def help_reply(user_name: str, channel: str) -> dict:
         f"Hola {user_name}. Podés consultar o mover stock por {channel}.\n\n"
         f"{HELP_EXAMPLES}"
     )
+
+
+def normalize_bot_text(text: str) -> str:
+    """Strip Telegram /command@bot prefixes so ' /stock pala ' → 'stock pala'."""
+    compact = " ".join((text or "").strip().split())
+    if not compact.startswith("/"):
+        return compact
+    first, *rest = compact.split(maxsplit=1)
+    cmd = first[1:].split("@", 1)[0].lower()
+    if cmd in ("start", "help", "ayuda"):
+        return f"/{cmd}"
+    if rest:
+        # /stock pala → stock pala  |  /retirar 2 pala a C15 → retirar 2 pala a C15
+        return f"{cmd} {rest[0]}".strip()
+    return cmd
 
 
 class WhatsAppActionDTO(BaseModel):
@@ -370,11 +426,15 @@ def handle_action(db: Session, dto: WhatsAppActionDTO) -> dict:
     session_key = session_key_for(dto)
     current_user = user_as_current(user)
     pending = load_pending(db, session_key)
-    text = (dto.text or "").strip()
+    text = normalize_bot_text(dto.text or "")
     channel = "Telegram" if telegram_id else "WhatsApp"
 
-    if text.lower().startswith("/start") or text.lower() in ("/help", "ayuda", "help"):
+    if text.lower().startswith("/start") or text.lower() in ("/help", "/ayuda", "ayuda", "help"):
         return help_reply(user.name, channel)
+
+    hint = COMMAND_HINTS.get(text.lower())
+    if hint:
+        return ok_reply(f"Hola {user.name}.\n\n{hint}")
 
     if dto.confirm is True or (text and is_confirm_yes(text)):
         if not pending:
@@ -387,6 +447,8 @@ def handle_action(db: Session, dto: WhatsAppActionDTO) -> dict:
         clear_pending(db, session_key)
         return ok_reply("Cancelado. No se tocó el inventario.")
 
+    # Re-parse with normalized text (slash commands like /stock pala)
+    dto = dto.model_copy(update={"text": text})
     data = merge_payload(dto)
     has_fields = any(data.get(key) for key in ("action", "elemento", "where", "from", "cantidad"))
     blob = extract_json_blob(text) if text else None
@@ -437,17 +499,26 @@ def handle_consulta(db: Session, data: dict) -> dict:
             query = query.filter(models.Item.shed_id == location.shed.id)
         items = query.order_by(models.Item.name.asc()).all()
 
-    if not items:
-        return ok_reply("No encontré stock con esos datos.")
+    sections: list[str] = []
+    if items:
+        if elemento:
+            header = f"Stock de {elemento}:"
+        elif location.shed:
+            header = f"Inventario en {location.shed.name}:"
+        else:
+            header = "Inventario:"
+        sections.append(f"{header}\n{format_item_list(items)}")
 
-    header = "Stock:"
     if elemento:
-        header = f"Stock de {elemento}:"
-    elif location.shed:
-        header = f"Inventario en {location.shed.name}:"
-    else:
-        header = "Inventario:"
-    return ok_reply(f"{header}\n{format_item_list(items)}")
+        pending = pending_outside_lines(db, items, elemento)
+        if pending:
+            sections.append(
+                "Fuera del galpón (pendiente de devolución):\n" + "\n".join(pending)
+            )
+
+    if not sections:
+        return ok_reply("No encontré stock con esos datos.")
+    return ok_reply("\n\n".join(sections))
 
 
 def prepare_mutation(db: Session, user: models.User, data: dict) -> dict:

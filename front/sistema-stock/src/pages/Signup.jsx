@@ -41,8 +41,12 @@ const SignUp = () => {
   }, [token]);
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-    setErrors({ ...errors, [e.target.name]: false });
+    const { name, value } = e.target;
+    setForm({
+      ...form,
+      [name]: name === "email" ? value.toLowerCase() : value,
+    });
+    setErrors({ ...errors, [name]: false });
   };
 
   const handleShowPassword = () => setShowPassword(!showPassword);
@@ -68,7 +72,11 @@ const SignUp = () => {
     }
 
     try {
-      await signup({ ...form, phone: form.phone.trim() || null });
+      await signup({
+        ...form,
+        email: form.email.trim().toLowerCase(),
+        phone: form.phone.trim() || null,
+      });
       navigate("/admin/users");
     } catch (error) {
       setServerError(error.message || "Ocurrió un error al crear el usuario.");
