@@ -116,3 +116,20 @@ def ensure_zone_schema():
                       AND IFNULL(r.hideFromHistorial, 0) = 0
                 )
             """))
+
+    if not _column_exists("users", "phone"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN phone VARCHAR"))
+
+def ensure_phone_unique_index():
+    if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+        return
+    if not _column_exists("users", "phone"):
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_phone ON users (phone)"
+            ))
+    except Exception:
+        pass

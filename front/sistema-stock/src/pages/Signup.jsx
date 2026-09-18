@@ -12,6 +12,7 @@ const SignUp = () => {
     name: "",
     surname: "",
     email: "",
+    phone: "",
     password: "",
     role: "user",
   });
@@ -21,6 +22,7 @@ const SignUp = () => {
     name: useRef(null),
     surname: useRef(null),
     email: useRef(null),
+    phone: useRef(null),
     password: useRef(null),
   };
   const navigate = useNavigate();
@@ -66,7 +68,7 @@ const SignUp = () => {
     }
 
     try {
-      await signup(form);
+      await signup({ ...form, phone: form.phone.trim() || null });
       navigate("/admin/users");
     } catch (error) {
       setServerError(error.message || "Ocurrió un error al crear el usuario.");
@@ -76,11 +78,11 @@ const SignUp = () => {
 
   return (
     <Dashboard>
-      <div className="container py-5">
+      <div className="container-fluid px-0 py-2 py-md-3">
         <div className="row justify-content-center">
-          <div className="col-md-6">
+          <div className="col-12 col-md-8 col-lg-6">
             <div className="card shadow-sm border-0">
-              <div className="card-body p-5">
+              <div className="card-body p-3 p-md-5">
                 <h2 className="text-center mb-3 fw-bold text-dark">
                   Hola {currentUserName || "Administrador"}
                 </h2>
@@ -95,26 +97,37 @@ const SignUp = () => {
                 )}
 
                 <form onSubmit={handleSubmit} noValidate>
-                  {["name", "surname", "email"].map((field) => (
+                  {["name", "surname", "email", "phone"].map((field) => (
                     <div key={field} className="mb-3">
                       <label htmlFor={field} className="form-label">
                         {field === "name"
                           ? "Nombre"
                           : field === "surname"
                             ? "Apellido"
-                            : "Email"}
+                            : field === "email"
+                              ? "Email"
+                              : "Teléfono WhatsApp (opcional)"}
                       </label>
                       <input
                         id={field}
                         name={field}
-                        type="text"
+                        type={field === "phone" ? "tel" : "text"}
                         className={`form-control ${errors[field] ? "is-invalid" : ""}`}
-                        placeholder={`Ingresar ${field}`}
+                        placeholder={
+                          field === "phone"
+                            ? "+54 9 11 1234-5678"
+                            : `Ingresar ${field}`
+                        }
                         onChange={handleChange}
                         value={form[field]}
                         ref={refs[field]}
                         autoComplete="off"
                       />
+                      {field === "phone" && (
+                        <div className="form-text">
+                          Un número por usuario. Se guarda como +54 9 …
+                        </div>
+                      )}
                       {errors[field] && (
                         <div className="invalid-feedback">Debe completar este campo</div>
                       )}

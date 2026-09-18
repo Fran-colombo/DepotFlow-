@@ -16,6 +16,7 @@ back/adminSeed.py
 *.sqlite3
 *.db
 
+mobile
 
 shed_data/
 
@@ -23,6 +24,8 @@ demo/shed_data_demo/
 demo/.env.demo
 
 *.log
+
+n8n/data/
 
 .vscode/
 .idea/

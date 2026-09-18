@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getUsers, deleteUser, updateUserPassword } from "../api/auth";
+import { getUsers, deleteUser, updateUserPassword, updateUserPhone } from "../api/auth";
 import Dashboard from "./Dashboard";
 
 const UsersPage = () => {
@@ -21,6 +21,12 @@ const UsersPage = () => {
     open: false,
     user: null,
     password: "",
+    saving: false,
+  });
+  const [phoneModal, setPhoneModal] = useState({
+    open: false,
+    user: null,
+    phone: "",
     saving: false,
   });
   const [feedbackModal, setFeedbackModal] = useState({
@@ -49,7 +55,11 @@ const UsersPage = () => {
       });
       setError("");
     } catch (err) {
-      setError(err.message);
+      const message =
+        err.message === "Not Found"
+          ? "El front no está hablando con este backend. En local usá el puerto 8001 (otro sistema ocupa el 8000)."
+          : err.message;
+      setError(message);
       if (err.message.includes("autorizados")) {
         navigate("/");
       }
@@ -96,6 +106,38 @@ const UsersPage = () => {
     setPasswordModal({ open: false, user: null, password: "", saving: false });
   };
 
+  const openPhoneModal = (user) => {
+    setPhoneModal({ open: true, user, phone: user.phone || "", saving: false });
+  };
+
+  const closePhoneModal = () => {
+    setPhoneModal({ open: false, user: null, phone: "", saving: false });
+  };
+
+  const handleUpdatePhone = async (e) => {
+    e.preventDefault();
+    if (!phoneModal.user) return;
+    const userLabel = `${phoneModal.user.name} ${phoneModal.user.surname}`.trim();
+    setPhoneModal((prev) => ({ ...prev, saving: true }));
+    try {
+      await updateUserPhone(phoneModal.user.id, phoneModal.phone.trim());
+      closePhoneModal();
+      setFeedbackModal({
+        open: true,
+        type: "success",
+        message: `El teléfono de ${userLabel} se actualizó correctamente.`,
+      });
+      fetchUsers();
+    } catch (err) {
+      setPhoneModal((prev) => ({ ...prev, saving: false }));
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: err.message || "No se pudo actualizar el teléfono.",
+      });
+    }
+  };
+
   const handleUpdatePassword = async (e) => {
     e.preventDefault();
     if (!passwordModal.user) return;
@@ -131,10 +173,10 @@ const UsersPage = () => {
   return (
     <Dashboard>
       <div>
-        <div className="d-flex justify-content-between align-items-center mb-3">
-          <h2 className="mb-0">Gestión de usuarios</h2>
+        <div className="d-flex flex-column flex-sm-row gap-2 justify-content-between align-items-stretch align-items-sm-center mb-3">
+          <h2 className="h4 mb-0">Gestión de usuarios</h2>
           <button
-            className="btn btn-success d-flex align-items-center gap-2 shadow-sm"
+            className="btn btn-success d-flex align-items-center justify-content-center gap-2 shadow-sm"
             onClick={() => navigate("/signup")}
           >
             <i className="bi bi-plus-circle" />
@@ -181,13 +223,63 @@ const UsersPage = () => {
           <div className="alert alert-danger">{error}</div>
         ) : (
           <>
-            <div className="table-responsive">
+            <div className="d-md-none d-flex flex-column gap-3">
+              {users.map((user) => (
+                <div key={user.id} className="border rounded-3 p-3">
+                  <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
+                    <div>
+                      <div className="fw-semibold">
+                        {user.name} {user.surname}
+                      </div>
+                      <div className="text-muted small">{user.email}</div>
+                    </div>
+                    <span
+                      className={`badge ${
+                        user.role === "admin" ? "bg-danger" : "bg-primary"
+                      }`}
+                    >
+                      {user.role === "admin" ? "Admin" : "Usuario"}
+                    </span>
+                  </div>
+                  <div className="small mb-3">
+                    Teléfono: {user.phone || "—"}
+                  </div>
+                  <div className="d-grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openPhoneModal(user)}
+                      className="btn btn-sm btn-outline-secondary"
+                    >
+                      Teléfono
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openPasswordModal(user)}
+                      className="btn btn-sm btn-outline-primary"
+                    >
+                      Cambiar contraseña
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUser(user.id)}
+                      className="btn btn-sm btn-outline-danger"
+                      disabled={user.role === "admin"}
+                    >
+                      Desactivar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="table-responsive d-none d-md-block">
               <table className="table table-striped table-hover">
                 <thead className="table-dark">
                   <tr>
                     <th>ID</th>
                     <th>Nombre</th>
                     <th>Email</th>
+                    <th>Teléfono</th>
                     <th>Rol</th>
                     <th>Estado</th>
                     <th>Acciones</th>
@@ -201,6 +293,7 @@ const UsersPage = () => {
                         {user.name} {user.surname}
                       </td>
                       <td>{user.email}</td>
+                      <td>{user.phone || "—"}</td>
                       <td>
                         <span
                           className={`badge ${
@@ -214,13 +307,20 @@ const UsersPage = () => {
                         <span className="badge bg-success">Activo</span>
                       </td>
                       <td>
-                        <div className="d-inline-flex gap-1">
+                        <div className="d-flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            onClick={() => openPhoneModal(user)}
+                            className="btn btn-sm btn-outline-secondary"
+                          >
+                            Teléfono
+                          </button>
                           <button
                             type="button"
                             onClick={() => openPasswordModal(user)}
                             className="btn btn-sm btn-outline-primary"
                           >
-                            Cambiar contraseña
+                            Contraseña
                           </button>
                           <button
                             type="button"
@@ -238,7 +338,7 @@ const UsersPage = () => {
               </table>
             </div>
 
-            <div className="d-flex justify-content-between align-items-center mt-3">
+            <div className="d-flex flex-column flex-sm-row gap-2 justify-content-between align-items-stretch align-items-sm-center mt-3">
               <div>
                 <select
                   value={pagination.pageSize}
@@ -335,6 +435,72 @@ const UsersPage = () => {
                     disabled={passwordModal.saving}
                   >
                     {passwordModal.saving ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {phoneModal.open && phoneModal.user && (
+        <div
+          className="modal show d-block fade"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={closePhoneModal}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <form onSubmit={handleUpdatePhone}>
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    Teléfono WhatsApp — {phoneModal.user.name}{" "}
+                    {phoneModal.user.surname}
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={closePhoneModal}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <label className="form-label">Número</label>
+                  <input
+                    type="tel"
+                    className="form-control"
+                    value={phoneModal.phone}
+                    onChange={(e) =>
+                      setPhoneModal((prev) => ({
+                        ...prev,
+                        phone: e.target.value,
+                      }))
+                    }
+                    placeholder="+54 9 11 1234-5678"
+                    autoFocus
+                  />
+                  <div className="form-text">
+                    Vacío quita el número. Se guarda en formato internacional.
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closePhoneModal}
+                    disabled={phoneModal.saving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={phoneModal.saving}
+                  >
+                    {phoneModal.saving ? "Guardando..." : "Guardar"}
                   </button>
                 </div>
               </form>

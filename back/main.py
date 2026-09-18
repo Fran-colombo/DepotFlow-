@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, contains_eager
 from typing import Annotated, Optional
 from datetime import datetime
 from math import ceil
-from database import get_db, engine, ensure_zone_schema
+from database import get_db, engine, ensure_zone_schema, SessionLocal, ensure_phone_unique_index
 import pytz 
 from dtos.itemResponseDTO import ItemResponseDTO
 from dtos.deleteItemDTO import DeleteItemDTO, ResponseFakeDeleteDTO
@@ -32,6 +32,7 @@ from item_transfer import (
     build_transfer_checklist,
     update_items_from_excel,
 )
+from whatsapp.router import router as whatsapp_router
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -66,9 +67,20 @@ app.include_router(shed.router)
 app.include_router(movements.router)
 app.include_router(admin.router)
 app.include_router(zones.router)
+app.include_router(whatsapp_router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()
+try:
+    from whatsapp.phone import canonicalize_stored_phones
+    _phone_db = SessionLocal()
+    try:
+        canonicalize_stored_phones(_phone_db)
+    finally:
+        _phone_db.close()
+except Exception:
+    logger.exception("No se pudieron normalizar teléfonos de usuarios")
+ensure_phone_unique_index()
 seed_admin_from_env()
 
 item_dependency = Annotated[Session, Depends(get_db)]
