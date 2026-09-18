@@ -1,3 +1,5 @@
+import logging
+import shutil
 from io import BytesIO
 from pathlib import Path
 from typing import Annotated
@@ -13,6 +15,7 @@ from auth import get_current_user
 from database import DB_PATH, get_db
 
 router = APIRouter(tags=["item-images"])
+logger = logging.getLogger(__name__)
 
 MAX_BYTES = 8 * 1024 * 1024
 MAX_SIDE = 1600
@@ -33,6 +36,33 @@ def images_dir() -> Path:
 
 def stored_image_path(filename: str) -> Path:
     return images_dir() / Path(filename).name
+
+
+def copy_item_image(source: models.Item, dest: models.Item) -> None:
+    """Copy the source photo onto dest when dest does not already have one."""
+    if not source.image_filename or dest.image_filename:
+        return
+    if dest.id is None or source.id == dest.id:
+        return
+
+    src_path = stored_image_path(source.image_filename)
+    if not src_path.is_file():
+        return
+
+    ext = src_path.suffix.lower() or ".jpg"
+    filename = f"{dest.id}_{uuid4().hex[:12]}{ext}"
+    try:
+        shutil.copy2(src_path, stored_image_path(filename))
+    except OSError:
+        logger.warning(
+            "No se pudo copiar la imagen de item %s a item %s",
+            source.id,
+            dest.id,
+            exc_info=True,
+        )
+        return
+    dest.image_filename = filename
+    logger.info("Imagen copiada de item %s a item %s (%s)", source.id, dest.id, filename)
 
 
 def delete_stored_image(item: models.Item) -> None:

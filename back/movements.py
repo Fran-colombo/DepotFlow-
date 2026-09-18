@@ -7,6 +7,7 @@ from auth import get_current_user
 from dtos.movementsDTO import MovementCreateDTO, MovementResponseDTO
 from database import get_db
 from contextlib import contextmanager
+from item_images import copy_item_image
 import logging
 
 router = APIRouter(prefix="/movements", tags=["movements"])
@@ -127,6 +128,8 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
         if target_item:
             target_item.actualAmount += movement_data.quantity
             target_item.totalAmount += movement_data.quantity
+            db.refresh(source_item, attribute_names=["image_filename"])
+            copy_item_image(source_item, target_item)
         else:
             target_item = Item(
                 name=source_item.name,
@@ -141,6 +144,9 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
             )
             db.add(target_item)
             db.flush()
+            db.refresh(target_item)
+            db.refresh(source_item, attribute_names=["image_filename"])
+            copy_item_image(source_item, target_item)
 
             if has_observations:
                 observations = db.query(Observation).filter(
