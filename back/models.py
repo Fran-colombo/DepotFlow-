@@ -61,6 +61,7 @@ class User(Base):
         role = Column(Enum(RoleEnum), index=True)
         status = Column(Integer, default=1)
         phone = Column(String, unique=True, index=True, nullable=True)
+        telegram_id = Column(String, unique=True, index=True, nullable=True)
 
 class History(Base):
     __tablename__ = "historal"

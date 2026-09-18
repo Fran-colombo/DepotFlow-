@@ -19,6 +19,10 @@ class UpdatePhoneDTO(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=32)
 
 
+class UpdateTelegramDTO(BaseModel):
+    telegram_id: Optional[str] = Field(default=None, max_length=32)
+
+
 class LogUser(BaseModel):
     email: str = Field(..., max_length=50)
     password: str = Field(..., min_length=8, max_length=128)
@@ -36,6 +40,7 @@ class UserResponse(BaseModel):
     role: str
     status: int
     phone: Optional[str] = None
+    telegram_id: Optional[str] = None
 
     class Config:
         orm_mode = True

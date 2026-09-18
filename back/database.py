@@ -125,6 +125,10 @@ def ensure_zone_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE items ADD COLUMN image_filename VARCHAR"))
 
+    if not _column_exists("users", "telegram_id"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN telegram_id VARCHAR"))
+
 def ensure_phone_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         return
@@ -134,6 +138,20 @@ def ensure_phone_unique_index():
         with engine.begin() as conn:
             conn.execute(text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_phone ON users (phone)"
+            ))
+    except Exception:
+        pass
+
+
+def ensure_telegram_unique_index():
+    if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+        return
+    if not _column_exists("users", "telegram_id"):
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id)"
             ))
     except Exception:
         pass

@@ -1,0 +1,1 @@
+# Telegram bot for the same inventory actions as WhatsApp.

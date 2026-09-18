@@ -21,6 +21,9 @@ services:
       ADMIN_USER_NAME: ${ADMIN_USER_NAME:-Admin}
       ADMIN_USER_SURNAME: ${ADMIN_USER_SURNAME:-Sistema}
       WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-cambia-esta-clave-whatsapp}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
     volumes:
       - ./shed_data:/app/shed_data
     ports:

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, contains_eager
 from typing import Annotated, Optional
 from datetime import datetime
 from math import ceil
-from database import get_db, engine, ensure_zone_schema, SessionLocal, ensure_phone_unique_index
+from database import get_db, engine, ensure_zone_schema, SessionLocal, ensure_phone_unique_index, ensure_telegram_unique_index
 import pytz 
 from dtos.itemResponseDTO import ItemResponseDTO
 from dtos.deleteItemDTO import DeleteItemDTO, ResponseFakeDeleteDTO
@@ -34,6 +34,7 @@ from item_transfer import (
     update_items_from_excel,
 )
 from whatsapp.router import router as whatsapp_router
+from telegram.bot import router as telegram_router, start_telegram_bot
 from item_images import router as item_images_router, delete_stored_image
 from dotenv import load_dotenv
 
@@ -70,6 +71,7 @@ app.include_router(movements.router)
 app.include_router(admin.router)
 app.include_router(zones.router)
 app.include_router(whatsapp_router)
+app.include_router(telegram_router)
 app.include_router(item_images_router)
 
 models.Base.metadata.create_all(bind=engine)
@@ -84,6 +86,7 @@ try:
 except Exception:
     logger.exception("No se pudieron normalizar teléfonos de usuarios")
 ensure_phone_unique_index()
+ensure_telegram_unique_index()
 seed_admin_from_env()
 
 item_dependency = Annotated[Session, Depends(get_db)]
@@ -96,6 +99,9 @@ def startup_event():
             daemon=True
         )
         app.notification_thread.start()
+    if not getattr(app, "telegram_started", False):
+        start_telegram_bot()
+        app.telegram_started = True
 
 TIMEZONE = pytz.timezone('America/Argentina/Buenos_Aires')
 

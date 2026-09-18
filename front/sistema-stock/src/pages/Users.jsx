@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getUsers, deleteUser, updateUserPassword, updateUserPhone } from "../api/auth";
+import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram } from "../api/auth";
 import Dashboard from "./Dashboard";
 
 const UsersPage = () => {
@@ -27,6 +27,12 @@ const UsersPage = () => {
     open: false,
     user: null,
     phone: "",
+    saving: false,
+  });
+  const [telegramModal, setTelegramModal] = useState({
+    open: false,
+    user: null,
+    telegramId: "",
     saving: false,
   });
   const [feedbackModal, setFeedbackModal] = useState({
@@ -112,6 +118,43 @@ const UsersPage = () => {
 
   const closePhoneModal = () => {
     setPhoneModal({ open: false, user: null, phone: "", saving: false });
+  };
+
+  const openTelegramModal = (user) => {
+    setTelegramModal({
+      open: true,
+      user,
+      telegramId: user.telegram_id || "",
+      saving: false,
+    });
+  };
+
+  const closeTelegramModal = () => {
+    setTelegramModal({ open: false, user: null, telegramId: "", saving: false });
+  };
+
+  const handleUpdateTelegram = async (e) => {
+    e.preventDefault();
+    if (!telegramModal.user) return;
+    const userLabel = `${telegramModal.user.name} ${telegramModal.user.surname}`.trim();
+    setTelegramModal((prev) => ({ ...prev, saving: true }));
+    try {
+      await updateUserTelegram(telegramModal.user.id, telegramModal.telegramId.trim());
+      closeTelegramModal();
+      setFeedbackModal({
+        open: true,
+        type: "success",
+        message: `El Telegram ID de ${userLabel} se actualizó correctamente.`,
+      });
+      fetchUsers();
+    } catch (err) {
+      setTelegramModal((prev) => ({ ...prev, saving: false }));
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: err.message || "No se pudo actualizar el Telegram ID.",
+      });
+    }
   };
 
   const handleUpdatePhone = async (e) => {
@@ -243,6 +286,8 @@ const UsersPage = () => {
                   </div>
                   <div className="small mb-3">
                     Teléfono: {user.phone || "—"}
+                    <br />
+                    Telegram: {user.telegram_id || "—"}
                   </div>
                   <div className="d-grid gap-2">
                     <button
@@ -251,6 +296,13 @@ const UsersPage = () => {
                       className="btn btn-sm btn-outline-secondary"
                     >
                       Teléfono
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openTelegramModal(user)}
+                      className="btn btn-sm btn-outline-secondary"
+                    >
+                      Telegram
                     </button>
                     <button
                       type="button"
@@ -280,6 +332,7 @@ const UsersPage = () => {
                     <th>Nombre</th>
                     <th>Email</th>
                     <th>Teléfono</th>
+                    <th>Telegram</th>
                     <th>Rol</th>
                     <th>Estado</th>
                     <th>Acciones</th>
@@ -294,6 +347,7 @@ const UsersPage = () => {
                       </td>
                       <td>{user.email}</td>
                       <td>{user.phone || "—"}</td>
+                      <td>{user.telegram_id || "—"}</td>
                       <td>
                         <span
                           className={`badge ${
@@ -314,6 +368,13 @@ const UsersPage = () => {
                             className="btn btn-sm btn-outline-secondary"
                           >
                             Teléfono
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openTelegramModal(user)}
+                            className="btn btn-sm btn-outline-secondary"
+                          >
+                            Telegram
                           </button>
                           <button
                             type="button"
@@ -501,6 +562,72 @@ const UsersPage = () => {
                     disabled={phoneModal.saving}
                   >
                     {phoneModal.saving ? "Guardando..." : "Guardar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {telegramModal.open && telegramModal.user && (
+        <div
+          className="modal show d-block fade"
+          tabIndex="-1"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={closeTelegramModal}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <form onSubmit={handleUpdateTelegram}>
+                <div className="modal-header">
+                  <h5 className="modal-title">
+                    Telegram ID — {telegramModal.user.name}{" "}
+                    {telegramModal.user.surname}
+                  </h5>
+                  <button
+                    type="button"
+                    className="btn-close"
+                    onClick={closeTelegramModal}
+                  ></button>
+                </div>
+                <div className="modal-body">
+                  <label className="form-label">ID numérico</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={telegramModal.telegramId}
+                    onChange={(e) =>
+                      setTelegramModal((prev) => ({
+                        ...prev,
+                        telegramId: e.target.value,
+                      }))
+                    }
+                    placeholder="123456789"
+                    autoFocus
+                  />
+                  <div className="form-text">
+                    Que le escriba al bot: le responde su ID. Vacío lo desvincula.
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    onClick={closeTelegramModal}
+                    disabled={telegramModal.saving}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={telegramModal.saving}
+                  >
+                    {telegramModal.saving ? "Guardando..." : "Guardar"}
                   </button>
                 </div>
               </form>

@@ -96,6 +96,19 @@ export async function updateUserPhone(userId, phone) {
   })
 }
 
+export async function updateUserTelegram(userId, telegramId) {
+  const token = localStorage.getItem("authToken")
+
+  return await apiFetch(`/admin/users/${userId}/telegram`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ telegram_id: telegramId || null }),
+  })
+}
+
 export const getCurrentUserName = async (token) => {
   const data = await apiFetch("/admin/me", {
     headers: {

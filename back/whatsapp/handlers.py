@@ -3,7 +3,7 @@ import re
 from typing import Optional
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session, joinedload
 
 import models
@@ -15,6 +15,7 @@ from historial import devolver_item, retirar_item, trasladar_item
 from item_import import record_carga
 from item_service import ItemServiceError, adjust_item_stock
 from movements import execute_movement, validate_movement
+from telegram.identity import find_user_by_telegram_id, normalize_telegram_id
 from whatsapp.phone import find_user_by_phone, is_confirm_no, is_confirm_yes, normalize_phone
 from whatsapp.resolve import (
     find_items,
@@ -40,7 +41,8 @@ ALLOWED_ACTIONS = {"consulta", "retiro", "devolucion", "ingreso", "traslado"}
 class WhatsAppActionDTO(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    phone: str
+    phone: Optional[str] = None
+    telegram_id: Optional[str] = None
     text: Optional[str] = None
     action: Optional[str] = None
     where: Optional[str] = None
@@ -57,7 +59,7 @@ class WhatsAppActionDTO(BaseModel):
             return None
         return int(value)
 
-    @field_validator("action", "where", "from_", "elemento", "quien", "text", mode="before")
+    @field_validator("action", "where", "from_", "elemento", "quien", "text", "phone", "telegram_id", mode="before")
     @classmethod
     def strip_strings(cls, value):
         if isinstance(value, str):
@@ -65,18 +67,45 @@ class WhatsAppActionDTO(BaseModel):
             return stripped or None
         return value
 
+    @model_validator(mode="after")
+    def require_identity(self):
+        if not self.phone and not self.telegram_id:
+            raise ValueError("phone o telegram_id es obligatorio")
+        return self
 
-def unauthorized_reply() -> dict:
+
+def unauthorized_reply(telegram_id: str | None = None) -> dict:
+    if telegram_id:
+        reply = (
+            f"Tu Telegram ID es {telegram_id}. Pedile a un administrador "
+            "que lo registre en Usuarios."
+        )
+    else:
+        reply = (
+            "Tu número no está autorizado. Pedile a un administrador "
+            "que lo registre en el sistema."
+        )
     return {
         "ok": False,
         "authorized": False,
         "needs_json": False,
         "needs_confirm": False,
-        "reply": (
-            "Tu número no está autorizado. Pedile a un administrador "
-            "que lo registre en el sistema."
-        ),
+        "reply": reply,
     }
+
+
+def session_key_for(dto: WhatsAppActionDTO) -> str:
+    telegram_id = normalize_telegram_id(dto.telegram_id) if dto.telegram_id else None
+    if telegram_id:
+        return f"tg:{telegram_id}"
+    return normalize_phone(dto.phone) or (dto.phone or "")
+
+
+def resolve_user(db: Session, dto: WhatsAppActionDTO):
+    telegram_id = normalize_telegram_id(dto.telegram_id) if dto.telegram_id else None
+    if telegram_id:
+        return find_user_by_telegram_id(db, telegram_id), telegram_id
+    return find_user_by_phone(db, dto.phone or ""), None
 
 
 def json_help_reply(extra: str | None = None) -> dict:
@@ -289,24 +318,30 @@ def parse_free_text(text: str) -> dict:
 
 
 def handle_action(db: Session, dto: WhatsAppActionDTO) -> dict:
-    user = find_user_by_phone(db, dto.phone)
+    user, telegram_id = resolve_user(db, dto)
     if not user:
-        return unauthorized_reply()
+        return unauthorized_reply(telegram_id)
 
-    phone = normalize_phone(dto.phone) or dto.phone
+    session_key = session_key_for(dto)
     current_user = user_as_current(user)
-    pending = load_pending(db, phone)
+    pending = load_pending(db, session_key)
     text = (dto.text or "").strip()
+    channel = "Telegram" if telegram_id else "WhatsApp"
+
+    if text.lower().startswith("/start") or text.lower() in ("/help", "ayuda"):
+        return ok_reply(
+            f"Hola {user.name}. Ya podés consultar o mover stock por {channel}."
+        )
 
     if dto.confirm is True or (text and is_confirm_yes(text)):
         if not pending:
             return ok_reply("No hay ninguna operación pendiente para confirmar.")
-        return execute_pending(db, user, current_user, phone, pending)
+        return execute_pending(db, user, current_user, session_key, pending)
 
     if dto.confirm is False or (text and is_confirm_no(text)):
         if not pending:
             return ok_reply("No había nada para cancelar.")
-        clear_pending(db, phone)
+        clear_pending(db, session_key)
         return ok_reply("Cancelado. No se tocó el inventario.")
 
     data = merge_payload(dto)
@@ -327,7 +362,7 @@ def handle_action(db: Session, dto: WhatsAppActionDTO) -> dict:
         prepared = prepare_mutation(db, user, data)
         if prepared.get("error"):
             return prepared["error"]
-        save_pending(db, phone, prepared["pending"])
+        save_pending(db, session_key, prepared["pending"])
         return {
             "ok": True,
             "authorized": True,

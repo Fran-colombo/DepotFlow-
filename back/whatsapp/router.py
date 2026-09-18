@@ -55,7 +55,11 @@ def whatsapp_template():
 
 @router.post("/actions")
 def whatsapp_actions(dto: WhatsAppActionDTO, db: Session = Depends(get_db)):
-    dto.phone = normalize_phone(dto.phone) or dto.phone
+    if dto.phone:
+        dto.phone = normalize_phone(dto.phone) or dto.phone
     result = handle_action(db, dto)
-    result["phone"] = dto.phone
+    if dto.phone:
+        result["phone"] = dto.phone
+    if dto.telegram_id:
+        result["telegram_id"] = dto.telegram_id
     return result
