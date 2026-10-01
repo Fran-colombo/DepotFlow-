@@ -7,6 +7,7 @@ class ObservationCreateDTO(BaseModel):
     item_id: int
     description: str
     observed_by: Optional[str] = None
+    unit_id: Optional[int] = None
 
 
 class ObservationResponseDTO(BaseModel):
@@ -17,6 +18,7 @@ class ObservationResponseDTO(BaseModel):
     user_id: int
     user_name: str
     observed_by: Optional[str] = None
+    unit_id: Optional[int] = None
 
     class Config:
         from_attributes = True

@@ -29,7 +29,8 @@ def get_all_observations(db: db_dependency):
 @router.get("/item/{item_id}", response_model=list[dtos.ObservationResponseDTO])
 def get_observations_by_item(item_id: int, db: db_dependency):
     observations = db.query(models.Observation).filter(
-        models.Observation.item_id == item_id
+        models.Observation.item_id == item_id,
+        models.Observation.unit_id.is_(None),
     ).all()
     
     if not observations:
@@ -38,6 +39,17 @@ def get_observations_by_item(item_id: int, db: db_dependency):
             detail="No observations found for this item"
         )
     return observations
+
+
+@router.get("/unit/{unit_id}", response_model=list[dtos.ObservationResponseDTO])
+def get_observations_by_unit(unit_id: int, db: db_dependency):
+    return (
+        db.query(models.Observation)
+        .filter(models.Observation.unit_id == unit_id)
+        .order_by(models.Observation.date.asc())
+        .all()
+    )
+
 
 @router.post("/", response_model=dtos.ObservationResponseDTO, status_code=status.HTTP_201_CREATED)
 def create_observation(
@@ -60,12 +72,28 @@ def create_observation(
         )
     observed_by = dto.observed_by.strip() if dto.observed_by and dto.observed_by.strip() else None
 
+    if dto.unit_id:
+        unit = (
+            db.query(models.ItemUnit)
+            .filter(
+                models.ItemUnit.id == dto.unit_id,
+                models.ItemUnit.item_id == dto.item_id,
+            )
+            .first()
+        )
+        if not unit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La pieza no pertenece a este artículo",
+            )
+
     observation = models.Observation(
         item_id=dto.item_id,
         description=dto.description,
         user_id=current_user["user_id"],
         user_name=f"{user.name} {user.surname}",
         observed_by=observed_by,
+        unit_id=dto.unit_id,
         date=now()
     )
     

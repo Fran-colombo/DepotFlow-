@@ -37,12 +37,14 @@ from whatsapp.router import router as whatsapp_router
 from telegram.bot import router as telegram_router, start_telegram_bot
 from item_images import router as item_images_router, delete_stored_image
 import categories
-from item_categories import normalize_lookup, seed_categories
+from item_categories import category_is_consumable, normalize_lookup, seed_categories
+from pydantic import BaseModel
 from unit_service import (
     find_unit_by_code,
     identify_current_stock,
     last_unit_movement,
     peek_codes,
+    unit_history,
 )
 from dotenv import load_dotenv
 
@@ -478,8 +480,13 @@ def next_unit_codes(
     db: item_dependency,
     current_user: Annotated[dict, Depends(get_current_user)],
     count: int = Query(1, ge=1, le=500),
+    prefix: str = Query("K"),
 ):
-    return {"codes": peek_codes(db, count)}
+    try:
+        codes = peek_codes(db, count, prefix)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return {"codes": codes}
 
 
 @app.get("/units/by-code/{code}")
@@ -499,7 +506,7 @@ def get_unit_by_code(
     history = last_unit_movement(db, unit)
     status_label = {
         "en_stock": "En depósito",
-        "retirada": "Afuera",
+        "retirada": "En obra",
         "consumida": "Usada",
     }.get(unit.status, unit.status)
     return {
@@ -538,24 +545,39 @@ def list_item_units(
     elif not status_filter:
         query = query.filter(models.ItemUnit.status == "en_stock")
     units = query.order_by(models.ItemUnit.id.asc()).all()
+    labels = {
+        "en_stock": "En depósito",
+        "retirada": "En obra",
+        "consumida": "Usada",
+    }
     return {
         "track_units": bool(item.track_units),
+        "is_consumable": category_is_consumable(db, item.category),
         "units": [
             {
                 "id": unit.id,
                 "code": unit.code,
                 "status": unit.status,
+                "status_label": labels.get(unit.status, unit.status),
+                "has_image": bool(unit.image_filename),
+                "image_filename": unit.image_filename,
                 "created_at": unit.created_at.isoformat() if unit.created_at else None,
                 "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
+                "history": unit_history(db, unit),
             }
             for unit in units
         ],
     }
 
 
+class IdentifyUnitsBody(BaseModel):
+    prefix: str
+
+
 @app.post("/items/{item_id}/identify")
 def identify_item_units(
     item_id: int,
+    body: IdentifyUnitsBody,
     db: item_dependency,
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
@@ -563,7 +585,7 @@ def identify_item_units(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     try:
-        units = identify_current_stock(db, item)
+        units = identify_current_stock(db, item, body.prefix)
     except ItemServiceError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
     return {"codes": [unit.code for unit in units], "track_units": True}

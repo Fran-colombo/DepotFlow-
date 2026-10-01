@@ -200,3 +200,58 @@ def delete_item_image(
     delete_stored_image(item)
     db.commit()
     return {"ok": True, "has_image": False}
+
+
+@router.post("/units/{unit_id}/image")
+async def upload_unit_image(
+    unit_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+    file: UploadFile = File(...),
+):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pieza no encontrada")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El archivo está vacío")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La imagen no puede superar los 8 MB",
+        )
+
+    img = _load_image(data)
+    delete_stored_image(unit)
+    unit.image_filename = _save_processed(f"unit{unit_id}", img)
+    db.commit()
+    return {"ok": True, "has_image": True, "image_filename": unit.image_filename}
+
+
+@router.get("/units/{unit_id}/image")
+def get_unit_image(unit_id: int, db: Annotated[Session, Depends(get_db)]):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit or not unit.image_filename:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esta pieza no tiene imagen")
+    path = stored_image_path(unit.image_filename)
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el archivo de imagen")
+    media_type = MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type)
+
+
+@router.delete("/units/{unit_id}/image")
+def delete_unit_image(
+    unit_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pieza no encontrada")
+    if not unit.image_filename:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esta pieza no tiene imagen")
+    delete_stored_image(unit)
+    db.commit()
+    return {"ok": True, "has_image": False}

@@ -7,7 +7,7 @@ import models
 from item_service import ItemServiceError
 
 CODE_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9\-]{0,39}$")
-GENERATED_CODE = re.compile(r"^K-(\d+)$")
+PREFIX_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{0,3}$")
 
 STATUS_EN_STOCK = "en_stock"
 STATUS_RETIRADA = "retirada"
@@ -27,26 +27,49 @@ def _existing_codes(db: Session) -> set:
     return {code for (code,) in db.query(models.ItemUnit.code).all()}
 
 
-def peek_codes(db: Session, count: int) -> list:
+def normalize_prefix(raw: str) -> str:
+    prefix = re.sub(r"[^A-Z0-9]", "", (raw or "").strip().upper())
+    if not prefix or not PREFIX_PATTERN.fullmatch(prefix):
+        raise ItemServiceError("El prefijo es una letra, por ejemplo H")
+    return prefix
+
+
+def infer_prefix(db: Session, item: models.Item) -> str:
+    unit = (
+        db.query(models.ItemUnit)
+        .filter(models.ItemUnit.item_id == item.id)
+        .order_by(models.ItemUnit.id.desc())
+        .first()
+    )
+    if unit and unit.code:
+        match = re.match(r"^([A-Z][A-Z0-9]{0,3})-\d+$", unit.code)
+        if match:
+            return match.group(1)
+    return "K"
+
+
+def peek_codes(db: Session, count: int, prefix: str = "K") -> list:
     if count <= 0:
         return []
+    prefix = normalize_prefix(prefix)
+    pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
     existing = _existing_codes(db)
     serial = 0
     for code in existing:
-        match = GENERATED_CODE.fullmatch(code or "")
+        match = pattern.fullmatch(code or "")
         if match:
             serial = max(serial, int(match.group(1)))
     codes = []
     while len(codes) < count:
         serial += 1
-        candidate = f"K-{serial:04d}"
+        candidate = f"{prefix}-{serial:03d}"
         if candidate not in existing:
             codes.append(candidate)
             existing.add(candidate)
     return codes
 
 
-def create_units_for_item(db: Session, item: models.Item, quantity: int, codes=None):
+def create_units_for_item(db: Session, item: models.Item, quantity: int, codes=None, prefix=None):
     if quantity <= 0:
         item._created_codes = []
         return []
@@ -58,7 +81,7 @@ def create_units_for_item(db: Session, item: models.Item, quantity: int, codes=N
         if len(set(normalized)) != len(normalized):
             raise ItemServiceError("Hay códigos repetidos en la carga")
     else:
-        normalized = peek_codes(db, quantity)
+        normalized = peek_codes(db, quantity, prefix or infer_prefix(db, item))
 
     taken = _existing_codes(db)
     units = []
@@ -201,7 +224,7 @@ def restore_units(db: Session, item: models.Item, amount: int, codes, place: str
         for code in normalized:
             unit = db.query(models.ItemUnit).filter(models.ItemUnit.code == code).first()
             if not unit or unit.item_id != item.id or unit.status != STATUS_RETIRADA:
-                raise ItemServiceError(f"El código {code} no está afuera para devolver")
+                raise ItemServiceError(f"El código {code} no está en obra para devolver")
             units.append(unit)
     else:
         units = units_for_pending_place(db, item, place, amount)
@@ -230,12 +253,12 @@ def move_stock_units(db: Session, source: models.Item, target: models.Item, quan
     return []
 
 
-def identify_current_stock(db: Session, item: models.Item):
+def identify_current_stock(db: Session, item: models.Item, prefix: str):
     if item.track_units:
         raise ItemServiceError("Este artículo ya identifica cada pieza")
     quantity = item.actualAmount or 0
     item.track_units = True
-    units = create_units_for_item(db, item, quantity) if quantity > 0 else []
+    units = create_units_for_item(db, item, quantity, prefix=prefix) if quantity > 0 else []
     db.commit()
     db.refresh(item)
     return units
@@ -244,6 +267,29 @@ def identify_current_stock(db: Session, item: models.Item):
 def find_unit_by_code(db: Session, code: str):
     normalized = normalize_code(code)
     return db.query(models.ItemUnit).filter(models.ItemUnit.code == normalized).first()
+
+
+def unit_history(db: Session, unit: models.ItemUnit) -> list:
+    links = (
+        db.query(models.HistoryUnit)
+        .filter(models.HistoryUnit.unit_id == unit.id)
+        .order_by(models.HistoryUnit.id.asc())
+        .all()
+    )
+    rows = []
+    for link in links:
+        history = db.query(models.History).filter(models.History.id == link.history_id).first()
+        if not history:
+            continue
+        rows.append(
+            {
+                "action": history.action.value if history.action else None,
+                "place": history.place,
+                "person": history.personWhoTook,
+                "date": history.date.isoformat() if history.date else None,
+            }
+        )
+    return rows
 
 
 def last_unit_movement(db: Session, unit: models.ItemUnit):

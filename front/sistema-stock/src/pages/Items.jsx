@@ -20,7 +20,7 @@ import TrasladoModal from "../components/TrasladoModal";
 import PendingLocationsModal from "../components/PendingLocationsModal";
 import ItemHistorialModal from "../components/ItemHistorialModal";
 import ItemImageModal from "../components/ItemImageModal";
-import UnitCodesModal from "../components/UnitCodesModal";
+import ItemDetailModal from "../components/ItemDetailModal";
 
 const isConsumable = (item) => Boolean(item?.is_consumable);
 
@@ -52,7 +52,7 @@ const Items = () => {
   const [showPendingLocationsModal, setShowPendingLocationsModal] = useState(false);
   const [showItemHistorialModal, setShowItemHistorialModal] = useState(false);
   const [itemImageModal, setItemImageModal] = useState({ open: false, mode: "upload" });
-  const [showCodesModal, setShowCodesModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [codeHit, setCodeHit] = useState(null);
 
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -454,12 +454,13 @@ const Items = () => {
               setSelectedItem({
                 id: codeHit.item_id,
                 name: codeHit.item_name,
+                category: codeHit.category,
                 track_units: true,
               });
-              setShowCodesModal(true);
+              setShowDetailModal(true);
             }}
           >
-            Ver códigos del artículo
+            Ver en detalle
           </button>
         </div>
       )}
@@ -568,12 +569,21 @@ const Items = () => {
                       </td>
                       <td className="text-end">
                         <div className={`fw-semibold ${isOutOfStock ? "text-danger" : "text-dark"}`}>
-                          {item.actualAmount}
-                          <span className="app-muted fw-normal"> / {item.totalAmount}</span>
+                          {item.actualAmount} en depósito
                         </div>
-                        <span className={`app-stock-badge ${isOutOfStock ? "out" : "ok"}`}>
-                          {isOutOfStock ? "Sin stock" : "Disponible"}
-                        </span>
+                        {item.totalAmount !== item.actualAmount && (
+                          <div className="app-muted small">{item.totalAmount} en total</div>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-link btn-sm p-0"
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setShowDetailModal(true);
+                          }}
+                        >
+                          Ver en detalle
+                        </button>
                       </td>
                       <td className="text-end">
                         <div className="d-inline-flex align-items-center gap-1">
@@ -672,19 +682,6 @@ const Items = () => {
                                   </button>
                                 </li>
                                 <li><hr className="dropdown-divider" /></li>
-                                <li>
-                                  <button
-                                    className="dropdown-item"
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenMenuId(null);
-                                      setSelectedItem(item);
-                                      setShowCodesModal(true);
-                                    }}
-                                  >
-                                    Códigos
-                                  </button>
-                                </li>
                                 <li>
                                   <button
                                     className="dropdown-item"
@@ -960,11 +957,11 @@ const Items = () => {
         />
       )}
 
-      {showCodesModal && selectedItem && (
-        <UnitCodesModal
+      {showDetailModal && selectedItem && (
+        <ItemDetailModal
           item={selectedItem}
-          isOpen={showCodesModal}
-          onClose={() => setShowCodesModal(false)}
+          isOpen={showDetailModal}
+          onClose={() => setShowDetailModal(false)}
           onChanged={refreshCurrentPage}
         />
       )}

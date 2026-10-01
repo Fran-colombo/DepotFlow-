@@ -45,7 +45,7 @@ export async function getItemObservations(itemId) {
   return apiFetch(`/api/observations/item/${itemId}`);
 }
 
-export async function addObservation(itemId, description, observedBy = "") {
+export async function addObservation(itemId, description, observedBy = "", unitId = null) {
   return apiFetch(`/api/observations/`, {
     method: "POST",
     headers: {
@@ -55,8 +55,13 @@ export async function addObservation(itemId, description, observedBy = "") {
       item_id: itemId,
       description,
       ...(observedBy?.trim() && { observed_by: observedBy.trim() }),
+      ...(unitId ? { unit_id: unitId } : {}),
     }),
   });
+}
+
+export function getUnitObservations(unitId) {
+  return apiFetch(`/api/observations/unit/${unitId}`);
 }
 
 
@@ -416,14 +421,52 @@ export function getUnitByCode(code) {
   return apiFetch(`/units/by-code/${encodeURIComponent(code)}`);
 }
 
-export function getItemUnits(itemId, status = "en_stock") {
+export function getItemUnits(itemId, status = "all") {
   return apiFetch(`/items/${itemId}/units`, {
     params: { status },
   });
 }
 
-export function identifyItem(itemId) {
+export function identifyItem(itemId, prefix) {
   return apiFetch(`/items/${itemId}/identify`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prefix }),
   });
+}
+
+export function getUnitImageUrl(unit) {
+  if (!unit?.has_image) return null;
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const version = encodeURIComponent(unit.image_filename || "1");
+  return `${base}/units/${unit.id}/image?v=${version}`;
+}
+
+export async function uploadUnitImage(unitId, file) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${base}/units/${unitId}/image`, {
+    method: "POST",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: formData,
+  });
+  if (!response.ok) {
+    let message = "No se pudo cargar la imagen";
+    try {
+      const data = await response.json();
+      message = data.detail || message;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof message === "string" ? message : "No se pudo cargar la imagen");
+  }
+  return response.json();
+}
+
+export function deleteUnitImage(unitId) {
+  return apiFetch(`/units/${unitId}/image`, { method: "DELETE" });
 }

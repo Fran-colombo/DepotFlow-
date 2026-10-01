@@ -122,6 +122,7 @@ const CategoriesPage = () => {
             <label className="form-check-label" htmlFor="category-consumable">
               No vuelve
             </label>
+            <div className="form-text">Insumo, grifería, inodoro o bidet: al retirarlo queda usado.</div>
           </div>
         </div>
         <div className="col-md-2 d-flex gap-2">

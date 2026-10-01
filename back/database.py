@@ -205,6 +205,22 @@ def ensure_inventory_schema():
                 "ALTER TABLE items ADD COLUMN track_units BOOLEAN NOT NULL DEFAULT 0"
             ))
 
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "image_filename"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE item_units ADD COLUMN image_filename VARCHAR"))
+
+    if _column_exists("observations", "id") and not _column_exists("observations", "unit_id"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE observations ADD COLUMN unit_id INTEGER REFERENCES item_units(id)"
+            ))
+
+    if _column_exists("observations", "unit_id"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_observations_unit_id ON observations (unit_id)"
+            ))
+
     if _column_exists("categories", "id") and not _column_exists("categories", "seed_key"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE categories ADD COLUMN seed_key VARCHAR"))

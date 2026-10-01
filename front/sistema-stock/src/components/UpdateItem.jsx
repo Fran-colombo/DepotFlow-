@@ -231,7 +231,7 @@ const UpdateItemModal = ({
         });
         refreshItems?.();
         if (created?.codes?.length) {
-          setCreatedLabels({ name: formData.name, codes: created.codes });
+          setCreatedLabels({ name: formData.name, codes: created.codes, category: formData.category });
           return;
         }
       } else {
@@ -255,6 +255,7 @@ const UpdateItemModal = ({
           setCreatedLabels({
             name: selectedUpdateItem?.name || "Artículo",
             codes: updated.codes,
+            category: selectedUpdateItem?.category || "",
           });
           return;
         }
@@ -324,7 +325,7 @@ const UpdateItemModal = ({
                   <button
                     type="button"
                     className="btn btn-outline-primary"
-                    onClick={() => printLabels(createdLabels.name, createdLabels.codes)}
+                    onClick={() => printLabels(createdLabels.name, createdLabels.codes, createdLabels.category)}
                   >
                     Imprimir etiquetas
                   </button>

@@ -46,6 +46,7 @@ class Observation(Base):
     user_id = Column(Integer, ForeignKey("users.id"))
     user_name = Column(String, index=True)
     observed_by = Column(String, nullable=True)
+    unit_id = Column(Integer, ForeignKey("item_units.id"), nullable=True, index=True)
     
     item = relationship("Item", back_populates="observations")
     user = relationship("User")
@@ -157,6 +158,7 @@ class ItemUnit(Base):
     status = Column(String, nullable=False, default="en_stock", index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     consumed_at = Column(DateTime, nullable=True)
+    image_filename = Column(String, nullable=True)
 
 
 class HistoryUnit(Base):
