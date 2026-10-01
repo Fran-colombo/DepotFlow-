@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 import models
 from auth import get_user_name_by_id
-from item_categories import ITEM_CATEGORIES, canonical_category, normalize_lookup
+from item_categories import canonical_category, list_categories, normalize_lookup
 from item_service import (
     ItemServiceError,
     adjust_item_stock,
@@ -161,7 +161,7 @@ def _find_zone(db: Session, shed_id: int, name: str):
     return matches[0]
 
 
-def build_import_template() -> bytes:
+def build_import_template(db: Session) -> bytes:
     wb = Workbook()
     products = wb.active
     products.title = "Productos"
@@ -190,27 +190,29 @@ def build_import_template() -> bytes:
     for index, width in enumerate(widths, start=1):
         products.column_dimensions[get_column_letter(index)].width = width
 
+    active_categories = list_categories(db, active_only=True)
     categories_sheet = wb.create_sheet("Categorias")
     categories_sheet["A1"] = "Categorías válidas"
     categories_sheet["A1"].font = Font(bold=True)
-    for index, category in enumerate(ITEM_CATEGORIES, start=2):
-        categories_sheet[f"A{index}"] = category["value"]
-        if category["label"] != category["value"]:
-            categories_sheet[f"B{index}"] = f"también: {category['label']}"
+    for index, category in enumerate(active_categories, start=2):
+        categories_sheet[f"A{index}"] = category.name
+        if category.label != category.name:
+            categories_sheet[f"B{index}"] = f"también: {category.label}"
     categories_sheet.column_dimensions["A"].width = 48
     categories_sheet.column_dimensions["B"].width = 42
 
-    last_cat_row = 1 + len(ITEM_CATEGORIES)
-    dv = DataValidation(
-        type="list",
-        formula1=f"Categorias!$A$2:$A${last_cat_row}",
-        allow_blank=False,
-        showDropDown=False,
-    )
-    dv.error = "Usá una categoría de la lista"
-    dv.errorTitle = "Categoría inválida"
-    products.add_data_validation(dv)
-    dv.add("D2:D1000")
+    if active_categories:
+        last_cat_row = 1 + len(active_categories)
+        dv = DataValidation(
+            type="list",
+            formula1=f"Categorias!$A$2:$A${last_cat_row}",
+            allow_blank=False,
+            showDropDown=False,
+        )
+        dv.error = "Usá una categoría de la lista"
+        dv.errorTitle = "Categoría inválida"
+        products.add_data_validation(dv)
+        dv.add("D2:D1000")
 
     instructions = wb.create_sheet("Manual")
     lines = [
@@ -280,7 +282,7 @@ def import_items_from_excel(db: Session, file_bytes: bytes, current_user: dict) 
                 raise ValueError("El nombre es obligatorio")
 
             category_raw = str(row_data.get("categoria") or "").strip()
-            category = canonical_category(category_raw)
+            category = canonical_category(db, category_raw)
             if not category:
                 raise ValueError("La categoría no es válida")
 
@@ -332,6 +334,7 @@ def import_items_from_excel(db: Session, file_bytes: bytes, current_user: dict) 
                     quantity=quantity,
                     zone_id=zone.id,
                     shed_id=shed.id,
+                    track_units=False,
                 )
                 record_carga(db, item, quantity, current_user, comprado_por, place)
                 created += 1

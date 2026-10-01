@@ -30,9 +30,9 @@ class Item(Base):
     zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
     zone = relationship("Zone", back_populates="items")
     status = Column(Integer, default=1)
-    image_filename = Column(String, nullable=True)  
+    image_filename = Column(String, nullable=True)
+    track_units = Column(Boolean, default=False, nullable=False)
 
-    
     observations = relationship("Observation", back_populates="item")
     movements = relationship("Movement", back_populates="item")
 
@@ -134,6 +134,37 @@ class WhatsAppPendingAction(Base):
     phone = Column(String, unique=True, index=True, nullable=False)
     payload = Column(String, nullable=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class Category(Base):
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+    label = Column(String, nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    active = Column(Boolean, default=True, nullable=False)
+    is_consumable = Column(Boolean, default=False, nullable=False)
+    seed_key = Column(String, unique=True, nullable=True, index=True)
+
+
+class ItemUnit(Base):
+    __tablename__ = "item_units"
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False, index=True)
+    code = Column(String, unique=True, nullable=False, index=True)
+    status = Column(String, nullable=False, default="en_stock", index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    consumed_at = Column(DateTime, nullable=True)
+
+
+class HistoryUnit(Base):
+    __tablename__ = "history_units"
+
+    id = Column(Integer, primary_key=True, index=True)
+    history_id = Column(Integer, ForeignKey("historal.id"), nullable=False, index=True)
+    unit_id = Column(Integer, ForeignKey("item_units.id"), nullable=False, index=True)
 
 
 class DeletedItem(Base):

@@ -111,6 +111,8 @@ export async function createItem(data) {
       category: data.category,
       shed_id: data.shed_id,
       zone_id: data.zone_id,
+      track_units: data.track_units !== false,
+      codes: data.codes && data.codes.length ? data.codes : undefined,
     }),
   });
 }
@@ -401,5 +403,27 @@ export async function getDeletedItems({ name = "", category = "", year = "", mon
   return apiFetch("/deleted-items", {
     method: "GET",
     params,
+  });
+}
+
+export function getNextCodes(count) {
+  return apiFetch("/units/next-codes", {
+    params: { count },
+  });
+}
+
+export function getUnitByCode(code) {
+  return apiFetch(`/units/by-code/${encodeURIComponent(code)}`);
+}
+
+export function getItemUnits(itemId, status = "en_stock") {
+  return apiFetch(`/items/${itemId}/units`, {
+    params: { status },
+  });
+}
+
+export function identifyItem(itemId) {
+  return apiFetch(`/items/${itemId}/identify`, {
+    method: "POST",
   });
 }

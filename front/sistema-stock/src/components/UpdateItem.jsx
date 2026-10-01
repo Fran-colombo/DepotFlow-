@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { createItem, updateItem, getItems, getItemById } from "../api/items";
+import { createItem, updateItem, getItems, getItemById, getNextCodes } from "../api/items";
+import { getCategories } from "../api/categories";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
+import { printLabels } from "./printLabels";
 
 const UpdateItemModal = ({
   isOpen,
@@ -17,18 +19,24 @@ const UpdateItemModal = ({
   const [error, setError] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     quantity: 1,
-    category: "Materiales consumibles",
+    category: "",
     shed_id: "",
     zone_id: "",
+    quantityOnly: false,
   });
+  const [proposedCodes, setProposedCodes] = useState([]);
+  const [editCodes, setEditCodes] = useState(false);
+  const [createdLabels, setCreatedLabels] = useState(null);
   const [updateData, setUpdateData] = useState({
     item_id: "",
     quantity: 1,
     action: "add",
+    codesText: "",
   });
 
   const isLockedToItem = mode === "update" && itemId != null;
@@ -43,15 +51,32 @@ const UpdateItemModal = ({
       name: "",
       description: "",
       quantity: 1,
-      category: "Materiales consumibles",
+      category: "",
       shed_id: "",
       zone_id: "",
+      quantityOnly: false,
     });
+    setProposedCodes([]);
+    setEditCodes(false);
+    setCreatedLabels(null);
     setUpdateData({
       item_id: itemId != null ? Number(itemId) : "",
       quantity: 1,
       action: "add",
+      codesText: "",
     });
+    getCategories()
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setCategories(list);
+        if (list.length > 0) {
+          setFormData((prev) => ({
+            ...prev,
+            category: prev.category || list[0].name,
+          }));
+        }
+      })
+      .catch((err) => console.error("Error cargando categorías:", err));
 
     if (mode === "create") {
       getSheds()
@@ -139,27 +164,48 @@ const UpdateItemModal = ({
     return () => clearTimeout(timeout);
   }, [error]);
 
-  const categories = [
-    { value: "Materiales consumibles", label: "Materiales consumibles" },
-    {
-      value: "Maquinas y herramientas eléctricas de mano",
-      label: "Maq. y herramientas eléctricas de mano",
-    },
-    { value: "Prolongación", label: "Prolongación" },
-    {
-      value: "Maquinas y herramientas eléctricas de obra",
-      label: "Maq. y herramientas eléctricas de obra",
-    },
-    {
-      value: "Herramientas de obra general",
-      label: "Herramientas de obra general",
-    },
-    { value: "Encofrados", label: "Encofrados" },
-    { value: "Estructuras de hormigón", label: "Estructuras de hormigón" },
-    { value: "Contrapisos", label: "Contrapisos" },
-    { value: "Albañilería", label: "Albañilería" },
-    { value: "Yesería", label: "Yesería" },
-  ];
+  const selectedUpdateItem = isLockedToItem
+    ? lockedItem
+    : items.find((item) => item.id === updateData.item_id);
+  const updateTracksUnits = Boolean(selectedUpdateItem?.track_units);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "create" || formData.quantityOnly) {
+      if (mode === "create") setProposedCodes([]);
+      return;
+    }
+    let cancelled = false;
+    getNextCodes(formData.quantity || 1)
+      .then((data) => {
+        if (!cancelled) setProposedCodes(data.codes || []);
+      })
+      .catch(() => {
+        if (!cancelled) setProposedCodes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, formData.quantity, formData.quantityOnly]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "update" || !updateTracksUnits || updateData.action !== "add") {
+      return;
+    }
+    let cancelled = false;
+    getNextCodes(updateData.quantity || 1)
+      .then((data) => {
+        if (!cancelled) {
+          setProposedCodes(data.codes || []);
+          setUpdateData((prev) => ({ ...prev, codesText: (data.codes || []).join(", ") }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setProposedCodes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, updateTracksUnits, updateData.action, updateData.quantity]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -173,11 +219,21 @@ const UpdateItemModal = ({
           setIsLoading(false);
           return;
         }
-        await createItem({
-          ...formData,
+        const created = await createItem({
+          name: formData.name,
+          description: formData.description,
+          quantity: formData.quantity,
+          category: formData.category,
           shed_id: Number(formData.shed_id),
           zone_id: Number(formData.zone_id),
+          track_units: !formData.quantityOnly,
+          codes: formData.quantityOnly ? undefined : proposedCodes,
         });
+        refreshItems?.();
+        if (created?.codes?.length) {
+          setCreatedLabels({ name: formData.name, codes: created.codes });
+          return;
+        }
       } else {
         const { item_id, quantity, action } = updateData;
         if (!item_id || quantity <= 0 || !action) {
@@ -185,13 +241,25 @@ const UpdateItemModal = ({
           setIsLoading(false);
           return;
         }
-        await updateItem(updateData.item_id, {
+        const typedCodes = (updateData.codesText || "")
+          .split(/[\s,;]+/)
+          .map((code) => code.trim())
+          .filter(Boolean);
+        const updated = await updateItem(updateData.item_id, {
           quantity: updateData.quantity,
           action: updateData.action,
+          ...(updateTracksUnits && typedCodes.length ? { codes: typedCodes } : {}),
         });
+        refreshItems?.();
+        if (updated?.codes?.length && action === "add") {
+          setCreatedLabels({
+            name: selectedUpdateItem?.name || "Artículo",
+            codes: updated.codes,
+          });
+          return;
+        }
       }
       onClose();
-      refreshItems?.();
     } catch (err) {
       setError(err.message || "Error al procesar la operación");
     } finally {
@@ -239,6 +307,34 @@ const UpdateItemModal = ({
           </div>
 
           <div className="modal-body px-4 py-3">
+            {createdLabels ? (
+              <div>
+                <p>
+                  Quedaron {createdLabels.codes.length} código
+                  {createdLabels.codes.length === 1 ? "" : "s"} para etiquetar{" "}
+                  <strong>{createdLabels.name}</strong>.
+                </p>
+                <p className="fw-semibold">
+                  {createdLabels.codes[0]}
+                  {createdLabels.codes.length > 1
+                    ? ` a ${createdLabels.codes[createdLabels.codes.length - 1]}`
+                    : ""}
+                </p>
+                <div className="d-flex justify-content-end gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary"
+                    onClick={() => printLabels(createdLabels.name, createdLabels.codes)}
+                  >
+                    Imprimir etiquetas
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={onClose}>
+                    Listo
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <>
             {error && <div className="alert alert-danger text-center">{error}</div>}
 
             <form onSubmit={handleSubmit}>
@@ -297,8 +393,8 @@ const UpdateItemModal = ({
                       required
                     >
                       {categories.map((cat) => (
-                        <option key={cat.value} value={cat.value}>
-                          {cat.label}
+                        <option key={cat.id || cat.name} value={cat.name}>
+                          {cat.label || cat.name}
                         </option>
                       ))}
                     </select>
@@ -350,6 +446,57 @@ const UpdateItemModal = ({
                       </div>
                     )}
                   </div>
+
+                  <div className="form-check mb-3">
+                    <input
+                      id="quantity-only"
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={formData.quantityOnly}
+                      onChange={(e) =>
+                        setFormData({ ...formData, quantityOnly: e.target.checked })
+                      }
+                    />
+                    <label className="form-check-label" htmlFor="quantity-only">
+                      Solo cantidad (sin código por pieza)
+                    </label>
+                  </div>
+
+                  {!formData.quantityOnly && proposedCodes.length > 0 && (
+                    <div className="mb-3">
+                      <div className="d-flex justify-content-between align-items-center">
+                        <span className="fw-bold">
+                          Códigos {proposedCodes[0]}
+                          {proposedCodes.length > 1
+                            ? ` a ${proposedCodes[proposedCodes.length - 1]}`
+                            : ""}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-link"
+                          onClick={() => setEditCodes((value) => !value)}
+                        >
+                          {editCodes ? "Ocultar" : "Editar códigos"}
+                        </button>
+                      </div>
+                      <div className="form-text">
+                        Se pegan en la pieza. Si alguna ya viene marcada, cambiala antes de guardar.
+                      </div>
+                      {editCodes &&
+                        proposedCodes.map((code, index) => (
+                          <input
+                            key={index}
+                            className="form-control form-control-sm mt-2"
+                            value={code}
+                            onChange={(e) => {
+                              const next = [...proposedCodes];
+                              next[index] = e.target.value;
+                              setProposedCodes(next);
+                            }}
+                          />
+                        ))}
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -436,13 +583,38 @@ const UpdateItemModal = ({
                       className="form-select"
                       value={updateData.action}
                       onChange={(e) =>
-                        setUpdateData({ ...updateData, action: e.target.value })
+                        setUpdateData({
+                          ...updateData,
+                          action: e.target.value,
+                          codesText: "",
+                        })
                       }
                     >
                       <option value="add">Agregar stock</option>
                       <option value="rest">Quitar stock</option>
                     </select>
                   </div>
+
+                  {updateTracksUnits && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">
+                        Códigos {updateData.action === "add" ? "de las piezas nuevas" : "(opcional)"}
+                      </label>
+                      <textarea
+                        className="form-control"
+                        rows="3"
+                        value={updateData.codesText}
+                        onChange={(e) =>
+                          setUpdateData({ ...updateData, codesText: e.target.value })
+                        }
+                      />
+                      <div className="form-text">
+                        {updateData.action === "add"
+                          ? "Uno por cada unidad que entra. Podés reemplazar los que propone el sistema."
+                          : "Si lo dejás vacío, se dan de baja las piezas más antiguas que están en depósito."}
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
 
@@ -468,6 +640,8 @@ const UpdateItemModal = ({
                 </button>
               </div>
             </form>
+            </>
+            )}
           </div>
         </div>
       </div>

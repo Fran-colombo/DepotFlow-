@@ -4,7 +4,7 @@ import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
 const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
   const [pendingPlaces, setPendingPlaces] = useState([]);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '' });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '', codesText: '' });
   const [loading, setLoading] = useState(false);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [error, setError] = useState("");
@@ -12,7 +12,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
   useEffect(() => {
     if (!isOpen || !itemId) return;
 
-    setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '' });
+    setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '', codesText: '' });
     setError("");
     setPendingPlaces([]);
 
@@ -67,11 +67,16 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
     }
 
     try {
+      const codes = (form.codesText || "")
+        .split(/[\s,;]+/)
+        .map((code) => code.trim())
+        .filter(Boolean);
       await devolverItem({
         itemId,
         amount,
         place: form.place,
-        ...(form.personWhoReturned && { personWhoReturned: form.personWhoReturned })
+        ...(form.personWhoReturned && { personWhoReturned: form.personWhoReturned }),
+        ...(codes.length ? { codes } : {}),
       });
       onSuccess?.();
       onClose();
@@ -133,6 +138,19 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
                   </div>
                 )}
               </div>
+
+              {item?.track_units && (
+                <div className="mb-3">
+                  <label className="form-label">Códigos (opcional)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={form.codesText}
+                    onChange={(e) => setForm({ ...form, codesText: e.target.value })}
+                    placeholder="Si lo dejás vacío vuelven las más antiguas"
+                  />
+                </div>
+              )}
 
               <div className="mb-3">
                 <label className="form-label">Cantidad a devolver</label>

@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import Depends, HTTPException, status, APIRouter
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from typing import Annotated, Optional
 from dtos.historialDTO import HistoryResponseDTO
@@ -22,6 +23,9 @@ import requests
 from reportlab.lib.units import cm
 
 import pytz
+from item_categories import category_is_consumable
+from item_service import ItemServiceError
+from unit_service import link_history_units, restore_units, take_units_out, units_for_pending_place
 
 
 
@@ -38,6 +42,12 @@ TIMEZONE = pytz.timezone('America/Argentina/Buenos_Aires')
 def now():
     """Devuelve la fecha/hora actual en la zona horaria de Buenos Aires"""
     return datetime.now(TIMEZONE)
+
+
+def _history_with_codes(history, units):
+    payload = jsonable_encoder(history)
+    payload["unit_codes"] = [unit.code for unit in (units or [])]
+    return payload
 
 
 DEFAULT_PAGE_SIZE = 50
@@ -335,8 +345,16 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     quien_tomo = user_name  
     if dto.personWhoTook and dto.personWhoTook.strip():  
         quien_tomo = dto.personWhoTook.strip()
+
+    no_return = category_is_consumable(db, item.category) or bool(dto.noReturn)
+    units = []
+    if item.track_units:
+        try:
+            units = take_units_out(db, item, dto.amount, dto.codes, consume=no_return)
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
     
-    if item.category == "Materiales consumibles":
+    if no_return:
 
         history = models.History(
             itemId=dto.itemId,
@@ -355,9 +373,11 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
         item.totalAmount -= dto.amount
         
         db.add(history)
+        db.flush()
+        link_history_units(db, history.id, units)
         db.commit()
         db.refresh(history)
-        return history
+        return _history_with_codes(history, units)
     
     item.actualAmount -= dto.amount
 
@@ -377,9 +397,11 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     
 
     db.add(history)
+    db.flush()
+    link_history_units(db, history.id, units)
     db.commit()
     db.refresh(history)
-    return history
+    return _history_with_codes(history, units)
 
 @router.post("/devolver")
 def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_user: Annotated[dict, Depends(get_current_user)]):
@@ -409,6 +431,13 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             status_code=400,
             detail=f"No se pueden devolver {dto.amount} unidades. Solo {total_pendiente} están pendientes en este lugar."
         )
+
+    units = []
+    if item.track_units:
+        try:
+            units = restore_units(db, item, dto.amount, dto.codes, dto.place)
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     item.actualAmount += dto.amount
     restante = dto.amount
@@ -446,10 +475,12 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
     )
 
     db.add(history)
+    db.flush()
+    link_history_units(db, history.id, units)
     db.commit()
     db.refresh(history)
     
-    return history
+    return _history_with_codes(history, units)
 
 
 @router.post("/trasladar")
@@ -475,11 +506,13 @@ def trasladar_item(
     if not item:
         raise HTTPException(404, "Item not found")
 
-    if item.category == "Materiales consumibles":
+    if category_is_consumable(db, item.category):
         raise HTTPException(
             400,
             "Los materiales consumibles no se pueden trasladar entre obras",
         )
+
+    moved_units = units_for_pending_place(db, item, from_place, dto.amount) if item.track_units else []
 
     pendientes = (
         db.query(models.History)
@@ -539,6 +572,8 @@ def trasladar_item(
         hideFromHistorial=True,
     )
     db.add(nuevo_retiro)
+    db.flush()
+    link_history_units(db, nuevo_retiro.id, moved_units)
 
     traslado = models.History(
         itemId=dto.itemId,

@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, ConfigDict    
-from typing import Optional
+from typing import List, Optional
 
 
 class ActionEnum(str, Enum):
@@ -16,12 +16,15 @@ class ItemCreateDTO(ItemBaseDTO):
     category: str
     shed_id: Optional[int] = None
     zone_id: Optional[int] = None
+    track_units: bool = True
+    codes: Optional[List[str]] = None
 
 class ItemUpdateDTO(BaseModel):
     # name: str
     # description: Optional[str] = None
     quantity: Optional[int] = None  
     action: ActionEnum
+    codes: Optional[List[str]] = None
 
 class MoveItemDTO(BaseModel):
     item_id: int

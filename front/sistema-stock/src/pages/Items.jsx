@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { getAllItems, getItemImageUrl, getItems, deleteItemImage } from "../api/items";
+import { getAllItems, getItemImageUrl, getItems, deleteItemImage, getUnitByCode } from "../api/items";
+import { getCategories } from "../api/categories";
 import { getSheds } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { getMovements } from "../api/movements";
@@ -19,8 +20,9 @@ import TrasladoModal from "../components/TrasladoModal";
 import PendingLocationsModal from "../components/PendingLocationsModal";
 import ItemHistorialModal from "../components/ItemHistorialModal";
 import ItemImageModal from "../components/ItemImageModal";
+import UnitCodesModal from "../components/UnitCodesModal";
 
-const isConsumable = (item) => item?.category === "Materiales consumibles";
+const isConsumable = (item) => Boolean(item?.is_consumable);
 
 const Items = () => {
   const [items, setItems] = useState([]);
@@ -50,6 +52,8 @@ const Items = () => {
   const [showPendingLocationsModal, setShowPendingLocationsModal] = useState(false);
   const [showItemHistorialModal, setShowItemHistorialModal] = useState(false);
   const [itemImageModal, setItemImageModal] = useState({ open: false, mode: "upload" });
+  const [showCodesModal, setShowCodesModal] = useState(false);
+  const [codeHit, setCodeHit] = useState(null);
 
   const [openMenuId, setOpenMenuId] = useState(null);
 
@@ -59,12 +63,16 @@ const Items = () => {
       try {
         const [itemsData, shedsData] = await Promise.all([
           getItems(filters, 1, pagination.pageSize),
-          getSheds()
+          getSheds(),
         ]);
-        const uniqueCategories = [...new Set(itemsData.data.map(item => item.category))];
         setItems(itemsData.data);
         setSheds(shedsData);
-        setCategories(uniqueCategories);
+        try {
+          const categoriesData = await getCategories();
+          setCategories(Array.isArray(categoriesData) ? categoriesData : []);
+        } catch (categoryError) {
+          console.error("Error cargando categorías:", categoryError);
+        }
         setPagination({
           ...pagination,
           totalRecords: itemsData.pagination.total_records,
@@ -108,6 +116,16 @@ const Items = () => {
       setIsLoading(true);
       try {
         const itemsData = await getItems(filters, 1, pagination.pageSize);
+        const query = (filters.name || "").trim();
+        if (query) {
+          try {
+            setCodeHit(await getUnitByCode(query));
+          } catch {
+            setCodeHit(null);
+          }
+        } else {
+          setCodeHit(null);
+        }
         setItems(itemsData.data);
         setPagination({
           ...pagination,
@@ -290,7 +308,7 @@ const Items = () => {
               value={filters.name}
               onChange={handleFilterChange}
               className="form-control form-control-sm"
-              placeholder="Buscar..."
+              placeholder="Nombre o código"
             />
           </div>
           <div className="col-md-2">
@@ -303,7 +321,9 @@ const Items = () => {
             >
               <option value="">Todas</option>
               {categories.map(category => (
-                <option key={category} value={category}>{category}</option>
+                <option key={category.id || category.name} value={category.name}>
+                  {category.label || category.name}
+                </option>
               ))}
             </select>
           </div>
@@ -416,6 +436,31 @@ const Items = () => {
               Limpiar selección
             </button>
           </div>
+        </div>
+      )}
+
+      {codeHit && (
+        <div className="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div>
+            <strong>{codeHit.code}</strong> · {codeHit.item_name} · {codeHit.status_label}
+            {codeHit.last_place ? ` · ${codeHit.last_place}` : ""}
+            {codeHit.last_person ? ` · ${codeHit.last_person}` : ""}
+            {codeHit.last_date ? ` · ${new Date(codeHit.last_date).toLocaleDateString()}` : ""}
+          </div>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-primary"
+            onClick={() => {
+              setSelectedItem({
+                id: codeHit.item_id,
+                name: codeHit.item_name,
+                track_units: true,
+              });
+              setShowCodesModal(true);
+            }}
+          >
+            Ver códigos del artículo
+          </button>
         </div>
       )}
 
@@ -627,6 +672,19 @@ const Items = () => {
                                   </button>
                                 </li>
                                 <li><hr className="dropdown-divider" /></li>
+                                <li>
+                                  <button
+                                    className="dropdown-item"
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      setSelectedItem(item);
+                                      setShowCodesModal(true);
+                                    }}
+                                  >
+                                    Códigos
+                                  </button>
+                                </li>
                                 <li>
                                   <button
                                     className="dropdown-item"
@@ -899,6 +957,15 @@ const Items = () => {
           isOpen={showDeleteModal}
           onClose={() => setShowDeleteModal(false)}
           onSuccess={refreshCurrentPage}
+        />
+      )}
+
+      {showCodesModal && selectedItem && (
+        <UnitCodesModal
+          item={selectedItem}
+          isOpen={showCodesModal}
+          onClose={() => setShowCodesModal(false)}
+          onChanged={refreshCurrentPage}
         />
       )}
 

@@ -10,6 +10,7 @@ import Items from "./pages/Items";
 import DeletedItemsPage from "./pages/DeletedItem";
 import UsersPage from "./pages/Users";
 import WarehouseManagement from "./pages/WarehouseManagement";
+import CategoriesPage from "./pages/Categories";
 
 
 function App() {
@@ -43,6 +44,7 @@ function App() {
               <Route element={<AdminRoute />}>
           <Route path="/admin/users" element={<UsersPage />} />
           <Route path="/admin/warehouses" element={<WarehouseManagement />} />
+          <Route path="/admin/categories" element={<CategoriesPage />} />
           <Route path="/admin/zones" element={<Navigate to="/admin/warehouses" replace />} />
 
         </Route>

@@ -1,7 +1,15 @@
 import unicodedata
 
-ITEM_CATEGORIES = [
-    {"value": "Materiales consumibles", "label": "Materiales consumibles"},
+from sqlalchemy.orm import Session
+
+import models
+
+SEED_CATEGORIES = [
+    {
+        "value": "Materiales consumibles",
+        "label": "Materiales consumibles",
+        "is_consumable": True,
+    },
     {
         "value": "Maquinas y herramientas eléctricas de mano",
         "label": "Maq. y herramientas eléctricas de mano",
@@ -30,12 +38,75 @@ def normalize_lookup(value: str) -> str:
     return " ".join(text.split())
 
 
-def canonical_category(raw: str):
+def seed_categories(db: Session) -> None:
+    """Insert the original categories when their seed key is still missing."""
+    existing_keys = {
+        row.seed_key
+        for row in db.query(models.Category.seed_key).filter(models.Category.seed_key.isnot(None))
+    }
+    created = False
+    for index, category in enumerate(SEED_CATEGORIES):
+        seed_key = normalize_lookup(category["value"])
+        if seed_key in existing_keys:
+            continue
+        name_taken = (
+            db.query(models.Category)
+            .filter(models.Category.name == category["value"])
+            .first()
+        )
+        if name_taken:
+            if not name_taken.seed_key:
+                name_taken.seed_key = seed_key
+                created = True
+            continue
+        db.add(
+            models.Category(
+                name=category["value"],
+                label=category["label"],
+                sort_order=index,
+                active=True,
+                is_consumable=bool(category.get("is_consumable")),
+                seed_key=seed_key,
+            )
+        )
+        created = True
+    if created:
+        db.commit()
+
+
+def list_categories(db: Session, active_only: bool = False):
+    query = db.query(models.Category)
+    if active_only:
+        query = query.filter(models.Category.active == True)
+    return query.order_by(models.Category.sort_order.asc(), models.Category.name.asc()).all()
+
+
+def canonical_category(db: Session, raw: str):
     key = normalize_lookup(raw)
     if not key:
         return None
-    mapping = {}
-    for category in ITEM_CATEGORIES:
-        mapping[normalize_lookup(category["value"])] = category["value"]
-        mapping[normalize_lookup(category["label"])] = category["value"]
-    return mapping.get(key)
+    for category in list_categories(db, active_only=True):
+        if normalize_lookup(category.name) == key or normalize_lookup(category.label) == key:
+            return category.name
+    return None
+
+
+def category_is_consumable(db: Session, name: str) -> bool:
+    key = normalize_lookup(name)
+    if not key:
+        return False
+    for category in db.query(models.Category).all():
+        if normalize_lookup(category.name) == key:
+            return bool(category.is_consumable)
+    return key == normalize_lookup("Materiales consumibles")
+
+
+def category_payload(category: models.Category) -> dict:
+    return {
+        "id": category.id,
+        "name": category.name,
+        "label": category.label,
+        "sort_order": category.sort_order,
+        "active": bool(category.active),
+        "is_consumable": bool(category.is_consumable),
+    }

@@ -126,6 +126,7 @@ class WhatsAppActionDTO(BaseModel):
     elemento: Optional[str] = None
     cantidad: Optional[int] = None
     quien: Optional[str] = None
+    codigo: Optional[str] = None
     confirm: Optional[bool] = None
 
     @field_validator("cantidad", mode="before")
@@ -135,7 +136,7 @@ class WhatsAppActionDTO(BaseModel):
             return None
         return int(value)
 
-    @field_validator("action", "where", "from_", "elemento", "quien", "text", "phone", "telegram_id", mode="before")
+    @field_validator("action", "where", "from_", "elemento", "quien", "text", "phone", "telegram_id", "codigo", mode="before")
     @classmethod
     def strip_strings(cls, value):
         if isinstance(value, str):
@@ -238,6 +239,27 @@ def extract_json_blob(text: str) -> dict | None:
     return None
 
 
+def _codes_from_value(value) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        parts = value
+    else:
+        parts = re.split(r"[,;\s]+", str(value))
+    return [part.strip() for part in parts if str(part).strip()]
+
+
+def _strip_code_phrase(text: str):
+    match = re.search(
+        r"\b(?:c[oó]digos?)\s+([A-Za-z0-9][A-Za-z0-9,\-\s]+)\s*$",
+        text or "",
+        re.I,
+    )
+    if not match:
+        return text, []
+    return text[: match.start()].strip(), _codes_from_value(match.group(1))
+
+
 def merge_payload(dto: WhatsAppActionDTO) -> dict:
     data = {
         "action": (dto.action or "").strip().lower() or None,
@@ -246,6 +268,8 @@ def merge_payload(dto: WhatsAppActionDTO) -> dict:
         "elemento": dto.elemento,
         "cantidad": dto.cantidad,
         "quien": dto.quien,
+        "codes": _codes_from_value(dto.codigo),
+        "no_return": False,
     }
     blob = extract_json_blob(dto.text or "")
     if blob:
@@ -262,11 +286,22 @@ def merge_payload(dto: WhatsAppActionDTO) -> dict:
                 data["cantidad"] = int(blob.get("cantidad"))
             except (TypeError, ValueError):
                 pass
+        raw_codes = blob.get("codigos") or blob.get("codigo")
+        if raw_codes not in (None, ""):
+            data["codes"] = _codes_from_value(raw_codes)
+        if blob.get("no_vuelve") or blob.get("noReturn"):
+            data["no_return"] = True
     if dto.text and not blob:
-        inferred = parse_free_text(dto.text)
+        raw_text = re.sub(r"\bno vuelve\b", " ", dto.text, flags=re.I)
+        stripped, phrase_codes = _strip_code_phrase(raw_text)
+        inferred = parse_free_text(stripped)
         for key, value in inferred.items():
             if value not in (None, "") and not data.get(key):
                 data[key] = value
+        if phrase_codes and not data.get("codes"):
+            data["codes"] = phrase_codes
+        if re.search(r"\bno vuelve\b", dto.text, re.I):
+            data["no_return"] = True
     if not data["action"]:
         data["action"] = infer_action(data)
     return data
@@ -568,10 +603,17 @@ def prepare_mutation(db: Session, user: models.User, data: dict) -> dict:
             "cantidad": cantidad,
             "where": where,
             "quien": quien,
+            "codes": data.get("codes") or None,
+            "no_return": bool(data.get("no_return")),
         }
+        code_hint = ""
+        if data.get("codes"):
+            code_hint = f" Códigos: {', '.join(data['codes'])}."
+        elif item.track_units:
+            code_hint = " Se asignan los códigos más antiguos del depósito."
         confirm = (
             f"¿Confirmo retiro de {cantidad} {item.name} "
-            f"({item_label(item)}) a {where} ({quien})? Respondé SI o NO."
+            f"({item_label(item)}) a {where} ({quien})?{code_hint} Respondé SI o NO."
         )
         return {"pending": pending, "confirm_text": confirm}
 
@@ -585,6 +627,7 @@ def prepare_mutation(db: Session, user: models.User, data: dict) -> dict:
             "cantidad": cantidad,
             "where": where,
             "quien": quien,
+            "codes": data.get("codes") or None,
         }
         confirm = (
             f"¿Confirmo devolución de {cantidad} {item.name} "
@@ -753,43 +796,51 @@ def execute_pending(
 
     try:
         if action == "retiro":
-            retirar_item(
+            result = retirar_item(
                 RetiroDTO(
                     itemId=item_id,
                     amount=cantidad,
                     place=pending.get("where") or "",
                     personWhoTook=quien,
+                    codes=pending.get("codes"),
+                    noReturn=bool(pending.get("no_return")),
                 ),
                 db,
                 current_user,
             )
             clear_pending(db, phone)
             db.refresh(item)
+            codes = (result or {}).get("unit_codes") or []
+            code_text = f" Códigos: {', '.join(codes)}." if codes else ""
             return ok_reply(
                 f"Listo. Retiro de {cantidad} {item.name} a {pending.get('where')}. "
-                f"Stock actual: {item.actualAmount}."
+                f"Stock actual: {item.actualAmount}.{code_text}"
             )
 
         if action == "devolucion":
-            devolver_item(
+            result = devolver_item(
                 DevolucionDTO(
                     itemId=item_id,
                     amount=cantidad,
                     place=pending.get("where") or "",
                     personWhoReturned=quien,
+                    codes=pending.get("codes"),
                 ),
                 db,
                 current_user,
             )
             clear_pending(db, phone)
             db.refresh(item)
+            codes = (result or {}).get("unit_codes") or []
+            code_text = f" Códigos: {', '.join(codes)}." if codes else ""
             return ok_reply(
                 f"Listo. Devolución de {cantidad} {item.name} desde {pending.get('where')}. "
-                f"Stock actual: {item.actualAmount}."
+                f"Stock actual: {item.actualAmount}.{code_text}"
             )
 
         if action == "ingreso":
             adjust_item_stock(db, item, cantidad)
+            entered_codes = list(getattr(item, "_created_codes", []) or [])
             record_carga(
                 db,
                 item,
@@ -800,8 +851,9 @@ def execute_pending(
             )
             clear_pending(db, phone)
             db.refresh(item)
+            entered_text = f" Códigos: {', '.join(entered_codes)}." if entered_codes else ""
             return ok_reply(
-                f"Listo. Ingreso de {cantidad} {item.name}. Stock actual: {item.actualAmount}."
+                f"Listo. Ingreso de {cantidad} {item.name}. Stock actual: {item.actualAmount}.{entered_text}"
             )
 
         if action == "traslado_obra":

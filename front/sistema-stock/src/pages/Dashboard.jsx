@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send } from "lucide-react"
+import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 import { createTelegramLink, getTelegramBot } from "../api/auth"
 
@@ -67,7 +67,7 @@ const Dashboard = ({ title, children }) => {
           <div className="d-flex align-items-center gap-2 min-w-0">
             <span className="navbar-brand fw-semibold fs-6 fs-lg-5 text-dark mb-0 d-flex align-items-center gap-2 text-truncate">
               Gestión depósito
-              <img src={logoConkreto} alt="Logo Conkreto" style={{ maxWidth: 36 }} />
+              <img src={logoConkreto} alt="Logo Conkreto" style={{ maxHeight: 40, width: "auto" }} />
             </span>
           </div>
           <button
@@ -125,6 +125,13 @@ const Dashboard = ({ title, children }) => {
                   >
                     <Warehouse className="me-1" size={18} />
                     Gestión depósitos
+                  </button>
+                  <button
+                    onClick={() => go("/admin/categories")}
+                    className={navLinkClass("/admin/categories")}
+                  >
+                    <Tags className="me-1" size={18} />
+                    Categorías
                   </button>
                 </>
               )}

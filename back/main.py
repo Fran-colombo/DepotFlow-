@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, joinedload, contains_eager
 from typing import Annotated, Optional
 from datetime import datetime
 from math import ceil
-from database import get_db, engine, ensure_zone_schema, SessionLocal, ensure_phone_unique_index, ensure_telegram_unique_index
+from database import get_db, engine, ensure_zone_schema, SessionLocal, ensure_phone_unique_index, ensure_telegram_unique_index, ensure_inventory_schema
 import pytz 
 from dtos.itemResponseDTO import ItemResponseDTO
 from dtos.deleteItemDTO import DeleteItemDTO, ResponseFakeDeleteDTO
@@ -25,7 +25,7 @@ from auth import get_current_user, router as auth_router
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
 from seed_admin import seed_admin_from_env
-from item_service import ItemServiceError, create_item
+from item_service import ItemServiceError, adjust_item_stock, create_item
 from item_import import build_import_template, import_items_from_excel
 from item_transfer import (
     ExportChecklistRequest,
@@ -36,6 +36,14 @@ from item_transfer import (
 from whatsapp.router import router as whatsapp_router
 from telegram.bot import router as telegram_router, start_telegram_bot
 from item_images import router as item_images_router, delete_stored_image
+import categories
+from item_categories import normalize_lookup, seed_categories
+from unit_service import (
+    find_unit_by_code,
+    identify_current_stock,
+    last_unit_movement,
+    peek_codes,
+)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -73,9 +81,16 @@ app.include_router(zones.router)
 app.include_router(whatsapp_router)
 app.include_router(telegram_router)
 app.include_router(item_images_router)
+app.include_router(categories.router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()
+ensure_inventory_schema()
+_seed_db = SessionLocal()
+try:
+    seed_categories(_seed_db)
+finally:
+    _seed_db.close()
 try:
     from whatsapp.phone import canonicalize_stored_phones
     _phone_db = SessionLocal()
@@ -145,6 +160,11 @@ def read_items(
         total_records = query.count()
         total_pages = ceil(total_records / page_size)
 
+        consumable_keys = {
+            normalize_lookup(category.name)
+            for category in db.query(models.Category).filter(models.Category.is_consumable == True).all()
+        }
+
         items = query.order_by(
                         models.Shed.name.asc().nullslast(),
                         models.Zone.name.asc().nullslast(),
@@ -159,6 +179,8 @@ def read_items(
             dto = ItemResponseDTO.model_validate(item)
             dto.zone_name = item.zone.name if item.zone else None
             dto.has_image = bool(item.image_filename)
+            dto.track_units = bool(item.track_units)
+            dto.is_consumable = normalize_lookup(item.category) in consumable_keys
             data.append(dto)
 
         return {
@@ -203,7 +225,7 @@ def getItemById(item_id: int, db: item_dependency):
 @app.post("/")
 def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
     try:
-        return create_item(
+        created = create_item(
             db,
             name=item.name,
             description=item.description,
@@ -211,14 +233,22 @@ def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
             quantity=item.quantity,
             zone_id=item.zone_id,
             shed_id=item.shed_id,
+            track_units=item.track_units,
+            codes=item.codes,
         )
+        return {
+            "id": created.id,
+            "name": created.name,
+            "track_units": bool(created.track_units),
+            "codes": list(getattr(created, "_created_codes", []) or []),
+        }
     except ItemServiceError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
 @app.get("/items/import/template")
-def download_items_import_template():
-    content = build_import_template()
+def download_items_import_template(db: item_dependency):
+    content = build_import_template(db)
     return StreamingResponse(
         BytesIO(content),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -339,21 +369,17 @@ def update_item_by_id(
             detail="Acción no válida"
         )
 
-    new_total = item.totalAmount + quantity_change
-    new_actual = item.actualAmount + quantity_change
+    try:
+        updated = adjust_item_stock(db, item, quantity_change, codes=item_update.codes)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
-    if new_total < 0 or new_actual < 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No hay suficiente stock para realizar esta operación"
-        )
-
-    item.totalAmount = new_total
-    item.actualAmount = new_actual
-    db.commit()
-    db.refresh(item)
-
-    return item
+    return {
+        "id": updated.id,
+        "actualAmount": updated.actualAmount,
+        "totalAmount": updated.totalAmount,
+        "codes": list(getattr(updated, "_created_codes", []) or []),
+    }
 
 @app.put("/")
 def updateItem(name: str, quantity: int, db: item_dependency):
@@ -407,8 +433,15 @@ def get_item_details(
                 .order_by(models.DeletedItem.deleted_at.desc())\
                 .first()
 
+        item_data = jsonable_encoder(item)
+        item_data["is_consumable"] = normalize_lookup(item.category) in {
+            normalize_lookup(category.name)
+            for category in db.query(models.Category).filter(models.Category.is_consumable == True).all()
+        }
+        item_data["track_units"] = bool(item.track_units)
+
         response_data = {
-            "item": jsonable_encoder(item),
+            "item": item_data,
             "metadata": {
                 "is_deleted": is_deleted,
                 "deletion_info": {
@@ -438,6 +471,102 @@ def get_item_details(
             detail="Error interno al obtener detalles del ítem"
         )
 
+
+
+@app.get("/units/next-codes")
+def next_unit_codes(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    count: int = Query(1, ge=1, le=500),
+):
+    return {"codes": peek_codes(db, count)}
+
+
+@app.get("/units/by-code/{code}")
+def get_unit_by_code(
+    code: str,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    try:
+        unit = find_unit_by_code(db, code)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    if not unit:
+        raise HTTPException(status_code=404, detail="No hay una pieza con ese código")
+
+    item = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
+    history = last_unit_movement(db, unit)
+    status_label = {
+        "en_stock": "En depósito",
+        "retirada": "Afuera",
+        "consumida": "Usada",
+    }.get(unit.status, unit.status)
+    return {
+        "id": unit.id,
+        "code": unit.code,
+        "status": unit.status,
+        "status_label": status_label,
+        "created_at": unit.created_at.isoformat() if unit.created_at else None,
+        "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
+        "item_id": item.id if item else unit.item_id,
+        "item_name": item.name if item else None,
+        "category": item.category if item else None,
+        "shed_id": item.shed_id if item else None,
+        "zone_id": item.zone_id if item else None,
+        "zone_name": item.zone.name if item and item.zone else None,
+        "last_action": history.action.value if history and history.action else None,
+        "last_place": history.place if history else None,
+        "last_person": history.personWhoTook if history else None,
+        "last_date": history.date.isoformat() if history and history.date else None,
+    }
+
+
+@app.get("/items/{item_id}/units")
+def list_item_units(
+    item_id: int,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    status_filter: Optional[str] = Query(None, alias="status"),
+):
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    query = db.query(models.ItemUnit).filter(models.ItemUnit.item_id == item_id)
+    if status_filter and status_filter != "all":
+        query = query.filter(models.ItemUnit.status == status_filter)
+    elif not status_filter:
+        query = query.filter(models.ItemUnit.status == "en_stock")
+    units = query.order_by(models.ItemUnit.id.asc()).all()
+    return {
+        "track_units": bool(item.track_units),
+        "units": [
+            {
+                "id": unit.id,
+                "code": unit.code,
+                "status": unit.status,
+                "created_at": unit.created_at.isoformat() if unit.created_at else None,
+                "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
+            }
+            for unit in units
+        ],
+    }
+
+
+@app.post("/items/{item_id}/identify")
+def identify_item_units(
+    item_id: int,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    try:
+        units = identify_current_stock(db, item)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return {"codes": [unit.code for unit in units], "track_units": True}
 
 
 @app.delete("/")

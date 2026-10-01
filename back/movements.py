@@ -8,6 +8,8 @@ from dtos.movementsDTO import MovementCreateDTO, MovementResponseDTO
 from database import get_db
 from contextlib import contextmanager
 from item_images import copy_item_image
+from item_service import ItemServiceError
+from unit_service import move_stock_units
 import logging
 
 router = APIRouter(prefix="/movements", tags=["movements"])
@@ -140,7 +142,8 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
                 totalAmount=movement_data.quantity,
                 actualAmount=movement_data.quantity,
                 is_available=True,
-                status=1
+                status=1,
+                track_units=bool(source_item.track_units),
             )
             db.add(target_item)
             db.flush()
@@ -170,6 +173,8 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
             ).delete()
 
         
+        move_stock_units(db, source_item, target_item, movement_data.quantity)
+
         movement = Movement(
             item_id=source_item.id,
             item_name=source_item.name,
@@ -201,6 +206,9 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
     except HTTPException:
         db.rollback()
         raise
+    except ItemServiceError as e:
+        db.rollback()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
     except Exception as e:
         db.rollback()
         logger.error(f"Error en movimiento: {str(e)}", exc_info=True)

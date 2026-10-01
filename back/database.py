@@ -137,6 +137,79 @@ def ensure_zone_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN telegram_link_expires DATETIME"))
 
+def ensure_inventory_schema():
+    """Additive columns and tables for unit codes and editable categories."""
+    if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                label VARCHAR NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                active BOOLEAN NOT NULL DEFAULT 1,
+                is_consumable BOOLEAN NOT NULL DEFAULT 0,
+                seed_key VARCHAR,
+                CONSTRAINT uq_categories_name UNIQUE (name),
+                CONSTRAINT uq_categories_seed_key UNIQUE (seed_key)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_categories_id ON categories (id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_categories_name ON categories (name)"
+        ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS item_units (
+                id INTEGER NOT NULL PRIMARY KEY,
+                item_id INTEGER NOT NULL,
+                code VARCHAR NOT NULL,
+                status VARCHAR NOT NULL DEFAULT 'en_stock',
+                created_at DATETIME NOT NULL,
+                consumed_at DATETIME,
+                FOREIGN KEY(item_id) REFERENCES items (id),
+                CONSTRAINT uq_item_units_code UNIQUE (code)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_item_units_item_id ON item_units (item_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_item_units_code ON item_units (code)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_item_units_status ON item_units (status)"
+        ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS history_units (
+                id INTEGER NOT NULL PRIMARY KEY,
+                history_id INTEGER NOT NULL,
+                unit_id INTEGER NOT NULL,
+                FOREIGN KEY(history_id) REFERENCES historal (id),
+                FOREIGN KEY(unit_id) REFERENCES item_units (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_history_units_history_id ON history_units (history_id)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_history_units_unit_id ON history_units (unit_id)"
+        ))
+
+    if not _column_exists("items", "track_units"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE items ADD COLUMN track_units BOOLEAN NOT NULL DEFAULT 0"
+            ))
+
+    if _column_exists("categories", "id") and not _column_exists("categories", "seed_key"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE categories ADD COLUMN seed_key VARCHAR"))
+
+
 def ensure_phone_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         return

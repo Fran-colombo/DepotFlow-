@@ -5,6 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
+from item_categories import canonical_category
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,16 @@ def create_item(
     quantity: int,
     zone_id: int,
     shed_id=None,
+    track_units: bool = True,
+    codes=None,
 ):
+    from unit_service import create_units_for_item
+
     name_well_written = normalize_item_name(name)
+    resolved_category = canonical_category(db, category)
+    if not resolved_category:
+        raise ItemServiceError("La categoría no es válida", 400)
+    category = resolved_category
 
     if not zone_id:
         raise ItemServiceError("La zona es obligatoria", 400)
@@ -87,17 +96,30 @@ def create_item(
             actualAmount=quantity,
             is_available=True,
             status=1,
+            track_units=bool(track_units),
         )
         db.add(item_to_add)
+        db.flush()
+        if item_to_add.track_units:
+            create_units_for_item(db, item_to_add, quantity, codes)
+        else:
+            item_to_add._created_codes = []
+        created_codes = list(getattr(item_to_add, "_created_codes", []) or [])
         db.commit()
         db.refresh(item_to_add)
+        item_to_add._created_codes = created_codes
         return item_to_add
+    except ItemServiceError:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise ItemServiceError(f"Error creating item: {str(e)}", 400)
 
 
-def adjust_item_stock(db: Session, item: models.Item, quantity_change: int):
+def adjust_item_stock(db: Session, item: models.Item, quantity_change: int, codes=None):
+    from unit_service import create_units_for_item, take_units_out
+
     new_total = (item.totalAmount or 0) + quantity_change
     new_actual = (item.actualAmount or 0) + quantity_change
 
@@ -106,8 +128,18 @@ def adjust_item_stock(db: Session, item: models.Item, quantity_change: int):
             "No hay suficiente stock para realizar esta operación", 400
         )
 
+    if item.track_units and quantity_change > 0:
+        create_units_for_item(db, item, quantity_change, codes)
+    elif item.track_units and quantity_change < 0:
+        removed = take_units_out(db, item, -quantity_change, codes, consume=True)
+        item._created_codes = [unit.code for unit in removed]
+    else:
+        item._created_codes = []
+
     item.totalAmount = new_total
     item.actualAmount = new_actual
+    created_codes = list(getattr(item, "_created_codes", []) or [])
     db.commit()
     db.refresh(item)
+    item._created_codes = created_codes
     return item

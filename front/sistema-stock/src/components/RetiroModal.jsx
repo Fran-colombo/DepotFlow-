@@ -139,13 +139,16 @@ const RetirarItemModal = ({
   onGenerateRemito // Nueva prop para manejar la generación del remito
 }) => {
   const [item, setItem] = useState(null);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '' });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', codesText: '', noReturn: false });
+  const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showRemitoConfirmation, setShowRemitoConfirmation] = useState(false); // Nuevo estado para el modal de confirmación
 
   useEffect(() => {
     if (isOpen && itemId) {
+      setForm({ amount: '', place: '', personWhoTook: '', codesText: '', noReturn: false });
+      setRetiredCodes([]);
       getItemById(itemId).then(res => setItem(res.item)).catch(console.error);
     }
   }, [isOpen, itemId]);
@@ -155,18 +158,25 @@ const RetirarItemModal = ({
     setLoading(true);
     setError("");
     try {
-      await retirarItem({
+      const codes = (form.codesText || "")
+        .split(/[\s,;]+/)
+        .map((code) => code.trim())
+        .filter(Boolean);
+      const result = await retirarItem({
         itemId,
         amount: parseInt(form.amount),
         place: form.place,
-        ...(form.personWhoTook && { personWhoTook: form.personWhoTook })
+        ...(form.personWhoTook && { personWhoTook: form.personWhoTook }),
+        ...(codes.length ? { codes } : {}),
+        noReturn: Boolean(item?.is_consumable) || form.noReturn,
       });
+      setRetiredCodes(result?.unit_codes || []);
       
       // Mostrar confirmación para remito
       setShowRemitoConfirmation(true);
       
       // No cerramos el modal todavía, solo limpiamos el formulario
-      setForm({ amount: '', place: '', personWhoTook: '' });
+      setForm({ amount: '', place: '', personWhoTook: '', codesText: '', noReturn: false });
       
       // Llamamos a onSuccess para actualizar la lista
       onSuccess?.();
@@ -244,6 +254,35 @@ const RetirarItemModal = ({
                   />
                 </div>
 
+                {item?.track_units && (
+                  <div className="mb-3">
+                    <label className="form-label">Códigos (opcional)</label>
+                    <input
+                      type="text"
+                      className="form-control"
+                      value={form.codesText}
+                      onChange={(e) => setForm({ ...form, codesText: e.target.value })}
+                      placeholder="Si lo dejás vacío salen los más antiguos"
+                    />
+                  </div>
+                )}
+
+                {item?.track_units && (
+                  <div className="form-check mb-3">
+                    <input
+                      id="no-return"
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={Boolean(item?.is_consumable) || form.noReturn}
+                      disabled={Boolean(item?.is_consumable)}
+                      onChange={(e) => setForm({ ...form, noReturn: e.target.checked })}
+                    />
+                    <label className="form-check-label" htmlFor="no-return">
+                      No vuelve al depósito
+                    </label>
+                  </div>
+                )}
+
                 <div className="mb-3">
                   <label className="form-label">Persona que retira (si sos vos no pongas nada)</label>
                   <input
@@ -307,6 +346,11 @@ const RetirarItemModal = ({
               </div>
               <div className="modal-body">
                 <p>¿Deseas generar un remito por este retiro?</p>
+                {retiredCodes.length > 0 && (
+                  <p className="mb-0">
+                    Códigos: <strong>{retiredCodes.join(", ")}</strong>
+                  </p>
+                )}
               </div>
               <div className="modal-footer">
                 <button

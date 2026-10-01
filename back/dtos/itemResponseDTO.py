@@ -15,6 +15,8 @@ class ItemResponseDTO(BaseModel):
     status: int
     has_image: bool = False
     image_filename: Optional[str] = None
+    track_units: bool = False
+    is_consumable: bool = False
 
     class Config:
         from_attributes = True
