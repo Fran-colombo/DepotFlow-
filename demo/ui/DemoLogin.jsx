@@ -90,7 +90,7 @@ function DemoLoginPage() {
         </div>
 
         <div className="alert alert-warning py-2 px-3 small text-center border-0">
-          <strong>Entorno DEMO</strong> — Datos ficticios para evaluación
+          <strong>Entorno DEMO</strong> — Inventario vacío para cargar desde cero
         </div>
 
         {error && (

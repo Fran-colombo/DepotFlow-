@@ -41,7 +41,7 @@ Ver también [RECRUITER_GUIDE.md](./RECRUITER_GUIDE.md) para reclutadores.
 
 ## Reset del demo
 
-Restaura la base ficticia original (solo afecta `demo/shed_data_demo/`):
+Deja la demo vacía, solo con los dos usuarios de acceso (solo afecta `demo/shed_data_demo/`):
 
 ```bash
 bash demo/scripts/reset_demo.sh
@@ -59,8 +59,9 @@ DEMO_RESET=1 docker compose -f docker-compose.demo.yml -p depotflow-demo up -d -
 
 Al arrancar, `demo-backend` ejecuta `demo/seed/seed_demo_data.py` antes de uvicorn.
 
-- Si `demo.admin@example.com` ya existe → no vuelve a poblar.
-- Con `DEMO_RESET=1` → limpia tablas demo y re-seedea.
+- Si `demo.admin@example.com` ya existe → no vuelve a crear usuarios.
+- Con `DEMO_RESET=1` → borra inventario, galpones e historial, y deja solo los usuarios.
+- No carga productos, galpones ni movimientos de ejemplo.
 
 ## Banner DEMO en la UI
 

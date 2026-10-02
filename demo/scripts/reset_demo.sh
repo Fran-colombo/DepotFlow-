@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reset DEMO database to fictional baseline. Safe for demo only — never run against production.
+# Reset DEMO database to an empty inventory. Safe for demo only — never run against production.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
