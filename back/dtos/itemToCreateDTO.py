@@ -18,6 +18,7 @@ class ItemCreateDTO(ItemBaseDTO):
     zone_id: Optional[int] = None
     track_units: bool = True
     codes: Optional[List[str]] = None
+    code_prefix: Optional[str] = None
 
 class ItemUpdateDTO(BaseModel):
     # name: str

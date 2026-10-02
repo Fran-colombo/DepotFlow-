@@ -205,6 +205,10 @@ def ensure_inventory_schema():
                 "ALTER TABLE items ADD COLUMN track_units BOOLEAN NOT NULL DEFAULT 0"
             ))
 
+    if _column_exists("items", "id") and not _column_exists("items", "code_prefix"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE items ADD COLUMN code_prefix VARCHAR"))
+
     if _column_exists("item_units", "id") and not _column_exists("item_units", "image_filename"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN image_filename VARCHAR"))

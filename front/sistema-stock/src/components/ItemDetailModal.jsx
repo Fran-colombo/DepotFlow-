@@ -5,9 +5,11 @@ import {
   devolverItem,
   getItemUnits,
   getUnitImageUrl,
+  getNextCodes,
   getUnitObservations,
   identifyItem,
   retirarItem,
+  updateItem,
   uploadUnitImage,
 } from "../api/items";
 import { printLabels } from "./printLabels";
@@ -237,6 +239,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [returnPlaces, setReturnPlaces] = useState({});
   const [busy, setBusy] = useState(false);
   const [freshCodes, setFreshCodes] = useState([]);
+  const [pieceCode, setPieceCode] = useState("");
+  const [addingMore, setAddingMore] = useState(false);
+  const [offerAnother, setOfferAnother] = useState(false);
 
   const reload = () => {
     if (!item?.id) return Promise.resolve();
@@ -264,6 +269,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setPlace("");
     setPerson("");
     setFreshCodes([]);
+    setPieceCode("");
+    setAddingMore(false);
+    setOfferAnother(false);
     setPrefix(defaultPrefix(item.name));
     setTrackUnits(Boolean(item.track_units));
     setConsumable(Boolean(item.is_consumable));
@@ -293,6 +301,43 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
       cancelled = true;
     };
   }, [isOpen, item]);
+
+  useEffect(() => {
+    if (!isOpen || !trackUnits || !item?.code_prefix || offerAnother) return;
+    if (units.length > 0 && !addingMore) return;
+    let cancelled = false;
+    getNextCodes(1, item.code_prefix)
+      .then((data) => {
+        if (!cancelled) setPieceCode(data.codes?.[0] || "");
+      })
+      .catch(() => {
+        if (!cancelled) setPieceCode("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, trackUnits, item?.code_prefix, units.length, addingMore, offerAnother]);
+
+  const addPiece = async () => {
+    const code = pieceCode.trim();
+    if (!item?.id || !code) {
+      setError("Falta el código de la pieza");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await updateItem(item.id, { quantity: 1, action: "add", codes: [code] });
+      setOfferAnother(true);
+      setAddingMore(false);
+      await reload();
+      onChanged?.();
+    } catch (err) {
+      setError(err.message || "No se pudo agregar la pieza");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const inStock = useMemo(() => units.filter((unit) => unit.status === "en_stock"), [units]);
   const onSite = useMemo(() => units.filter((unit) => unit.status === "retirada"), [units]);
@@ -502,6 +547,60 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                     >
                       Imprimir etiquetas
                     </button>
+                  </div>
+                )}
+                {(units.length === 0 || addingMore || offerAnother) && (
+                  <div className="border rounded p-3 mb-3">
+                    {offerAnother ? (
+                      <>
+                        <p className="mb-2">Se agregó la pieza. ¿Agregar otra?</p>
+                        <div className="d-flex gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-primary btn-sm"
+                            onClick={() => {
+                              setOfferAnother(false);
+                              setAddingMore(true);
+                              setPieceCode("");
+                            }}
+                          >
+                            Sí
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            onClick={() => {
+                              setOfferAnother(false);
+                              setAddingMore(false);
+                            }}
+                          >
+                            No
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mb-2">
+                          <strong>{item.category}</strong> · {item.name}
+                          {units.length === 0 ? " está en 0." : ""} El próximo código usa {item.code_prefix}.
+                        </p>
+                        <div className="d-flex gap-2">
+                          <input
+                            className="form-control"
+                            value={pieceCode}
+                            onChange={(e) => setPieceCode(e.target.value.toUpperCase())}
+                          />
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            disabled={busy || !pieceCode.trim()}
+                            onClick={addPiece}
+                          >
+                            Agregar
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
                 {section("En depósito", inStock, true)}

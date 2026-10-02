@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -34,7 +35,78 @@ def normalize_prefix(raw: str) -> str:
     return prefix
 
 
+def _folded_words(name: str) -> list:
+    folded = unicodedata.normalize("NFD", name or "")
+    folded = "".join(ch for ch in folded if unicodedata.category(ch) != "Mn")
+    words = []
+    for word in re.findall(r"[A-Za-z0-9]+", folded.upper()):
+        clean = re.sub(r"[^A-Z0-9]", "", word)
+        if clean:
+            words.append(clean)
+    return words
+
+
+def prefix_candidates(name: str) -> list:
+    words = _folded_words(name)
+    if not words:
+        return ["K"]
+    candidates = []
+    if len(words) == 1:
+        word = words[0]
+        for size in range(1, min(4, len(word)) + 1):
+            candidates.append(word[:size])
+    else:
+        initials = "".join(word[0] for word in words)[:4]
+        for size in range(1, len(initials) + 1):
+            candidates.append(initials[:size])
+        blob = "".join(words)
+        for size in range(1, min(4, len(blob)) + 1):
+            if blob[:size] not in candidates:
+                candidates.append(blob[:size])
+    base = (candidates[-1] if candidates else "K")[:3]
+    for digit in range(2, 10):
+        suffixed = f"{base}{digit}"[:4]
+        if suffixed not in candidates:
+            candidates.append(suffixed)
+    return [candidate for candidate in candidates if PREFIX_PATTERN.fullmatch(candidate)]
+
+
+def prefix_conflicts(db: Session, prefix: str, name: str) -> bool:
+    from item_service import normalize_item_name
+
+    prefix = normalize_prefix(prefix)
+    wanted = normalize_item_name(name).lower()
+    stored = (
+        db.query(models.Item)
+        .filter(models.Item.code_prefix == prefix, models.Item.status == 1)
+        .all()
+    )
+    for item in stored:
+        if normalize_item_name(item.name).lower() != wanted:
+            return True
+    pattern = re.compile(rf"^{re.escape(prefix)}-\d+$")
+    rows = (
+        db.query(models.ItemUnit.code, models.Item.name)
+        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
+        .filter(models.ItemUnit.code.like(f"{prefix}-%"))
+        .all()
+    )
+    for code, item_name in rows:
+        if pattern.fullmatch(code or "") and normalize_item_name(item_name).lower() != wanted:
+            return True
+    return False
+
+
+def suggest_prefix(db: Session, name: str) -> str:
+    for candidate in prefix_candidates(name):
+        if not prefix_conflicts(db, candidate, name):
+            return candidate
+    raise ItemServiceError("No hay un prefijo libre para esta subcategoría")
+
+
 def infer_prefix(db: Session, item: models.Item) -> str:
+    if getattr(item, "code_prefix", None):
+        return normalize_prefix(item.code_prefix)
     unit = (
         db.query(models.ItemUnit)
         .filter(models.ItemUnit.item_id == item.id)
@@ -258,7 +330,11 @@ def identify_current_stock(db: Session, item: models.Item, prefix: str):
         raise ItemServiceError("Este artículo ya identifica cada pieza")
     quantity = item.actualAmount or 0
     item.track_units = True
-    units = create_units_for_item(db, item, quantity, prefix=prefix) if quantity > 0 else []
+    normalized = normalize_prefix(prefix)
+    if prefix_conflicts(db, normalized, item.name):
+        raise ItemServiceError(f"El prefijo {normalized} ya está usado")
+    item.code_prefix = normalized
+    units = create_units_for_item(db, item, quantity, prefix=normalized) if quantity > 0 else []
     db.commit()
     db.refresh(item)
     return units

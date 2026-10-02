@@ -44,14 +44,18 @@ def create_item(
     shed_id=None,
     track_units: bool = True,
     codes=None,
+    code_prefix=None,
 ):
-    from unit_service import create_units_for_item
+    from unit_service import create_units_for_item, normalize_prefix, prefix_conflicts, suggest_prefix
 
     name_well_written = normalize_item_name(name)
     resolved_category = canonical_category(db, category)
     if not resolved_category:
         raise ItemServiceError("La categoría no es válida", 400)
     category = resolved_category
+
+    if quantity < 0:
+        raise ItemServiceError("La cantidad no puede ser negativa", 400)
 
     if not zone_id:
         raise ItemServiceError("La zona es obligatoria", 400)
@@ -86,6 +90,12 @@ def create_item(
         )
 
     try:
+        resolved_prefix = None
+        if track_units:
+            resolved_prefix = normalize_prefix(code_prefix) if code_prefix else suggest_prefix(db, name_well_written)
+            if prefix_conflicts(db, resolved_prefix, name_well_written):
+                raise ItemServiceError(f"El prefijo {resolved_prefix} ya está usado", 400)
+
         item_to_add = models.Item(
             name=name_well_written,
             description=description or "",
@@ -97,11 +107,12 @@ def create_item(
             is_available=True,
             status=1,
             track_units=bool(track_units),
+            code_prefix=resolved_prefix,
         )
         db.add(item_to_add)
         db.flush()
-        if item_to_add.track_units:
-            create_units_for_item(db, item_to_add, quantity, codes)
+        if item_to_add.track_units and quantity > 0:
+            create_units_for_item(db, item_to_add, quantity, codes, prefix=resolved_prefix)
         else:
             item_to_add._created_codes = []
         created_codes = list(getattr(item_to_add, "_created_codes", []) or [])

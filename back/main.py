@@ -44,6 +44,7 @@ from unit_service import (
     identify_current_stock,
     last_unit_movement,
     peek_codes,
+    suggest_prefix,
     unit_history,
 )
 from dotenv import load_dotenv
@@ -237,11 +238,14 @@ def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
             shed_id=item.shed_id,
             track_units=item.track_units,
             codes=item.codes,
+            code_prefix=item.code_prefix,
         )
         return {
             "id": created.id,
             "name": created.name,
+            "category": created.category,
             "track_units": bool(created.track_units),
+            "code_prefix": created.code_prefix,
             "codes": list(getattr(created, "_created_codes", []) or []),
         }
     except ItemServiceError as e:
@@ -473,6 +477,19 @@ def get_item_details(
             detail="Error interno al obtener detalles del ítem"
         )
 
+
+
+@app.get("/units/suggest-prefix")
+def suggest_unit_prefix(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    name: str = Query(..., min_length=1),
+):
+    try:
+        prefix = suggest_prefix(db, name)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return {"prefix": prefix}
 
 
 @app.get("/units/next-codes")

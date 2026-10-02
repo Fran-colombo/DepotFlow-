@@ -144,6 +144,7 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
                 is_available=True,
                 status=1,
                 track_units=bool(source_item.track_units),
+                code_prefix=source_item.code_prefix,
             )
             db.add(target_item)
             db.flush()

@@ -32,6 +32,7 @@ class Item(Base):
     status = Column(Integer, default=1)
     image_filename = Column(String, nullable=True)
     track_units = Column(Boolean, default=False, nullable=False)
+    code_prefix = Column(String, nullable=True)
 
     observations = relationship("Observation", back_populates="item")
     movements = relationship("Movement", back_populates="item")

@@ -118,6 +118,7 @@ export async function createItem(data) {
       zone_id: data.zone_id,
       track_units: data.track_units !== false,
       codes: data.codes && data.codes.length ? data.codes : undefined,
+      ...(data.code_prefix ? { code_prefix: data.code_prefix } : {}),
     }),
   });
 }
@@ -411,9 +412,15 @@ export async function getDeletedItems({ name = "", category = "", year = "", mon
   });
 }
 
-export function getNextCodes(count) {
+export function getNextCodes(count, prefix) {
   return apiFetch("/units/next-codes", {
-    params: { count },
+    params: { count, ...(prefix ? { prefix } : {}) },
+  });
+}
+
+export function suggestPrefix(name) {
+  return apiFetch("/units/suggest-prefix", {
+    params: { name },
   });
 }
 
