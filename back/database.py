@@ -213,6 +213,24 @@ def ensure_inventory_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN image_filename VARCHAR"))
 
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "name"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE item_units ADD COLUMN name VARCHAR"))
+
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "is_broken"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE item_units ADD COLUMN is_broken BOOLEAN NOT NULL DEFAULT 0"
+            ))
+
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "damage_note"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE item_units ADD COLUMN damage_note VARCHAR"))
+
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "repair_note"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE item_units ADD COLUMN repair_note VARCHAR"))
+
     if _column_exists("observations", "id") and not _column_exists("observations", "unit_id"):
         with engine.begin() as conn:
             conn.execute(text(

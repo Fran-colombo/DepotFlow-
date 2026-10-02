@@ -128,8 +128,8 @@ def create_item(
         raise ItemServiceError(f"Error creating item: {str(e)}", 400)
 
 
-def adjust_item_stock(db: Session, item: models.Item, quantity_change: int, codes=None):
-    from unit_service import create_units_for_item, take_units_out
+def adjust_item_stock(db: Session, item: models.Item, quantity_change: int, codes=None, names_by_code=None):
+    from unit_service import create_units_for_item, rename_unit, take_units_out
 
     new_total = (item.totalAmount or 0) + quantity_change
     new_actual = (item.actualAmount or 0) + quantity_change
@@ -140,7 +140,10 @@ def adjust_item_stock(db: Session, item: models.Item, quantity_change: int, code
         )
 
     if item.track_units and quantity_change > 0:
-        create_units_for_item(db, item, quantity_change, codes)
+        units = create_units_for_item(db, item, quantity_change, codes)
+        if names_by_code is not None:
+            for unit in units:
+                rename_unit(unit, names_by_code.get(unit.code))
     elif item.track_units and quantity_change < 0:
         removed = take_units_out(db, item, -quantity_change, codes, consume=True)
         item._created_codes = [unit.code for unit in removed]

@@ -5,11 +5,12 @@ import {
   devolverItem,
   getItemUnits,
   getUnitImageUrl,
+  addPiece,
   getNextCodes,
   getUnitObservations,
   identifyItem,
   retirarItem,
-  updateItem,
+  updateUnitProfile,
   uploadUnitImage,
 } from "../api/items";
 import { printLabels } from "./printLabels";
@@ -44,13 +45,21 @@ const PieceCard = ({
   onReload,
   returnPlace,
   onReturnPlace,
+  returnPerson,
+  onReturnPerson,
   onReturn,
+  onShowHistory,
   returning,
 }) => {
   const [notes, setNotes] = useState([]);
   const [note, setNote] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [draftName, setDraftName] = useState(unit.name || "");
+  const [draftBroken, setDraftBroken] = useState(Boolean(unit.is_broken));
+  const [draftDamage, setDraftDamage] = useState(unit.damage_note || "");
+  const [draftRepair, setDraftRepair] = useState(unit.repair_note || "");
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +74,35 @@ const PieceCard = ({
       cancelled = true;
     };
   }, [unit.id]);
+
+  useEffect(() => {
+    setDraftName(unit.name || "");
+    setDraftBroken(Boolean(unit.is_broken));
+    setDraftDamage(unit.damage_note || "");
+    setDraftRepair(unit.repair_note || "");
+  }, [unit.id, unit.name, unit.is_broken, unit.damage_note, unit.repair_note]);
+
+  const saveProfile = async () => {
+    if (!draftName.trim()) {
+      setLocalError("El nombre de la pieza es obligatorio");
+      return;
+    }
+    setSavingProfile(true);
+    setLocalError("");
+    try {
+      await updateUnitProfile(unit.id, {
+        name: draftName.trim(),
+        is_broken: draftBroken,
+        damage_note: draftBroken ? draftDamage.trim() : "",
+        repair_note: draftBroken ? draftRepair.trim() : "",
+      });
+      onReload?.();
+    } catch (err) {
+      setLocalError(err.message || "No se pudo guardar la pieza");
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   const saveNote = async () => {
     const description = note.trim();
@@ -140,7 +178,11 @@ const PieceCard = ({
           <div className="d-flex justify-content-between align-items-start gap-2">
             <div>
               <div className="fs-5 fw-bold">{unit.code}</div>
-              <div className="app-muted small">{unit.status_label}</div>
+              {unit.name && <div className="fw-semibold">{unit.name}</div>}
+              <div className="app-muted small">
+                {unit.status_label}
+                {unit.is_broken ? " · Rota" : ""}
+              </div>
             </div>
             <div className="d-flex flex-wrap gap-1 justify-content-end">
               <label className="btn btn-sm btn-outline-secondary mb-0">
@@ -152,37 +194,65 @@ const PieceCard = ({
                   Quitar foto
                 </button>
               )}
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary"
+                onClick={() => onShowHistory(unit)}
+              >
+                Historial
+              </button>
               {unit.status === "retirada" && (
                 <button
                   type="button"
                   className="btn btn-sm btn-outline-success"
                   disabled={returning}
-                  onClick={() => onReturn(unit)}
+                  onClick={() => {
+                    if (!returnPlace.trim()) {
+                      setLocalError("Indicá la obra desde la que vuelve");
+                      return;
+                    }
+                    if (!returnPerson.trim()) {
+                      setLocalError("Indicá quién lo devuelve");
+                      return;
+                    }
+                    setLocalError("");
+                    onReturn(unit);
+                  }}
                 >
                   Devolver
                 </button>
               )}
             </div>
           </div>
-          {unit.status === "retirada" && (
-            <input
-              className="form-control form-control-sm mt-2"
-              placeholder="Obra desde la que vuelve"
-              value={returnPlace}
-              onChange={(e) => onReturnPlace(unit.id, e.target.value)}
-            />
+          {unit.is_broken && (
+            <div className="alert alert-warning py-2 small mt-2 mb-0">
+              <div className="fw-semibold">Rota</div>
+              {unit.damage_note && <div>Qué le pasó: {unit.damage_note}</div>}
+              {unit.repair_note && <div>Qué habría que hacer: {unit.repair_note}</div>}
+            </div>
           )}
-          {unit.history?.length > 0 && (
-            <ul className="list-unstyled small mb-0 mt-2">
-              {unit.history.map((row, index) => (
-                <li key={`${unit.id}-h-${index}`} className="text-secondary">
-                  {ACTION_LABEL[row.action] || row.action}
-                  {row.place ? ` · ${row.place}` : ""}
-                  {row.person ? ` · ${row.person}` : ""}
-                  {row.date ? ` · ${new Date(row.date).toLocaleString()}` : ""}
-                </li>
-              ))}
-            </ul>
+          {unit.status === "retirada" && (
+            <>
+              <input
+                className="form-control form-control-sm mt-2"
+                placeholder="Obra desde la que vuelve"
+                value={returnPlace}
+                onChange={(e) => {
+                  onReturnPlace(unit.id, e.target.value);
+                  if (localError) setLocalError("");
+                }}
+              />
+              <input
+                className="form-control form-control-sm mt-2"
+                placeholder="Quién lo devuelve"
+                value={returnPerson}
+                onChange={(e) => {
+                  onReturnPerson(unit.id, e.target.value);
+                  if (localError) setLocalError("");
+                }}
+              />
+              {localError && <div className="alert alert-danger py-2 small mt-2 mb-0">{localError}</div>}
+            </>
           )}
           {notes.length > 0 && (
             <ul className="list-unstyled small mb-0 mt-2">
@@ -197,6 +267,50 @@ const PieceCard = ({
               ))}
             </ul>
           )}
+          <div className="border rounded p-2 mt-2">
+            <input
+              className="form-control form-control-sm mb-2"
+              value={draftName}
+              placeholder="Nombre de la pieza"
+              onChange={(e) => setDraftName(e.target.value)}
+            />
+            <div className="form-check mb-2">
+              <input
+                id={`broken-${unit.id}`}
+                type="checkbox"
+                className="form-check-input"
+                checked={draftBroken}
+                onChange={(e) => setDraftBroken(e.target.checked)}
+              />
+              <label className="form-check-label" htmlFor={`broken-${unit.id}`}>Rota</label>
+            </div>
+            {draftBroken && (
+              <>
+                <textarea
+                  className="form-control form-control-sm mb-2"
+                  rows="2"
+                  placeholder="Qué le pasó"
+                  value={draftDamage}
+                  onChange={(e) => setDraftDamage(e.target.value)}
+                />
+                <textarea
+                  className="form-control form-control-sm mb-2"
+                  rows="2"
+                  placeholder="Qué habría que hacer"
+                  value={draftRepair}
+                  onChange={(e) => setDraftRepair(e.target.value)}
+                />
+              </>
+            )}
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-primary"
+              disabled={savingProfile}
+              onClick={saveProfile}
+            >
+              Guardar pieza
+            </button>
+          </div>
           <div className="d-flex gap-2 mt-2">
             <input
               className="form-control form-control-sm"
@@ -219,7 +333,9 @@ const PieceCard = ({
               Anotar
             </button>
           </div>
-          {localError && <div className="text-danger small mt-1">{localError}</div>}
+          {localError && unit.status !== "retirada" && (
+            <div className="text-danger small mt-1">{localError}</div>
+          )}
         </div>
       </div>
     </div>
@@ -237,9 +353,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [place, setPlace] = useState("");
   const [person, setPerson] = useState("");
   const [returnPlaces, setReturnPlaces] = useState({});
+  const [returnPeople, setReturnPeople] = useState({});
+  const [historyUnit, setHistoryUnit] = useState(null);
   const [busy, setBusy] = useState(false);
   const [freshCodes, setFreshCodes] = useState([]);
   const [pieceCode, setPieceCode] = useState("");
+  const [pieceName, setPieceName] = useState("");
+  const [pieceNote, setPieceNote] = useState("");
+  const [pieceBroken, setPieceBroken] = useState(false);
+  const [pieceDamage, setPieceDamage] = useState("");
+  const [pieceRepair, setPieceRepair] = useState("");
   const [addingMore, setAddingMore] = useState(false);
   const [offerAnother, setOfferAnother] = useState(false);
 
@@ -270,6 +393,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setPerson("");
     setFreshCodes([]);
     setPieceCode("");
+    setPieceName("");
+    setPieceNote("");
+    setPieceBroken(false);
+    setPieceDamage("");
+    setPieceRepair("");
     setAddingMore(false);
     setOfferAnother(false);
     setPrefix(defaultPrefix(item.name));
@@ -324,10 +452,26 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
       setError("Falta el código de la pieza");
       return;
     }
+    if (!pieceName.trim()) {
+      setError("El nombre de la pieza es obligatorio");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      await updateItem(item.id, { quantity: 1, action: "add", codes: [code] });
+      await addPiece(item.id, {
+        code,
+        name: pieceName.trim(),
+        observation: pieceNote.trim(),
+        is_broken: pieceBroken,
+        damage_note: pieceBroken ? pieceDamage.trim() : "",
+        repair_note: pieceBroken ? pieceRepair.trim() : "",
+      });
+      setPieceName("");
+      setPieceNote("");
+      setPieceBroken(false);
+      setPieceDamage("");
+      setPieceRepair("");
       setOfferAnother(true);
       setAddingMore(false);
       await reload();
@@ -403,8 +547,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
 
   const handleReturn = async (unit) => {
     const where = (returnPlaces[unit.id] || "").trim();
+    const who = (returnPeople[unit.id] || "").trim();
     if (!where) {
       setError("Indicá la obra desde la que vuelve");
+      return;
+    }
+    if (!who) {
+      setError("Indicá quién lo devuelve");
       return;
     }
     setBusy(true);
@@ -414,6 +563,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
         itemId: item.id,
         amount: 1,
         place: where,
+        personWhoReturned: who,
         codes: [unit.code],
       });
       await reload();
@@ -450,7 +600,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
             }}
             returnPlace={returnPlaces[unit.id] || ""}
             onReturnPlace={(id, value) => setReturnPlaces((prev) => ({ ...prev, [id]: value }))}
+            returnPerson={returnPeople[unit.id] || ""}
+            onReturnPerson={(id, value) => setReturnPeople((prev) => ({ ...prev, [id]: value }))}
             onReturn={handleReturn}
+            onShowHistory={setHistoryUnit}
             returning={busy}
           />
         ))
@@ -458,7 +611,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     </section>
   );
 
+  const historyRows = [...(historyUnit?.history || [])].reverse();
+
   return (
+    <>
     <div
       className="modal show d-block fade"
       tabIndex="-1"
@@ -562,6 +718,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                               setOfferAnother(false);
                               setAddingMore(true);
                               setPieceCode("");
+                              setPieceName("");
+                              setPieceNote("");
+                              setPieceBroken(false);
+                              setPieceDamage("");
+                              setPieceRepair("");
                             }}
                           >
                             Sí
@@ -584,21 +745,69 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                           <strong>{item.category}</strong> · {item.name}
                           {units.length === 0 ? " está en 0." : ""} El próximo código usa {item.code_prefix}.
                         </p>
-                        <div className="d-flex gap-2">
+                        <div className="mb-2">
+                          <label className="form-label mb-1">Código</label>
                           <input
                             className="form-control"
                             value={pieceCode}
                             onChange={(e) => setPieceCode(e.target.value.toUpperCase())}
                           />
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            disabled={busy || !pieceCode.trim()}
-                            onClick={addPiece}
-                          >
-                            Agregar
-                          </button>
                         </div>
+                        <div className="mb-2">
+                          <label className="form-label mb-1">Nombre de la pieza</label>
+                          <input
+                            className="form-control"
+                            value={pieceName}
+                            placeholder="Amoladora chica Makita verde"
+                            onChange={(e) => setPieceName(e.target.value)}
+                          />
+                        </div>
+                        <div className="mb-2">
+                          <label className="form-label mb-1">Observación</label>
+                          <textarea
+                            className="form-control"
+                            rows="2"
+                            value={pieceNote}
+                            placeholder="Opcional"
+                            onChange={(e) => setPieceNote(e.target.value)}
+                          />
+                        </div>
+                        <div className="form-check mb-2">
+                          <input
+                            id="detail-piece-broken"
+                            type="checkbox"
+                            className="form-check-input"
+                            checked={pieceBroken}
+                            onChange={(e) => setPieceBroken(e.target.checked)}
+                          />
+                          <label className="form-check-label" htmlFor="detail-piece-broken">Rota</label>
+                        </div>
+                        {pieceBroken && (
+                          <>
+                            <textarea
+                              className="form-control mb-2"
+                              rows="2"
+                              placeholder="Qué le pasó"
+                              value={pieceDamage}
+                              onChange={(e) => setPieceDamage(e.target.value)}
+                            />
+                            <textarea
+                              className="form-control mb-2"
+                              rows="2"
+                              placeholder="Qué habría que hacer"
+                              value={pieceRepair}
+                              onChange={(e) => setPieceRepair(e.target.value)}
+                            />
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          disabled={busy || !pieceCode.trim() || !pieceName.trim()}
+                          onClick={addPiece}
+                        >
+                          Agregar
+                        </button>
                       </>
                     )}
                   </div>
@@ -645,6 +854,80 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
         </div>
       </div>
     </div>
+    {historyUnit && (
+      <div
+        className="modal show d-block fade"
+        tabIndex="-1"
+        style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }}
+        onClick={() => setHistoryUnit(null)}
+      >
+        <div
+          className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="modal-content rounded shadow-lg">
+            <div className="modal-header">
+              <h5 className="modal-title mb-0">
+                Historial: {historyUnit.code}
+                {historyUnit.name ? ` ${historyUnit.name}` : ""}
+              </h5>
+              <button
+                type="button"
+                className="btn-close"
+                aria-label="Cerrar"
+                onClick={() => setHistoryUnit(null)}
+              ></button>
+            </div>
+            <div className="modal-body">
+              {historyRows.length === 0 ? (
+                <div className="text-secondary">No hay movimientos registrados</div>
+              ) : (
+                <div className="table-responsive">
+                  <table className="table table-hover table-bordered mb-0">
+                    <thead className="table-primary text-center">
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Acción</th>
+                        <th>Lugar</th>
+                        <th>Persona</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyRows.map((row, index) => (
+                        <tr key={`${historyUnit.id}-hist-${index}`}>
+                          <td>
+                            {row.date
+                              ? new Date(row.date).toLocaleString("es-ES", {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })
+                              : "—"}
+                          </td>
+                          <td className="text-center">
+                            {ACTION_LABEL[row.action] || row.action || "—"}
+                          </td>
+                          <td>{row.place || "—"}</td>
+                          <td>{row.person || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-outline-primary" onClick={() => setHistoryUnit(null)}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

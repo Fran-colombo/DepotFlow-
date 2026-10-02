@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createItem, updateItem, getItems, getItemById, getNextCodes, suggestPrefix } from "../api/items";
+import { addPiece, createItem, updateItem, getItems, getItemById, getItemUnits, getNextCodes, suggestPrefix } from "../api/items";
 import { getCategories } from "../api/categories";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
@@ -29,13 +29,17 @@ const UpdateItemModal = ({
     zone_id: "",
     quantityOnly: false,
   });
-  const [proposedCodes, setProposedCodes] = useState([]);
   const [createdLabels, setCreatedLabels] = useState(null);
   const [createStep, setCreateStep] = useState("form");
   const [createdSub, setCreatedSub] = useState(null);
   const [prefix, setPrefix] = useState("");
   const [prefixTouched, setPrefixTouched] = useState(false);
   const [pieceCode, setPieceCode] = useState("");
+  const [pieceName, setPieceName] = useState("");
+  const [pieceNote, setPieceNote] = useState("");
+  const [pieceBroken, setPieceBroken] = useState(false);
+  const [pieceDamage, setPieceDamage] = useState("");
+  const [pieceRepair, setPieceRepair] = useState("");
   const [addedCodes, setAddedCodes] = useState([]);
   const [updateData, setUpdateData] = useState({
     item_id: "",
@@ -43,6 +47,9 @@ const UpdateItemModal = ({
     action: "add",
     codesText: "",
   });
+  const [newPieces, setNewPieces] = useState([]);
+  const [existingPieces, setExistingPieces] = useState([]);
+  const [savedNames, setSavedNames] = useState({});
 
   const isLockedToItem = mode === "update" && itemId != null;
 
@@ -61,13 +68,17 @@ const UpdateItemModal = ({
       zone_id: "",
       quantityOnly: false,
     });
-    setProposedCodes([]);
     setCreatedLabels(null);
     setCreateStep("form");
     setCreatedSub(null);
     setPrefix("");
     setPrefixTouched(false);
     setPieceCode("");
+    setPieceName("");
+    setPieceNote("");
+    setPieceBroken(false);
+    setPieceDamage("");
+    setPieceRepair("");
     setAddedCodes([]);
     setUpdateData({
       item_id: itemId != null ? Number(itemId) : "",
@@ -75,6 +86,9 @@ const UpdateItemModal = ({
       action: "add",
       codesText: "",
     });
+    setNewPieces([]);
+    setExistingPieces([]);
+    setSavedNames({});
     getCategories()
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
@@ -212,17 +226,99 @@ const UpdateItemModal = ({
     getNextCodes(updateData.quantity || 1, selectedUpdateItem?.code_prefix)
       .then((data) => {
         if (!cancelled) {
-          setProposedCodes(data.codes || []);
-          setUpdateData((prev) => ({ ...prev, codesText: (data.codes || []).join(", ") }));
+          const codes = data.codes || [];
+          setNewPieces((prev) =>
+            codes.map((code, index) => ({
+              code,
+              name: prev.find((piece) => piece.code === code)?.name || prev[index]?.name || "",
+            }))
+          );
         }
       })
       .catch(() => {
-        if (!cancelled) setProposedCodes([]);
+        if (!cancelled) setNewPieces([]);
       });
     return () => {
       cancelled = true;
     };
   }, [isOpen, mode, updateTracksUnits, updateData.action, updateData.quantity, selectedUpdateItem?.code_prefix]);
+
+  useEffect(() => {
+    if (!isOpen || mode !== "update" || !updateTracksUnits || !selectedUpdateItem?.id) {
+      setExistingPieces([]);
+      setSavedNames({});
+      return;
+    }
+    let cancelled = false;
+    getItemUnits(selectedUpdateItem.id, "all")
+      .then((data) => {
+        if (cancelled) return;
+        const units = Array.isArray(data?.units) ? data.units : [];
+        const list = units.map((unit) => ({
+          id: unit.id,
+          code: unit.code,
+          name: unit.name || "",
+          status_label: unit.status_label || "",
+        }));
+        setExistingPieces(list);
+        setSavedNames(Object.fromEntries(list.map((unit) => [unit.id, unit.name])));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setExistingPieces([]);
+          setSavedNames({});
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode, updateTracksUnits, selectedUpdateItem?.id]);
+
+  const changedNames = () => {
+    const renames = [];
+    for (const piece of existingPieces) {
+      const next = (piece.name || "").trim();
+      const previous = savedNames[piece.id] || "";
+      if (next === previous) continue;
+      if (!next) {
+        setError("El nombre de la pieza es obligatorio");
+        return null;
+      }
+      renames.push({ id: piece.id, name: next });
+    }
+    return renames;
+  };
+
+  const saveNames = async () => {
+    if (!selectedUpdateItem?.id) return;
+    setError("");
+    const renames = changedNames();
+    if (renames === null) return;
+    if (!renames.length) {
+      setError("No hay nombres para guardar");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await updateItem(selectedUpdateItem.id, {
+        quantity: 0,
+        action: "add",
+        renames,
+      });
+      setSavedNames((prev) => {
+        const next = { ...prev };
+        renames.forEach((row) => {
+          next[row.id] = row.name;
+        });
+        return next;
+      });
+      refreshItems?.();
+    } catch (err) {
+      setError(err.message || "No se pudieron guardar los nombres");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -238,13 +334,26 @@ const UpdateItemModal = ({
             setIsLoading(false);
             return;
           }
-          const updated = await updateItem(createdSub.id, {
-            quantity: 1,
-            action: "add",
-            codes: [code],
+          if (!pieceName.trim()) {
+            setError("El nombre de la pieza es obligatorio");
+            setIsLoading(false);
+            return;
+          }
+          const updated = await addPiece(createdSub.id, {
+            code,
+            name: pieceName.trim(),
+            observation: pieceNote.trim(),
+            is_broken: pieceBroken,
+            damage_note: pieceBroken ? pieceDamage.trim() : "",
+            repair_note: pieceBroken ? pieceRepair.trim() : "",
           });
-          const saved = updated?.codes?.[0] || code.toUpperCase();
+          const saved = updated?.code || code.toUpperCase();
           setAddedCodes((prev) => [...prev, saved]);
+          setPieceName("");
+          setPieceNote("");
+          setPieceBroken(false);
+          setPieceDamage("");
+          setPieceRepair("");
           setCreateStep("ask");
           refreshItems?.();
           return;
@@ -284,6 +393,34 @@ const UpdateItemModal = ({
           setIsLoading(false);
           return;
         }
+        const renames = changedNames();
+        if (renames === null) {
+          setIsLoading(false);
+          return;
+        }
+        if (updateTracksUnits && action === "add") {
+          if (newPieces.length !== quantity || newPieces.some((piece) => !piece.name.trim() || !piece.code.trim())) {
+            setError("Cada pieza nueva necesita un código y un nombre");
+            setIsLoading(false);
+            return;
+          }
+          const updated = await updateItem(updateData.item_id, {
+            quantity,
+            action,
+            piece_names: newPieces.map((piece) => ({
+              code: piece.code.trim(),
+              name: piece.name.trim(),
+            })),
+            ...(renames.length ? { renames } : {}),
+          });
+          refreshItems?.();
+          setCreatedLabels({
+            name: selectedUpdateItem?.name || "Artículo",
+            codes: updated?.codes?.length ? updated.codes : newPieces.map((piece) => piece.code.trim()),
+            category: selectedUpdateItem?.category || "",
+          });
+          return;
+        }
         const typedCodes = (updateData.codesText || "")
           .split(/[\s,;]+/)
           .map((code) => code.trim())
@@ -292,6 +429,7 @@ const UpdateItemModal = ({
           quantity: updateData.quantity,
           action: updateData.action,
           ...(updateTracksUnits && typedCodes.length ? { codes: typedCodes } : {}),
+          ...(renames.length ? { renames } : {}),
         });
         refreshItems?.();
         if (updated?.codes?.length && action === "add") {
@@ -318,6 +456,11 @@ const UpdateItemModal = ({
     try {
       const data = await getNextCodes(1, createdSub.code_prefix);
       setPieceCode(data.codes?.[0] || "");
+      setPieceName("");
+      setPieceNote("");
+      setPieceBroken(false);
+      setPieceDamage("");
+      setPieceRepair("");
       setCreateStep("piece");
     } catch (err) {
       setError(err.message || "No se pudo proponer el código");
@@ -461,6 +604,62 @@ const UpdateItemModal = ({
                       Si la pieza ya viene marcada, cambiala antes de guardar.
                     </div>
                   </div>
+                  <div className="mb-3">
+                    <label className="form-label fw-bold" htmlFor="piece-name">Nombre de la pieza:</label>
+                    <input
+                      id="piece-name"
+                      className="form-control"
+                      value={pieceName}
+                      onChange={(e) => setPieceName(e.target.value)}
+                      placeholder="Amoladora chica Makita verde"
+                      required
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="form-label fw-bold" htmlFor="piece-note">Observación:</label>
+                    <textarea
+                      id="piece-note"
+                      className="form-control"
+                      rows="2"
+                      value={pieceNote}
+                      onChange={(e) => setPieceNote(e.target.value)}
+                      placeholder="Opcional"
+                    />
+                  </div>
+                  <div className="form-check mb-3">
+                    <input
+                      id="piece-broken"
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={pieceBroken}
+                      onChange={(e) => setPieceBroken(e.target.checked)}
+                    />
+                    <label className="form-check-label" htmlFor="piece-broken">Rota</label>
+                  </div>
+                  {pieceBroken && (
+                    <>
+                      <div className="mb-3">
+                        <label className="form-label fw-bold" htmlFor="piece-damage">Qué le pasó:</label>
+                        <textarea
+                          id="piece-damage"
+                          className="form-control"
+                          rows="2"
+                          value={pieceDamage}
+                          onChange={(e) => setPieceDamage(e.target.value)}
+                        />
+                      </div>
+                      <div className="mb-3">
+                        <label className="form-label fw-bold" htmlFor="piece-repair">Qué habría que hacer:</label>
+                        <textarea
+                          id="piece-repair"
+                          className="form-control"
+                          rows="2"
+                          value={pieceRepair}
+                          onChange={(e) => setPieceRepair(e.target.value)}
+                        />
+                      </div>
+                    </>
+                  )}
                 </>
               ) : mode === "create" ? (
                 <>
@@ -708,11 +907,51 @@ const UpdateItemModal = ({
                     </select>
                   </div>
 
-                  {updateTracksUnits && (
+                  {updateTracksUnits && updateData.action === "add" && (
                     <div className="mb-3">
-                      <label className="form-label fw-bold">
-                        Códigos {updateData.action === "add" ? "de las piezas nuevas" : "(opcional)"}
-                      </label>
+                      <label className="form-label fw-bold">Piezas nuevas</label>
+                      {newPieces.map((piece, index) => (
+                        <div className="row g-2 mb-2" key={`${piece.code}-${index}`}>
+                          <div className="col-4">
+                            <input
+                              className="form-control"
+                              value={piece.code}
+                              aria-label="Código"
+                              onChange={(e) =>
+                                setNewPieces((prev) =>
+                                  prev.map((row, rowIndex) =>
+                                    rowIndex === index ? { ...row, code: e.target.value } : row
+                                  )
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="col-8">
+                            <input
+                              className="form-control"
+                              placeholder="Nombre de la pieza"
+                              value={piece.name}
+                              required
+                              onChange={(e) =>
+                                setNewPieces((prev) =>
+                                  prev.map((row, rowIndex) =>
+                                    rowIndex === index ? { ...row, name: e.target.value } : row
+                                  )
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <div className="form-text">
+                        El código se propone solo. El nombre es obligatorio.
+                      </div>
+                    </div>
+                  )}
+
+                  {updateTracksUnits && updateData.action === "rest" && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">Códigos (opcional)</label>
                       <textarea
                         className="form-control"
                         rows="3"
@@ -722,10 +961,44 @@ const UpdateItemModal = ({
                         }
                       />
                       <div className="form-text">
-                        {updateData.action === "add"
-                          ? "Uno por cada unidad que entra. Podés reemplazar los que propone el sistema."
-                          : "Si lo dejás vacío, se dan de baja las piezas más antiguas que están en depósito."}
+                        Si lo dejás vacío, se dan de baja las piezas más antiguas que están en depósito.
                       </div>
+                    </div>
+                  )}
+
+                  {updateTracksUnits && existingPieces.length > 0 && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">Piezas que ya existen</label>
+                      {existingPieces.map((piece) => (
+                        <div className="row g-2 align-items-center mb-2" key={piece.id}>
+                          <div className="col-5">
+                            <div className="fw-semibold">{piece.code}</div>
+                            <div className="small text-muted">{piece.status_label}</div>
+                          </div>
+                          <div className="col-7">
+                            <input
+                              className="form-control"
+                              placeholder="Nombre de la pieza"
+                              value={piece.name}
+                              onChange={(e) =>
+                                setExistingPieces((prev) =>
+                                  prev.map((row) =>
+                                    row.id === piece.id ? { ...row, name: e.target.value } : row
+                                  )
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm"
+                        onClick={saveNames}
+                        disabled={isLoading}
+                      >
+                        Guardar nombres
+                      </button>
                     </div>
                   )}
                 </>

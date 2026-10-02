@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel
 
 
@@ -11,6 +11,7 @@ class MovementCreateDTO(BaseModel):
     username: str
     from_zone_id: Optional[int] = None
     to_zone_id: int
+    codes: Optional[List[str]] = None
 
 
 class MovementResponseDTO(BaseModel):

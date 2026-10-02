@@ -133,6 +133,21 @@ def read_history(
                       .limit(page_size) \
                       .all()
 
+        history_ids = [history.id for history, *_rest in records]
+        pieces_by_history = {}
+        if history_ids:
+            links = (
+                db.query(models.HistoryUnit.history_id, models.ItemUnit.code, models.ItemUnit.name)
+                .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
+                .filter(models.HistoryUnit.history_id.in_(history_ids))
+                .order_by(models.ItemUnit.code.asc())
+                .all()
+            )
+            for history_id, code, piece_name in links:
+                pieces_by_history.setdefault(history_id, []).append(
+                    {"code": code, "name": piece_name}
+                )
+
         return {
             "data": [
                 HistoryResponseWithDetailsDTO(
@@ -151,7 +166,8 @@ def read_history(
                     turnbackDate=history.turnbackDate,
                     itemCategory=category,
                     shedId=shed_id,
-                    shed_name=shed_name
+                    shed_name=shed_name,
+                    pieces=pieces_by_history.get(history.id) or [],
                 )
                 for history, item_name_db, category, shed_id, shed_name in records
             ],
@@ -412,50 +428,88 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
     if not item:
         raise HTTPException(404, "Item not found")
 
-    pendientes_query = db.query(models.History).filter(
-        models.History.itemId == dto.itemId,
-        models.History.action == models.ActionEnum.retiro,
-        models.History.turnback == False
-    )
-    
-    if dto.place:
-        pendientes_query = pendientes_query.filter(
-            models.History.place == dto.place
-        )
-    
-    pendientes = pendientes_query.order_by(models.History.date.asc()).all()
-
-    total_pendiente = sum(p.amountNotReturned for p in pendientes)
-    if dto.amount > total_pendiente:
-        raise HTTPException(
-            status_code=400,
-            detail=f"No se pueden devolver {dto.amount} unidades. Solo {total_pendiente} están pendientes en este lugar."
-        )
-
     units = []
-    if item.track_units:
+    if item.track_units and dto.codes:
         try:
             units = restore_units(db, item, dto.amount, dto.codes, dto.place)
         except ItemServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
+        for unit in units:
+            history = (
+                db.query(models.History)
+                .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+                .filter(
+                    models.HistoryUnit.unit_id == unit.id,
+                    models.History.action == models.ActionEnum.retiro,
+                    models.History.turnback == False,
+                    models.History.amountNotReturned > 0,
+                )
+            )
+            if dto.place:
+                history = history.filter(models.History.place == dto.place)
+            history = history.order_by(models.History.date.asc()).first()
+            if not history:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No hay una salida pendiente de {unit.code} en esa obra",
+                )
+            history.amountNotReturned -= 1
+            if history.amountNotReturned == 0:
+                history.turnback = True
+                history.turnbackDate = now()
+            home = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
+            if home:
+                home.actualAmount = (home.actualAmount or 0) + 1
+    else:
+        pendientes_query = db.query(models.History).filter(
+            models.History.itemId == dto.itemId,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False
+        )
 
-    item.actualAmount += dto.amount
-    restante = dto.amount
+        if dto.place:
+            pendientes_query = pendientes_query.filter(
+                models.History.place == dto.place
+            )
 
-    for p in pendientes:
-        if restante <= 0:
-            break
-            
-        if restante >= p.amountNotReturned:
-            restante -= p.amountNotReturned
-            p.amountNotReturned = 0
+        pendientes = pendientes_query.order_by(models.History.date.asc()).all()
+
+        total_pendiente = sum(p.amountNotReturned or 0 for p in pendientes)
+        if dto.amount > total_pendiente:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se pueden devolver {dto.amount} unidades. Solo {total_pendiente} están pendientes en este lugar."
+            )
+
+        if item.track_units:
+            try:
+                units = restore_units(db, item, dto.amount, dto.codes, dto.place)
+            except ItemServiceError as exc:
+                raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+        if units:
+            for unit in units:
+                home = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
+                if home:
+                    home.actualAmount = (home.actualAmount or 0) + 1
         else:
-            p.amountNotReturned -= restante
-            restante = 0
+            item.actualAmount += dto.amount
+        restante = dto.amount
 
-        if p.amountNotReturned == 0:
-            p.turnback = True
-            p.turnbackDate = now()
+        for p in pendientes:
+            if restante <= 0:
+                break
+
+            if restante >= p.amountNotReturned:
+                restante -= p.amountNotReturned
+                p.amountNotReturned = 0
+            else:
+                p.amountNotReturned -= restante
+                restante = 0
+
+            if p.amountNotReturned == 0:
+                p.turnback = True
+                p.turnbackDate = now()
 
     quien_devuelve = dto.personWhoReturned.strip() if dto.personWhoReturned and dto.personWhoReturned.strip() else user_name
 
@@ -591,6 +645,8 @@ def trasladar_item(
         hideFromHistorial=False,
     )
     db.add(traslado)
+    db.flush()
+    link_history_units(db, traslado.id, moved_units)
 
     db.commit()
     db.refresh(traslado)

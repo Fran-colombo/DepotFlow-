@@ -41,6 +41,25 @@ def get_observations_by_item(item_id: int, db: db_dependency):
     return observations
 
 
+def add_unit_observation(db, item_id: int, unit_id: int, description: str, current_user: dict):
+    text = (description or "").strip()
+    if not text:
+        return None
+    user = db.query(models.User).filter(models.User.id == current_user["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    observation = models.Observation(
+        item_id=item_id,
+        description=text,
+        user_id=current_user["user_id"],
+        user_name=f"{user.name} {user.surname}",
+        unit_id=unit_id,
+        date=now(),
+    )
+    db.add(observation)
+    return observation
+
+
 @router.get("/unit/{unit_id}", response_model=list[dtos.ObservationResponseDTO])
 def get_observations_by_unit(unit_id: int, db: db_dependency):
     return (

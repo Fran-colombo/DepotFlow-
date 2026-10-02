@@ -39,7 +39,10 @@ from item_images import router as item_images_router, delete_stored_image
 import categories
 from item_categories import category_is_consumable, normalize_lookup, seed_categories
 from pydantic import BaseModel
+from observations import add_unit_observation
 from unit_service import (
+    apply_piece_profile,
+    create_units_for_item,
     find_unit_by_code,
     identify_current_stock,
     last_unit_movement,
@@ -357,27 +360,67 @@ def update_item_by_id(
             detail="Debe especificar una cantidad"
         )
 
-    if item_update.quantity <= 0:
+    if item_update.quantity < 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La cantidad debe ser mayor a cero"
         )
 
-    quantity_change = 0
-
-    if item_update.action == itemDTO.ActionEnum.add:
-        quantity_change = item_update.quantity
-    elif item_update.action == itemDTO.ActionEnum.rest:
-        quantity_change = -item_update.quantity
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Acción no válida"
-        )
+    from unit_service import normalize_code, rename_unit
 
     try:
-        updated = adjust_item_stock(db, item, quantity_change, codes=item_update.codes)
+        for row in item_update.renames or []:
+            unit = (
+                db.query(models.ItemUnit)
+                .filter(models.ItemUnit.id == row.id, models.ItemUnit.item_id == item.id)
+                .first()
+            )
+            if not unit:
+                raise ItemServiceError("La pieza no pertenece a esta subcategoría")
+            rename_unit(unit, row.name)
+
+        if item_update.quantity == 0:
+            if not item_update.renames:
+                raise ItemServiceError("No hay nombres para guardar")
+            db.commit()
+            db.refresh(item)
+            return {
+                "id": item.id,
+                "actualAmount": item.actualAmount,
+                "totalAmount": item.totalAmount,
+                "codes": [],
+            }
+
+        quantity_change = 0
+
+        if item_update.action == itemDTO.ActionEnum.add:
+            quantity_change = item_update.quantity
+        elif item_update.action == itemDTO.ActionEnum.rest:
+            quantity_change = -item_update.quantity
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Acción no válida"
+            )
+
+        codes = item_update.codes
+        names_by_code = None
+        if item.track_units and item_update.action == itemDTO.ActionEnum.add:
+            pieces = item_update.piece_names or []
+            if len(pieces) != item_update.quantity:
+                raise ItemServiceError("Cada pieza nueva necesita un nombre")
+            codes = []
+            names_by_code = {}
+            for piece in pieces:
+                code = normalize_code(piece.code)
+                codes.append(code)
+                names_by_code[code] = piece.name
+
+        updated = adjust_item_stock(
+            db, item, quantity_change, codes=codes, names_by_code=names_by_code
+        )
     except ItemServiceError as e:
+        db.rollback()
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
     return {
@@ -529,6 +572,10 @@ def get_unit_by_code(
     return {
         "id": unit.id,
         "code": unit.code,
+        "name": unit.name,
+        "is_broken": bool(unit.is_broken),
+        "damage_note": unit.damage_note,
+        "repair_note": unit.repair_note,
         "status": unit.status,
         "status_label": status_label,
         "created_at": unit.created_at.isoformat() if unit.created_at else None,
@@ -576,6 +623,10 @@ def list_item_units(
                 "code": unit.code,
                 "status": unit.status,
                 "status_label": labels.get(unit.status, unit.status),
+                "name": unit.name,
+                "is_broken": bool(unit.is_broken),
+                "damage_note": unit.damage_note,
+                "repair_note": unit.repair_note,
                 "has_image": bool(unit.image_filename),
                 "image_filename": unit.image_filename,
                 "created_at": unit.created_at.isoformat() if unit.created_at else None,
@@ -585,6 +636,86 @@ def list_item_units(
             for unit in units
         ],
     }
+
+
+class PieceCreateBody(BaseModel):
+    code: Optional[str] = None
+    name: str
+    observation: Optional[str] = None
+    is_broken: bool = False
+    damage_note: Optional[str] = None
+    repair_note: Optional[str] = None
+
+
+class PieceUpdateBody(BaseModel):
+    name: str
+    is_broken: bool = False
+    damage_note: Optional[str] = None
+    repair_note: Optional[str] = None
+
+
+def _piece_response(unit) -> dict:
+    return {
+        "id": unit.id,
+        "code": unit.code,
+        "name": unit.name,
+        "is_broken": bool(unit.is_broken),
+        "damage_note": unit.damage_note,
+        "repair_note": unit.repair_note,
+        "item_id": unit.item_id,
+    }
+
+
+@app.post("/items/{item_id}/pieces")
+def create_piece(
+    item_id: int,
+    body: PieceCreateBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if not item.track_units:
+        raise HTTPException(status_code=400, detail="Esta subcategoría no identifica piezas")
+    try:
+        units = create_units_for_item(
+            db,
+            item,
+            1,
+            codes=[body.code] if body.code and body.code.strip() else None,
+        )
+        unit = units[0]
+        apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note)
+        item.actualAmount = (item.actualAmount or 0) + 1
+        item.totalAmount = (item.totalAmount or 0) + 1
+        add_unit_observation(db, item.id, unit.id, body.observation, current_user)
+        db.commit()
+        db.refresh(unit)
+    except ItemServiceError as e:
+        db.rollback()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return _piece_response(unit)
+
+
+@app.put("/units/{unit_id}")
+def update_piece(
+    unit_id: int,
+    body: PieceUpdateBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Pieza no encontrada")
+    try:
+        apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note)
+        db.commit()
+        db.refresh(unit)
+    except ItemServiceError as e:
+        db.rollback()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return _piece_response(unit)
 
 
 class IdentifyUnitsBody(BaseModel):

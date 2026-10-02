@@ -141,6 +141,44 @@ def peek_codes(db: Session, count: int, prefix: str = "K") -> list:
     return codes
 
 
+def rename_unit(unit, name: str):
+    cleaned = (name or "").strip()
+    if not cleaned:
+        raise ItemServiceError("El nombre de la pieza es obligatorio")
+    unit.name = cleaned
+
+
+def select_relocatable_units(db: Session, item: models.Item, codes):
+    if not codes:
+        raise ItemServiceError("Elegí las piezas a mover")
+    normalized = [normalize_code(code) for code in codes]
+    if len(set(normalized)) != len(normalized):
+        raise ItemServiceError("Hay códigos repetidos")
+    units = []
+    for code in normalized:
+        unit = db.query(models.ItemUnit).filter(models.ItemUnit.code == code).first()
+        if not unit or unit.item_id != item.id:
+            raise ItemServiceError(f"El código {code} no pertenece a este artículo")
+        if unit.status not in (STATUS_EN_STOCK, STATUS_RETIRADA):
+            raise ItemServiceError(f"El código {code} no se puede mover")
+        units.append(unit)
+    return units
+
+
+def apply_piece_profile(unit, name: str, is_broken: bool, damage_note: str = None, repair_note: str = None):
+    cleaned = (name or "").strip()
+    if not cleaned:
+        raise ItemServiceError("El nombre de la pieza es obligatorio")
+    unit.name = cleaned
+    unit.is_broken = bool(is_broken)
+    if unit.is_broken:
+        unit.damage_note = (damage_note or "").strip() or None
+        unit.repair_note = (repair_note or "").strip() or None
+    else:
+        unit.damage_note = None
+        unit.repair_note = None
+
+
 def create_units_for_item(db: Session, item: models.Item, quantity: int, codes=None, prefix=None):
     if quantity <= 0:
         item._created_codes = []
@@ -258,7 +296,7 @@ def units_for_pending_place(db: Session, item: models.Item, place: str, amount: 
             if link.unit_id in seen:
                 continue
             unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == link.unit_id).first()
-            if unit and unit.status == STATUS_RETIRADA and unit.item_id == item.id:
+            if unit and unit.status == STATUS_RETIRADA:
                 selected.append(unit)
                 seen.add(unit.id)
                 if len(selected) >= amount:
@@ -295,7 +333,7 @@ def restore_units(db: Session, item: models.Item, amount: int, codes, place: str
         units = []
         for code in normalized:
             unit = db.query(models.ItemUnit).filter(models.ItemUnit.code == code).first()
-            if not unit or unit.item_id != item.id or unit.status != STATUS_RETIRADA:
+            if not unit or unit.status != STATUS_RETIRADA:
                 raise ItemServiceError(f"El código {code} no está en obra para devolver")
             units.append(unit)
     else:
@@ -355,7 +393,7 @@ def unit_history(db: Session, unit: models.ItemUnit) -> list:
     rows = []
     for link in links:
         history = db.query(models.History).filter(models.History.id == link.history_id).first()
-        if not history:
+        if not history or history.hideFromHistorial:
             continue
         rows.append(
             {

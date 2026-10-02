@@ -2,14 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import exists
 from sqlalchemy.orm import Session, joinedload
 from typing import List
-from models import Item, Movement, Observation, Zone, Shed
+from datetime import datetime
+from models import ActionEnum, History, Item, Movement, Observation, Shed, User, Zone
 from auth import get_current_user
 from dtos.movementsDTO import MovementCreateDTO, MovementResponseDTO
 from database import get_db
 from contextlib import contextmanager
 from item_images import copy_item_image
 from item_service import ItemServiceError
-from unit_service import move_stock_units
+from unit_service import STATUS_EN_STOCK, link_history_units, move_stock_units, select_relocatable_units
 import logging
 
 router = APIRouter(prefix="/movements", tags=["movements"])
@@ -28,6 +29,14 @@ def transaction_manager(db: Session):
 
 def _zone_label(zone) -> str:
     return zone.name if zone else "Sin zona"
+
+
+def _location_label(db: Session, shed_id, zone_id) -> str:
+    shed = db.query(Shed).filter(Shed.id == shed_id).first() if shed_id else None
+    zone = db.query(Zone).filter(Zone.id == zone_id).first() if zone_id else None
+    shed_name = shed.name if shed else "Sin galpón"
+    zone_name = zone.name if zone else "Sin zona"
+    return f"{shed_name} / {zone_name}"
 
 
 def _movement_response(m: Movement, item_id_destino=None) -> MovementResponseDTO:
@@ -108,28 +117,48 @@ def validate_movement(db: Session, movement_data: MovementCreateDTO):
 
 def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int, source_item: Item, from_zone_id):
     try:
-        if source_item.actualAmount < movement_data.quantity:
+        moved_units = []
+        depot_count = movement_data.quantity
+        moved_count = movement_data.quantity
+        if source_item.track_units and movement_data.codes:
+            moved_units = select_relocatable_units(db, source_item, movement_data.codes)
+            depot_count = sum(1 for unit in moved_units if unit.status == STATUS_EN_STOCK)
+            moved_count = len(moved_units)
+            if moved_count != movement_data.quantity:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La cantidad no coincide con las piezas elegidas",
+                )
+            if (source_item.actualAmount or 0) < depot_count or (source_item.totalAmount or 0) < moved_count:
+                raise HTTPException(status_code=400, detail="Stock insuficiente")
+        elif (source_item.actualAmount or 0) < movement_data.quantity:
             raise HTTPException(status_code=400, detail="Stock insuficiente")
 
-        source_item.actualAmount -= movement_data.quantity
-        source_item.totalAmount -= movement_data.quantity
+        source_item.actualAmount -= depot_count
+        source_item.totalAmount -= moved_count
 
         has_observations = db.query(Observation).filter(
             Observation.item_id == source_item.id
         ).count() > 0
 
-        target_item = db.query(Item).filter(
+        target_query = db.query(Item).filter(
             Item.name == source_item.name,
             Item.category == source_item.category,
             Item.zone_id == movement_data.to_zone_id,
             Item.status == 1,
-            exists().where(Observation.item_id == Item.id) if has_observations 
-            else ~exists().where(Observation.item_id == Item.id)
-        ).first()
+        )
+        if not moved_units:
+            target_query = target_query.filter(
+                exists().where(Observation.item_id == Item.id) if has_observations
+                else ~exists().where(Observation.item_id == Item.id)
+            )
+        target_item = target_query.first()
 
         if target_item:
-            target_item.actualAmount += movement_data.quantity
-            target_item.totalAmount += movement_data.quantity
+            target_item.actualAmount += depot_count
+            target_item.totalAmount += moved_count
+            if moved_units:
+                target_item.track_units = True
             db.refresh(source_item, attribute_names=["image_filename"])
             copy_item_image(source_item, target_item)
         else:
@@ -139,8 +168,8 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
                 category=source_item.category,
                 shed_id=movement_data.to_shed_id,
                 zone_id=movement_data.to_zone_id,
-                totalAmount=movement_data.quantity,
-                actualAmount=movement_data.quantity,
+                totalAmount=moved_count,
+                actualAmount=depot_count,
                 is_available=True,
                 status=1,
                 track_units=bool(source_item.track_units),
@@ -154,7 +183,8 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
 
             if has_observations:
                 observations = db.query(Observation).filter(
-                    Observation.item_id == source_item.id
+                    Observation.item_id == source_item.id,
+                    Observation.unit_id.is_(None),
                 ).all()
                 for obs in observations:
                     new_obs = Observation(
@@ -168,13 +198,45 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
                     db.add(new_obs)
 
         
-        if source_item.actualAmount == 0 and has_observations:
+        if source_item.actualAmount == 0 and has_observations and not moved_units:
             db.query(Observation).filter(
                 Observation.item_id == source_item.id
             ).delete()
 
-        
-        move_stock_units(db, source_item, target_item, movement_data.quantity)
+        relocated = moved_units
+        if moved_units:
+            for unit in moved_units:
+                unit.item_id = target_item.id
+                db.query(Observation).filter(Observation.unit_id == unit.id).update(
+                    {Observation.item_id: target_item.id},
+                    synchronize_session=False,
+                )
+        else:
+            relocated = move_stock_units(db, source_item, target_item, movement_data.quantity) or []
+
+        if relocated:
+            user = db.query(User).filter(User.id == user_id).first()
+            user_name = f"{user.name} {user.surname}".strip() if user else (movement_data.username or "")
+            moment = datetime.utcnow()
+            origin = _location_label(db, movement_data.from_shed_id, from_zone_id)
+            destination = _location_label(db, movement_data.to_shed_id, movement_data.to_zone_id)
+            piece_history = History(
+                itemId=source_item.id,
+                userId=user_id,
+                userName=user_name,
+                personWhoTook=(movement_data.username or "").strip() or user_name,
+                action=ActionEnum.traslado,
+                amountRetired=len(relocated),
+                amountNotReturned=0,
+                date=moment,
+                place=f"{origin} → {destination}",
+                turnback=True,
+                turnbackDate=moment,
+                hideFromHistorial=False,
+            )
+            db.add(piece_history)
+            db.flush()
+            link_history_units(db, piece_history.id, relocated)
 
         movement = Movement(
             item_id=source_item.id,
@@ -183,7 +245,7 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
             to_shed_id=movement_data.to_shed_id,
             from_zone_id=from_zone_id,
             to_zone_id=movement_data.to_zone_id,
-            quantity=movement_data.quantity,
+            quantity=moved_count,
             user_id=user_id,
             username=movement_data.username
         )

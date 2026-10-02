@@ -39,10 +39,16 @@ class HistoryResponseDTO(BaseModel):
     turnbackDate: Optional[datetime] = None
 
 
+class HistoryPieceDTO(BaseModel):
+    code: str
+    name: Optional[str] = None
+
+
 class HistoryResponseWithDetailsDTO(HistoryResponseDTO):
     itemCategory: Optional[str] = None
     shedId: Optional[int] = None
     shed_name: Optional[str] = None
+    pieces: Optional[list[HistoryPieceDTO]] = None
 
     class Config:
         from_attributes = True

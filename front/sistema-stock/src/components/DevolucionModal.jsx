@@ -65,6 +65,11 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
       setLoading(false);
       return;
     }
+    if (!form.personWhoReturned.trim()) {
+      setError("Indicá quién lo devuelve");
+      setLoading(false);
+      return;
+    }
 
     try {
       const codes = (form.codesText || "")
@@ -75,7 +80,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
         itemId,
         amount,
         place: form.place,
-        ...(form.personWhoReturned && { personWhoReturned: form.personWhoReturned }),
+        personWhoReturned: form.personWhoReturned.trim(),
         ...(codes.length ? { codes } : {}),
       });
       onSuccess?.();
@@ -170,12 +175,13 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
               </div>
 
               <div className="mb-3">
-                <label className="form-label">Persona que devuelve (si sos vos no pongas nada)</label>
+                <label className="form-label">Quién lo devuelve</label>
                 <input
                   type="text"
                   className="form-control"
                   value={form.personWhoReturned}
                   onChange={(e) => setForm({ ...form, personWhoReturned: e.target.value })}
+                  required
                   disabled={noPending}
                 />
               </div>

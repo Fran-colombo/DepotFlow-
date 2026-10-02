@@ -20,12 +20,24 @@ class ItemCreateDTO(ItemBaseDTO):
     codes: Optional[List[str]] = None
     code_prefix: Optional[str] = None
 
+class PieceNameDTO(BaseModel):
+    code: str
+    name: str
+
+
+class UnitRenameDTO(BaseModel):
+    id: int
+    name: str
+
+
 class ItemUpdateDTO(BaseModel):
     # name: str
     # description: Optional[str] = None
     quantity: Optional[int] = None  
     action: ActionEnum
     codes: Optional[List[str]] = None
+    piece_names: Optional[List[PieceNameDTO]] = None
+    renames: Optional[List[UnitRenameDTO]] = None
 
 class MoveItemDTO(BaseModel):
     item_id: int

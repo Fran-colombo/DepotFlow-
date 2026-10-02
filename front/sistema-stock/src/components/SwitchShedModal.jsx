@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { moveItem } from "../api/movements";
+import { getItemUnits } from "../api/items";
 import { getZones } from "../api/zones";
 
 const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) => {
@@ -13,13 +14,43 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
     username: ""
   });
   const [destinationZones, setDestinationZones] = useState([]);
+  const [movablePieces, setMovablePieces] = useState([]);
+  const [selectedCodes, setSelectedCodes] = useState([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const tracksPieces = Boolean(item?.track_units);
 
   useEffect(() => {
     if (isOpen && item) {
       resetForm();
     }
+  }, [isOpen, item]);
+
+  useEffect(() => {
+    if (!isOpen || !item?.track_units) {
+      setMovablePieces([]);
+      setSelectedCodes([]);
+      return;
+    }
+    let cancelled = false;
+    getItemUnits(item.id, "all")
+      .then((data) => {
+        if (cancelled) return;
+        const units = (data?.units || []).filter(
+          (unit) => unit.status === "en_stock" || unit.status === "retirada"
+        );
+        setMovablePieces(units);
+        setSelectedCodes(units.map((unit) => unit.code));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMovablePieces([]);
+          setSelectedCodes([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, item]);
 
   useEffect(() => {
@@ -90,13 +121,16 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
     setError('');
     setIsLoading(true);
 
-    if (formData.quantity <= 0) {
-      setError('La cantidad debe ser mayor a 0');
+    const movingCodes = tracksPieces ? selectedCodes : [];
+    const quantity = tracksPieces ? movingCodes.length : formData.quantity;
+
+    if (quantity <= 0) {
+      setError(tracksPieces ? 'Elegí al menos una pieza' : 'La cantidad debe ser mayor a 0');
       setIsLoading(false);
       return;
     }
 
-    if (formData.quantity > item.actualAmount) {
+    if (!tracksPieces && quantity > item.actualAmount) {
       setError(`Stock insuficiente (disponible: ${item.actualAmount})`);
       setIsLoading(false);
       return;
@@ -115,7 +149,11 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
     }
 
     try {
-      await moveItem(formData);
+      await moveItem({
+        ...formData,
+        quantity,
+        ...(tracksPieces ? { codes: movingCodes } : {}),
+      });
       refreshItems();
       onClose();
     } catch (err) {
@@ -223,6 +261,51 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
                 )}
               </div>
 
+              {tracksPieces ? (
+                <div className="mb-3">
+                  <div className="d-flex justify-content-between align-items-center mb-2">
+                    <label className="form-label fw-semibold text-primary mb-0">Piezas a mover</label>
+                    <div className="form-check mb-0">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        id="move-all-pieces"
+                        checked={movablePieces.length > 0 && selectedCodes.length === movablePieces.length}
+                        onChange={(e) =>
+                          setSelectedCodes(e.target.checked ? movablePieces.map((unit) => unit.code) : [])
+                        }
+                      />
+                      <label className="form-check-label" htmlFor="move-all-pieces">Todas</label>
+                    </div>
+                  </div>
+                  {movablePieces.length === 0 ? (
+                    <div className="text-muted small">No hay piezas en depósito ni en obra.</div>
+                  ) : (
+                    movablePieces.map((unit) => (
+                      <div className="form-check" key={unit.id}>
+                        <input
+                          className="form-check-input"
+                          type="checkbox"
+                          id={`move-piece-${unit.id}`}
+                          checked={selectedCodes.includes(unit.code)}
+                          onChange={(e) =>
+                            setSelectedCodes((prev) =>
+                              e.target.checked
+                                ? [...prev, unit.code]
+                                : prev.filter((code) => code !== unit.code)
+                            )
+                          }
+                        />
+                        <label className="form-check-label" htmlFor={`move-piece-${unit.id}`}>
+                          {unit.code}
+                          {unit.name ? ` ${unit.name}` : ""}
+                          <span className="text-muted"> · {unit.status_label}</span>
+                        </label>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
               <div className="mb-3">
                 <label className="form-label fw-semibold text-primary">Cantidad a mover:</label>
                 <input
@@ -236,6 +319,7 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
                   required
                 />
               </div>
+              )}
 
               <div className="mb-3">
                 <label className="form-label fw-semibold text-primary">Persona que realiza el intercambio:</label>

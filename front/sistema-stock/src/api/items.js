@@ -434,6 +434,22 @@ export function getItemUnits(itemId, status = "all") {
   });
 }
 
+export function addPiece(itemId, data) {
+  return apiFetch(`/items/${itemId}/pieces`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateUnitProfile(unitId, data) {
+  return apiFetch(`/units/${unitId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export function identifyItem(itemId, prefix) {
   return apiFetch(`/items/${itemId}/identify`, {
     method: "POST",

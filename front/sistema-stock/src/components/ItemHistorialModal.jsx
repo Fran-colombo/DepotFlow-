@@ -115,7 +115,16 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
                           <td>{row.place || "—"}</td>
                           <td>{row.personWhoTook || row.userName || "—"}</td>
                           <td className="text-end">
-                            {row.amountRetired ?? "—"}
+                            {row.pieces?.length ? (
+                              row.pieces.map((piece) => (
+                                <div key={piece.code}>
+                                  {piece.code}
+                                  {piece.name ? ` ${piece.name}` : ""}
+                                </div>
+                              ))
+                            ) : (
+                              row.amountRetired ?? "—"
+                            )}
                           </td>
                         </tr>
                       ))

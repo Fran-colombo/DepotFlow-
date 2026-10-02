@@ -125,6 +125,11 @@ const TrasladoModal = ({
       setLoading(false);
       return;
     }
+    if (!form.personWhoMoved.trim()) {
+      setError("Indicá quién lo mueve");
+      setLoading(false);
+      return;
+    }
 
     try {
       await trasladarItem({
@@ -132,9 +137,7 @@ const TrasladoModal = ({
         amount,
         fromPlace: form.fromPlace,
         toPlace,
-        ...(form.personWhoMoved.trim() && {
-          personWhoMoved: form.personWhoMoved.trim(),
-        }),
+        personWhoMoved: form.personWhoMoved.trim(),
       });
       onSuccess?.();
       onClose();
@@ -268,9 +271,7 @@ const TrasladoModal = ({
               </div>
 
               <div className="mb-3">
-                <label className="form-label">
-                  Persona que traslada (si sos vos no pongas nada)
-                </label>
+                <label className="form-label">Quién lo mueve</label>
                 <input
                   type="text"
                   className="form-control"
@@ -278,6 +279,7 @@ const TrasladoModal = ({
                   onChange={(e) =>
                     setForm({ ...form, personWhoMoved: e.target.value })
                   }
+                  required
                   disabled={noPending}
                 />
               </div>
