@@ -2,6 +2,7 @@ import re
 import unicodedata
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -203,11 +204,105 @@ def create_units_for_item(db: Session, item: models.Item, quantity: int, codes=N
             item_id=item.id,
             code=code,
             status=STATUS_EN_STOCK,
+            quantity=1,
             created_at=datetime.utcnow(),
         )
         db.add(unit)
         units.append(unit)
     db.flush()
+    item._created_codes = [unit.code for unit in units]
+    return units
+
+
+def unit_out_quantity(db: Session, unit: models.ItemUnit) -> int:
+    total = (
+        db.query(func.coalesce(func.sum(models.History.amountNotReturned), 0))
+        .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+        .filter(
+            models.HistoryUnit.unit_id == unit.id,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.amountNotReturned > 0,
+        )
+        .scalar()
+    )
+    return int(total or 0)
+
+
+def take_inner_quantity(unit: models.ItemUnit, amount: int, consume: bool):
+    available = int(unit.quantity or 0)
+    if amount <= 0:
+        raise ItemServiceError("La cantidad debe ser mayor a 0")
+    if amount > available:
+        raise ItemServiceError(f"En este código quedan {available}")
+    unit.quantity = available - amount
+    if unit.quantity == 0:
+        if consume:
+            unit.status = STATUS_CONSUMIDA
+            unit.consumed_at = datetime.utcnow()
+        else:
+            unit.status = STATUS_RETIRADA
+            unit.consumed_at = None
+    return unit
+
+
+def apply_inner_return(unit: models.ItemUnit, amount: int):
+    if amount <= 0:
+        raise ItemServiceError("La cantidad debe ser mayor a 0")
+    unit.quantity = int(unit.quantity or 0) + amount
+    if unit.status == STATUS_RETIRADA:
+        unit.status = STATUS_EN_STOCK
+        unit.consumed_at = None
+    return unit
+
+
+def set_inner_contents(db: Session, item: models.Item, contents) -> None:
+    if not item.inner_quantity:
+        raise ItemServiceError("Esta subcategoría no guarda cantidad dentro del código")
+    for row in contents or []:
+        unit = (
+            db.query(models.ItemUnit)
+            .filter(models.ItemUnit.id == row.id, models.ItemUnit.item_id == item.id)
+            .first()
+        )
+        if not unit:
+            raise ItemServiceError("La pieza no pertenece a esta subcategoría")
+        if unit.status == STATUS_CONSUMIDA:
+            raise ItemServiceError(f"El código {unit.code} ya está usado")
+        if row.quantity < 0:
+            raise ItemServiceError("La cantidad no puede ser negativa")
+        delta = int(row.quantity) - int(unit.quantity or 0)
+        new_actual = int(item.actualAmount or 0) + delta
+        new_total = int(item.totalAmount or 0) + delta
+        if new_actual < 0 or new_total < 0:
+            raise ItemServiceError("No hay suficiente stock para realizar esta operación")
+        unit.quantity = int(row.quantity)
+        item.actualAmount = new_actual
+        item.totalAmount = new_total
+        outside = unit_out_quantity(db, unit)
+        if unit.quantity == 0 and outside > 0:
+            unit.status = STATUS_RETIRADA
+            unit.consumed_at = None
+        elif unit.quantity > 0 and unit.status == STATUS_RETIRADA:
+            unit.status = STATUS_EN_STOCK
+            unit.consumed_at = None
+
+
+def add_inner_boxes(db: Session, item: models.Item, pieces) -> list:
+    if not item.inner_quantity:
+        raise ItemServiceError("Esta subcategoría no guarda cantidad dentro del código")
+    units = []
+    for piece in pieces or []:
+        inside = piece.quantity
+        if inside is None or int(inside) < 1:
+            raise ItemServiceError("Indicá cuántos hay adentro")
+        created = create_units_for_item(db, item, 1, codes=[piece.code])
+        unit = created[0]
+        rename_unit(unit, piece.name)
+        unit.quantity = int(inside)
+        item.actualAmount = int(item.actualAmount or 0) + int(inside)
+        item.totalAmount = int(item.totalAmount or 0) + int(inside)
+        units.append(unit)
     item._created_codes = [unit.code for unit in units]
     return units
 
@@ -401,6 +496,7 @@ def unit_history(db: Session, unit: models.ItemUnit) -> list:
                 "place": history.place,
                 "person": history.personWhoTook,
                 "date": history.date.isoformat() if history.date else None,
+                "amount": history.amountRetired,
             }
         )
     return rows

@@ -130,6 +130,8 @@
 
 import { useEffect, useState } from "react";
 import { getItemById, retirarItem } from "../api/items";
+import { getObras } from "../api/obras";
+import ObraPicker from "./ObraPicker";
 
 const RetirarItemModal = ({ 
   itemId, 
@@ -143,13 +145,15 @@ const RetirarItemModal = ({
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showRemitoConfirmation, setShowRemitoConfirmation] = useState(false); // Nuevo estado para el modal de confirmación
+  const [showRemitoConfirmation, setShowRemitoConfirmation] = useState(false);
+  const [obras, setObras] = useState([]);
 
   useEffect(() => {
     if (isOpen && itemId) {
       setForm({ amount: '', place: '', personWhoTook: '', codesText: '', noReturn: false });
       setRetiredCodes([]);
       getItemById(itemId).then(res => setItem(res.item)).catch(console.error);
+      getObras().then((data) => setObras(Array.isArray(data) ? data : [])).catch(() => setObras([]));
     }
   }, [isOpen, itemId]);
 
@@ -162,6 +166,11 @@ const RetirarItemModal = ({
         .split(/[\s,;]+/)
         .map((code) => code.trim())
         .filter(Boolean);
+      if (!form.place.trim()) {
+        setError("Elegí una obra");
+        setLoading(false);
+        return;
+      }
       const result = await retirarItem({
         itemId,
         amount: parseInt(form.amount),
@@ -244,13 +253,11 @@ const RetirarItemModal = ({
                 </div>
 
                 <div className="mb-3">
-                  <label className="form-label">Lugar donde se usará</label>
-                  <input
-                    type="text"
-                    className="form-control"
+                  <label className="form-label">Obra</label>
+                  <ObraPicker
+                    obras={obras}
                     value={form.place}
-                    onChange={(e) => setForm({ ...form, place: e.target.value })}
-                    required
+                    onChange={(place) => setForm({ ...form, place })}
                   />
                 </div>
 

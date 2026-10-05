@@ -163,6 +163,17 @@ def ensure_inventory_schema():
             "CREATE INDEX IF NOT EXISTS ix_categories_name ON categories (name)"
         ))
         conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS obras (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT 1,
+                CONSTRAINT uq_obras_name UNIQUE (name)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_obras_name ON obras (name)"
+        ))
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS item_units (
                 id INTEGER NOT NULL PRIMARY KEY,
                 item_id INTEGER NOT NULL,
@@ -205,6 +216,12 @@ def ensure_inventory_schema():
                 "ALTER TABLE items ADD COLUMN track_units BOOLEAN NOT NULL DEFAULT 0"
             ))
 
+    if _column_exists("items", "id") and not _column_exists("items", "inner_quantity"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE items ADD COLUMN inner_quantity BOOLEAN NOT NULL DEFAULT 0"
+            ))
+
     if _column_exists("items", "id") and not _column_exists("items", "code_prefix"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE items ADD COLUMN code_prefix VARCHAR"))
@@ -212,6 +229,12 @@ def ensure_inventory_schema():
     if _column_exists("item_units", "id") and not _column_exists("item_units", "image_filename"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN image_filename VARCHAR"))
+
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "quantity"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE item_units ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1"
+            ))
 
     if _column_exists("item_units", "id") and not _column_exists("item_units", "name"):
         with engine.begin() as conn:

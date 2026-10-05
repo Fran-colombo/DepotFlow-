@@ -13,6 +13,8 @@ import {
   updateUnitProfile,
   uploadUnitImage,
 } from "../api/items";
+import { getObras } from "../api/obras";
+import ObraPicker from "./ObraPicker";
 import { printLabels } from "./printLabels";
 
 const ACTION_LABEL = {
@@ -43,13 +45,11 @@ const PieceCard = ({
   selected,
   onToggle,
   onReload,
-  returnPlace,
-  onReturnPlace,
-  returnPerson,
-  onReturnPerson,
-  onReturn,
+  onRetire,
+  onDevolver,
   onShowHistory,
   returning,
+  place = "depot",
 }) => {
   const [notes, setNotes] = useState([]);
   const [note, setNote] = useState("");
@@ -144,6 +144,14 @@ const PieceCard = ({
   };
 
   const imageUrl = getUnitImageUrl(unit);
+  const inner = Boolean(item.inner_quantity);
+  const statusText = inner && place === "obra"
+    ? "En obra"
+    : inner && place === "depot"
+      ? "En depósito"
+      : unit.status_label;
+  const canRetire = place === "depot" && (inner ? (unit.quantity || 0) > 0 : unit.status === "en_stock");
+  const canReturn = place === "obra" && (inner ? (unit.out_quantity || 0) > 0 : unit.status === "retirada");
 
   return (
     <div className="border rounded p-3 mb-2 bg-white">
@@ -180,7 +188,9 @@ const PieceCard = ({
               <div className="fs-5 fw-bold">{unit.code}</div>
               {unit.name && <div className="fw-semibold">{unit.name}</div>}
               <div className="app-muted small">
-                {unit.status_label}
+                {statusText}
+                {inner && place === "depot" ? ` · ${unit.quantity ?? 0} en el código` : ""}
+                {inner && place === "obra" ? ` · ${unit.out_quantity ?? 0} afuera` : ""}
                 {unit.is_broken ? " · Rota" : ""}
               </div>
             </div>
@@ -201,23 +211,22 @@ const PieceCard = ({
               >
                 Historial
               </button>
-              {unit.status === "retirada" && (
+              {canRetire && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
+                  disabled={returning}
+                  onClick={() => onRetire(unit)}
+                >
+                  Retirar
+                </button>
+              )}
+              {canReturn && (
                 <button
                   type="button"
                   className="btn btn-sm btn-outline-success"
                   disabled={returning}
-                  onClick={() => {
-                    if (!returnPlace.trim()) {
-                      setLocalError("Indicá la obra desde la que vuelve");
-                      return;
-                    }
-                    if (!returnPerson.trim()) {
-                      setLocalError("Indicá quién lo devuelve");
-                      return;
-                    }
-                    setLocalError("");
-                    onReturn(unit);
-                  }}
+                  onClick={() => onDevolver(unit)}
                 >
                   Devolver
                 </button>
@@ -230,29 +239,6 @@ const PieceCard = ({
               {unit.damage_note && <div>Qué le pasó: {unit.damage_note}</div>}
               {unit.repair_note && <div>Qué habría que hacer: {unit.repair_note}</div>}
             </div>
-          )}
-          {unit.status === "retirada" && (
-            <>
-              <input
-                className="form-control form-control-sm mt-2"
-                placeholder="Obra desde la que vuelve"
-                value={returnPlace}
-                onChange={(e) => {
-                  onReturnPlace(unit.id, e.target.value);
-                  if (localError) setLocalError("");
-                }}
-              />
-              <input
-                className="form-control form-control-sm mt-2"
-                placeholder="Quién lo devuelve"
-                value={returnPerson}
-                onChange={(e) => {
-                  onReturnPerson(unit.id, e.target.value);
-                  if (localError) setLocalError("");
-                }}
-              />
-              {localError && <div className="alert alert-danger py-2 small mt-2 mb-0">{localError}</div>}
-            </>
           )}
           {notes.length > 0 && (
             <ul className="list-unstyled small mb-0 mt-2">
@@ -276,13 +262,13 @@ const PieceCard = ({
             />
             <div className="form-check mb-2">
               <input
-                id={`broken-${unit.id}`}
+                id={`broken-${place}-${unit.id}`}
                 type="checkbox"
                 className="form-check-input"
                 checked={draftBroken}
                 onChange={(e) => setDraftBroken(e.target.checked)}
               />
-              <label className="form-check-label" htmlFor={`broken-${unit.id}`}>Rota</label>
+              <label className="form-check-label" htmlFor={`broken-${place}-${unit.id}`}>Rota</label>
             </div>
             {draftBroken && (
               <>
@@ -333,9 +319,7 @@ const PieceCard = ({
               Anotar
             </button>
           </div>
-          {localError && unit.status !== "retirada" && (
-            <div className="text-danger small mt-1">{localError}</div>
-          )}
+          {localError && <div className="text-danger small mt-1">{localError}</div>}
         </div>
       </div>
     </div>
@@ -349,12 +333,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [prefix, setPrefix] = useState("K");
-  const [selected, setSelected] = useState({});
-  const [place, setPlace] = useState("");
-  const [person, setPerson] = useState("");
-  const [returnPlaces, setReturnPlaces] = useState({});
-  const [returnPeople, setReturnPeople] = useState({});
   const [historyUnit, setHistoryUnit] = useState(null);
+  const [actionUnit, setActionUnit] = useState(null);
+  const [popupPlace, setPopupPlace] = useState("");
+  const [popupPerson, setPopupPerson] = useState("");
+  const [popupError, setPopupError] = useState("");
+  const [popupAmount, setPopupAmount] = useState(1);
+  const [obras, setObras] = useState([]);
   const [busy, setBusy] = useState(false);
   const [freshCodes, setFreshCodes] = useState([]);
   const [pieceCode, setPieceCode] = useState("");
@@ -363,6 +348,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [pieceBroken, setPieceBroken] = useState(false);
   const [pieceDamage, setPieceDamage] = useState("");
   const [pieceRepair, setPieceRepair] = useState("");
+  const [pieceInside, setPieceInside] = useState("");
+  const [innerQuantity, setInnerQuantity] = useState(false);
   const [addingMore, setAddingMore] = useState(false);
   const [offerAnother, setOfferAnother] = useState(false);
 
@@ -373,24 +360,17 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
       setUnits(next);
       setTrackUnits(Boolean(data.track_units));
       setConsumable(Boolean(data.is_consumable));
-      setReturnPlaces((prev) => {
-        const places = {};
-        next
-          .filter((unit) => unit.status === "retirada")
-          .forEach((unit) => {
-            places[unit.id] = prev[unit.id] || lastRetiroPlace(unit);
-          });
-        return places;
-      });
+      setInnerQuantity(Boolean(data.inner_quantity));
     });
   };
 
   useEffect(() => {
     if (!isOpen || !item?.id) return;
     setError("");
-    setSelected({});
-    setPlace("");
-    setPerson("");
+    setActionUnit(null);
+    getObras()
+      .then((data) => setObras(Array.isArray(data) ? data : []))
+      .catch(() => setObras([]));
     setFreshCodes([]);
     setPieceCode("");
     setPieceName("");
@@ -398,11 +378,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setPieceBroken(false);
     setPieceDamage("");
     setPieceRepair("");
+    setPieceInside("");
     setAddingMore(false);
     setOfferAnother(false);
     setPrefix(defaultPrefix(item.name));
     setTrackUnits(Boolean(item.track_units));
     setConsumable(Boolean(item.is_consumable));
+    setInnerQuantity(Boolean(item.inner_quantity));
     let cancelled = false;
     setLoading(true);
     getItemUnits(item.id, "all")
@@ -411,13 +393,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
         setUnits(data.units || []);
         setTrackUnits(Boolean(data.track_units));
         setConsumable(Boolean(data.is_consumable));
-        const places = {};
-        (data.units || [])
-          .filter((unit) => unit.status === "retirada")
-          .forEach((unit) => {
-            places[unit.id] = lastRetiroPlace(unit);
-          });
-        setReturnPlaces(places);
+        setInnerQuantity(Boolean(data.inner_quantity ?? item.inner_quantity));
       })
       .catch((err) => {
         if (!cancelled) setError(err.message || "No se pudo abrir el detalle");
@@ -456,6 +432,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
       setError("El nombre de la pieza es obligatorio");
       return;
     }
+    const inside = parseInt(pieceInside, 10);
+    if (innerQuantity && (!inside || inside < 1)) {
+      setError("Indicá cuántos hay adentro");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -466,12 +447,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
         is_broken: pieceBroken,
         damage_note: pieceBroken ? pieceDamage.trim() : "",
         repair_note: pieceBroken ? pieceRepair.trim() : "",
+        ...(innerQuantity ? { quantity: inside } : {}),
       });
       setPieceName("");
       setPieceNote("");
       setPieceBroken(false);
       setPieceDamage("");
       setPieceRepair("");
+      setPieceInside("");
       setOfferAnother(true);
       setAddingMore(false);
       await reload();
@@ -483,16 +466,35 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     }
   };
 
-  const inStock = useMemo(() => units.filter((unit) => unit.status === "en_stock"), [units]);
-  const onSite = useMemo(() => units.filter((unit) => unit.status === "retirada"), [units]);
+  const inStock = useMemo(() => units.filter((unit) => {
+    if (unit.status === "consumida") return false;
+    if (innerQuantity) return (unit.quantity || 0) > 0;
+    return unit.status === "en_stock";
+  }), [units, innerQuantity]);
+  const onSite = useMemo(() => units.filter((unit) => {
+    if (unit.status === "consumida") return false;
+    if (innerQuantity) return (unit.out_quantity || 0) > 0;
+    return unit.status === "retirada";
+  }), [units, innerQuantity]);
   const used = useMemo(() => units.filter((unit) => unit.status === "consumida"), [units]);
-  const selectedUnits = inStock.filter((unit) => selected[unit.id]);
   const showUsed = consumable || used.length > 0;
 
   if (!isOpen || !item) return null;
 
-  const toggle = (id) => {
-    setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
+  const openRetire = (unit) => {
+    setPopupPlace("");
+    setPopupPerson("");
+    setPopupError("");
+    setPopupAmount(1);
+    setActionUnit({ unit, kind: "retire" });
+  };
+
+  const openReturn = (unit) => {
+    setPopupPlace(lastRetiroPlace(unit));
+    setPopupPerson("");
+    setPopupError("");
+    setPopupAmount(1);
+    setActionUnit({ unit, kind: "return" });
   };
 
   const handleIdentify = async () => {
@@ -517,59 +519,75 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   };
 
   const handleRetiro = async () => {
-    if (!selectedUnits.length) return;
-    if (!place.trim()) {
-      setError("Indicá la obra o el lugar");
+    const unit = actionUnit?.unit;
+    if (!unit) return;
+    if (!popupPlace.trim()) {
+      setPopupError("Elegí una obra");
+      return;
+    }
+    if (!popupPerson.trim()) {
+      setPopupError("Indicá quién lo retira");
+      return;
+    }
+    const amount = innerQuantity ? parseInt(popupAmount, 10) : 1;
+    const max = actionUnit.unit.quantity || 0;
+    if (innerQuantity && (!amount || amount < 1 || amount > max)) {
+      setPopupError(`Podés retirar hasta ${max}`);
       return;
     }
     setBusy(true);
-    setError("");
+    setPopupError("");
     try {
       await retirarItem({
         itemId: item.id,
-        amount: selectedUnits.length,
-        place: place.trim(),
-        ...(person.trim() && { personWhoTook: person.trim() }),
-        codes: selectedUnits.map((unit) => unit.code),
+        amount,
+        place: popupPlace.trim(),
+        personWhoTook: popupPerson.trim(),
+        codes: [unit.code],
         noReturn: consumable,
       });
-      setSelected({});
-      setPlace("");
-      setPerson("");
+      setActionUnit(null);
       await reload();
       onChanged?.();
     } catch (err) {
-      setError(err.message || "No se pudo retirar");
+      setPopupError(err.message || "No se pudo retirar");
     } finally {
       setBusy(false);
     }
   };
 
-  const handleReturn = async (unit) => {
-    const where = (returnPlaces[unit.id] || "").trim();
-    const who = (returnPeople[unit.id] || "").trim();
-    if (!where) {
-      setError("Indicá la obra desde la que vuelve");
+  const handleReturn = async () => {
+    const unit = actionUnit?.unit;
+    if (!unit) return;
+    if (!popupPlace.trim()) {
+      setPopupError("Indicá la obra desde la que vuelve");
       return;
     }
-    if (!who) {
-      setError("Indicá quién lo devuelve");
+    if (!popupPerson.trim()) {
+      setPopupError("Indicá quién lo devuelve");
+      return;
+    }
+    const amount = innerQuantity ? parseInt(popupAmount, 10) : 1;
+    const max = actionUnit.unit.out_quantity || 0;
+    if (innerQuantity && (!amount || amount < 1 || amount > max)) {
+      setPopupError(`Podés devolver hasta ${max}`);
       return;
     }
     setBusy(true);
-    setError("");
+    setPopupError("");
     try {
       await devolverItem({
         itemId: item.id,
-        amount: 1,
-        place: where,
-        personWhoReturned: who,
+        amount,
+        place: popupPlace.trim(),
+        personWhoReturned: popupPerson.trim(),
         codes: [unit.code],
       });
+      setActionUnit(null);
       await reload();
       onChanged?.();
     } catch (err) {
-      setError(err.message || "No se pudo devolver");
+      setPopupError(err.message || "No se pudo devolver");
     } finally {
       setBusy(false);
     }
@@ -579,37 +597,42 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     printLabels(item.name, codes, item.category || "");
   };
 
-  const section = (title, list, selectable) => (
+  const section = (title, list, place) => {
+    const shown = innerQuantity && place === "depot"
+      ? list.reduce((sum, unit) => sum + (unit.quantity || 0), 0)
+      : innerQuantity && place === "obra"
+        ? list.reduce((sum, unit) => sum + (unit.out_quantity || 0), 0)
+        : list.length;
+    return (
     <section className="mb-4">
       <h6 className="mb-2">
-        {title} <span className="text-secondary fw-normal">({list.length})</span>
+        {title} <span className="text-secondary fw-normal">({shown})</span>
       </h6>
       {list.length === 0 ? (
         <div className="text-secondary small">No hay piezas en esta sección.</div>
       ) : (
         list.map((unit) => (
           <PieceCard
-            key={unit.id}
+            key={`${place}-${unit.id}`}
             unit={unit}
-            item={item}
-            selectable={selectable}
-            selected={Boolean(selected[unit.id])}
-            onToggle={toggle}
+            item={{ ...item, inner_quantity: innerQuantity }}
+            place={place}
+            selectable={false}
+            selected={false}
+            onToggle={() => {}}
             onReload={() => {
               reload().catch((err) => setError(err.message || "No se pudo actualizar"));
             }}
-            returnPlace={returnPlaces[unit.id] || ""}
-            onReturnPlace={(id, value) => setReturnPlaces((prev) => ({ ...prev, [id]: value }))}
-            returnPerson={returnPeople[unit.id] || ""}
-            onReturnPerson={(id, value) => setReturnPeople((prev) => ({ ...prev, [id]: value }))}
-            onReturn={handleReturn}
+            onRetire={openRetire}
+            onDevolver={openReturn}
             onShowHistory={setHistoryUnit}
             returning={busy}
           />
         ))
       )}
     </section>
-  );
+    );
+  };
 
   const historyRows = [...(historyUnit?.history || [])].reverse();
 
@@ -696,9 +719,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                       type="button"
                       className="btn btn-sm btn-outline-secondary"
                       onClick={() =>
-                        printCodes(
-                          (selectedUnits.length ? selectedUnits : inStock).map((unit) => unit.code)
-                        )
+                        printCodes(inStock.map((unit) => unit.code))
                       }
                     >
                       Imprimir etiquetas
@@ -723,6 +744,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                               setPieceBroken(false);
                               setPieceDamage("");
                               setPieceRepair("");
+                              setPieceInside("");
                             }}
                           >
                             Sí
@@ -772,6 +794,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                             onChange={(e) => setPieceNote(e.target.value)}
                           />
                         </div>
+                        {innerQuantity && (
+                          <div className="mb-2">
+                            <label className="form-label mb-1">Cuántos hay adentro</label>
+                            <input
+                              type="number"
+                              min="1"
+                              className="form-control"
+                              value={pieceInside}
+                              onChange={(e) => setPieceInside(e.target.value)}
+                            />
+                          </div>
+                        )}
                         <div className="form-check mb-2">
                           <input
                             id="detail-piece-broken"
@@ -803,7 +837,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                         <button
                           type="button"
                           className="btn btn-primary"
-                          disabled={busy || !pieceCode.trim() || !pieceName.trim()}
+                          disabled={busy || !pieceCode.trim() || !pieceName.trim() || (innerQuantity && !(parseInt(pieceInside, 10) >= 1))}
                           onClick={addPiece}
                         >
                           Agregar
@@ -812,48 +846,111 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                     )}
                   </div>
                 )}
-                {section("En depósito", inStock, true)}
-                {selectedUnits.length > 0 && (
-                  <div className="border rounded p-3 mb-4 bg-light">
-                    <div className="fw-semibold mb-2">
-                      Retirar {selectedUnits.map((unit) => unit.code).join(", ")}
-                    </div>
-                    <div className="row g-2">
-                      <div className="col-md-6">
-                        <input
-                          className="form-control"
-                          placeholder="Obra o lugar"
-                          value={place}
-                          onChange={(e) => setPlace(e.target.value)}
-                        />
-                      </div>
-                      <div className="col-md-6">
-                        <input
-                          className="form-control"
-                          placeholder="Quién lo retira"
-                          value={person}
-                          onChange={(e) => setPerson(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn btn-danger mt-2"
-                      disabled={busy}
-                      onClick={handleRetiro}
-                    >
-                      {consumable ? "Retirar y marcar usadas" : "Retirar a obra"}
-                    </button>
-                  </div>
-                )}
-                {section("En obra", onSite, false)}
-                {showUsed && section("Usadas", used, false)}
+                {section("En depósito", inStock, "depot")}
+                {section("En obra", onSite, "obra")}
+                {showUsed && section("Usadas", used, "used")}
               </>
             )}
           </div>
         </div>
       </div>
     </div>
+    {actionUnit && (
+      <div
+        className="modal show d-block fade"
+        tabIndex="-1"
+        style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }}
+        onClick={() => !busy && setActionUnit(null)}
+      >
+        <div
+          className="modal-dialog modal-dialog-centered"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="modal-content rounded shadow-lg">
+            <div className="modal-header">
+              <h5 className="modal-title mb-0">
+                {actionUnit.kind === "retire" ? "Retirar" : "Devolver"} {actionUnit.unit.code}
+                {actionUnit.unit.name ? ` ${actionUnit.unit.name}` : ""}
+              </h5>
+              <button
+                type="button"
+                className="btn-close"
+                aria-label="Cerrar"
+                disabled={busy}
+                onClick={() => setActionUnit(null)}
+              ></button>
+            </div>
+            <div className="modal-body">
+              {actionUnit.kind === "retire" ? (
+                <div className="mb-3">
+                  <label className="form-label">Obra</label>
+                  <ObraPicker obras={obras} value={popupPlace} onChange={setPopupPlace} />
+                </div>
+              ) : (
+                <div className="mb-3">
+                  <label className="form-label">Obra desde la que vuelve</label>
+                  <input
+                    className="form-control"
+                    value={popupPlace}
+                    onChange={(e) => setPopupPlace(e.target.value)}
+                  />
+                </div>
+              )}
+              {innerQuantity && (
+                <div className="mb-3">
+                  <label className="form-label">Cuántos</label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="form-control"
+                    value={popupAmount}
+                    onChange={(e) => setPopupAmount(e.target.value)}
+                  />
+                  <div className="form-text">
+                    {actionUnit.kind === "retire"
+                      ? `En este código quedan ${actionUnit.unit.quantity ?? 0}.`
+                      : `En obra hay ${actionUnit.unit.out_quantity ?? 0}.`}
+                  </div>
+                </div>
+              )}
+              <div className="mb-3">
+                <label className="form-label">
+                  {actionUnit.kind === "retire" ? "Quién lo retira" : "Quién lo devuelve"}
+                </label>
+                <input
+                  className="form-control"
+                  value={popupPerson}
+                  onChange={(e) => setPopupPerson(e.target.value)}
+                />
+              </div>
+              {popupError && <div className="alert alert-danger py-2">{popupError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button
+                type="button"
+                className="btn btn-outline-secondary"
+                disabled={busy}
+                onClick={() => setActionUnit(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={`btn ${actionUnit.kind === "retire" ? "btn-danger" : "btn-success"}`}
+                disabled={busy}
+                onClick={actionUnit.kind === "retire" ? handleRetiro : handleReturn}
+              >
+                {actionUnit.kind === "retire"
+                  ? consumable
+                    ? "Retirar y marcar usada"
+                    : "Retirar"
+                  : "Devolver"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     {historyUnit && (
       <div
         className="modal show d-block fade"
@@ -890,6 +987,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                         <th>Acción</th>
                         <th>Lugar</th>
                         <th>Persona</th>
+                        {innerQuantity && <th>Cantidad</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -911,6 +1009,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                           </td>
                           <td>{row.place || "—"}</td>
                           <td>{row.person || "—"}</td>
+                          {innerQuantity && <td className="text-center">{row.amount ?? "—"}</td>}
                         </tr>
                       ))}
                     </tbody>

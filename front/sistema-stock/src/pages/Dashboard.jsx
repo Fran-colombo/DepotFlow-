@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags } from "lucide-react"
+import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 import { createTelegramLink, getTelegramBot } from "../api/auth"
 
@@ -97,11 +97,6 @@ const Dashboard = ({ title, children }) => {
                 Pendientes
               </button>
 
-              <button onClick={() => go("/deleted-items")} className={navLinkClass("/deleted-items")}>
-                <Trash2 className="me-1" size={18} />
-                Eliminados
-              </button>
-
               <button
                 type="button"
                 onClick={openTelegram}
@@ -113,27 +108,44 @@ const Dashboard = ({ title, children }) => {
               </button>
 
               {role === "admin" && (
-                <>
-                  <span className="d-none d-lg-inline app-nav-divider" />
-                  <button onClick={() => go("/admin/users")} className={navLinkClass("/admin/users")}>
-                    <Users className="me-1" size={18} />
-                    Gestión usuarios
-                  </button>
+                <div className="dropdown">
                   <button
-                    onClick={() => go("/admin/warehouses")}
-                    className={navLinkClass("/admin/warehouses")}
+                    className="btn btn-link text-decoration-none d-flex align-items-center fs-6 px-2 py-2 py-lg-1 text-secondary dropdown-toggle w-100"
+                    type="button"
+                    data-bs-toggle="dropdown"
+                    aria-expanded="false"
                   >
-                    <Warehouse className="me-1" size={18} />
-                    Gestión depósitos
+                    <ChevronDown className="me-1" size={18} />
+                    Administración
                   </button>
-                  <button
-                    onClick={() => go("/admin/categories")}
-                    className={navLinkClass("/admin/categories")}
-                  >
-                    <Tags className="me-1" size={18} />
-                    Categorías
-                  </button>
-                </>
+                  <ul className="dropdown-menu dropdown-menu-end">
+                    <li>
+                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/obras")}>
+                        <MapPin className="me-2" size={16} /> Obras
+                      </button>
+                    </li>
+                    <li>
+                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/categories")}>
+                        <Tags className="me-2" size={16} /> Categorías
+                      </button>
+                    </li>
+                    <li>
+                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/warehouses")}>
+                        <Warehouse className="me-2" size={16} /> Depósitos
+                      </button>
+                    </li>
+                    <li>
+                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/users")}>
+                        <Users className="me-2" size={16} /> Usuarios
+                      </button>
+                    </li>
+                    <li>
+                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/deleted-items")}>
+                        <Trash2 className="me-2" size={16} /> Eliminados
+                      </button>
+                    </li>
+                  </ul>
+                </div>
               )}
 
               <button

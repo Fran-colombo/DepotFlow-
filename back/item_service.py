@@ -43,6 +43,7 @@ def create_item(
     zone_id: int,
     shed_id=None,
     track_units: bool = True,
+    inner_quantity: bool = False,
     codes=None,
     code_prefix=None,
 ):
@@ -56,6 +57,8 @@ def create_item(
 
     if quantity < 0:
         raise ItemServiceError("La cantidad no puede ser negativa", 400)
+    if inner_quantity and not track_units:
+        raise ItemServiceError("La cantidad dentro del código necesita un código por pieza", 400)
 
     if not zone_id:
         raise ItemServiceError("La zona es obligatoria", 400)
@@ -107,11 +110,23 @@ def create_item(
             is_available=True,
             status=1,
             track_units=bool(track_units),
+            inner_quantity=bool(inner_quantity) and bool(track_units),
             code_prefix=resolved_prefix,
         )
         db.add(item_to_add)
         db.flush()
-        if item_to_add.track_units and quantity > 0:
+        if item_to_add.track_units and item_to_add.inner_quantity and quantity > 0:
+            box_codes = None
+            if codes:
+                if len(codes) != 1:
+                    raise ItemServiceError("Una caja nueva es un solo código", 400)
+                box_codes = codes
+            units = create_units_for_item(
+                db, item_to_add, 1, box_codes, prefix=resolved_prefix
+            )
+            if units:
+                units[0].quantity = quantity
+        elif item_to_add.track_units and quantity > 0:
             create_units_for_item(db, item_to_add, quantity, codes, prefix=resolved_prefix)
         else:
             item_to_add._created_codes = []

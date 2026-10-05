@@ -25,7 +25,15 @@ from reportlab.lib.units import cm
 import pytz
 from item_categories import category_is_consumable
 from item_service import ItemServiceError
-from unit_service import link_history_units, restore_units, take_units_out, units_for_pending_place
+from unit_service import (
+    apply_inner_return,
+    find_unit_by_code,
+    link_history_units,
+    restore_units,
+    take_inner_quantity,
+    take_units_out,
+    units_for_pending_place,
+)
 
 
 
@@ -353,7 +361,10 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
     if not item:
         raise HTTPException(404, "Item not found")
-    
+
+    from obras import require_active_obra
+    dto.place = require_active_obra(db, dto.place)
+
     if item.actualAmount < dto.amount:
         raise HTTPException(400, "No hay suficiente stock")
     
@@ -364,7 +375,17 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
 
     no_return = category_is_consumable(db, item.category) or bool(dto.noReturn)
     units = []
-    if item.track_units:
+    if item.inner_quantity:
+        if not dto.codes or len(dto.codes) != 1:
+            raise HTTPException(400, "Elegí el código")
+        try:
+            unit = find_unit_by_code(db, dto.codes[0])
+            if not unit or unit.item_id != item.id:
+                raise ItemServiceError("El código no pertenece a este artículo")
+            units = [take_inner_quantity(unit, dto.amount, consume=no_return)]
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+    elif item.track_units:
         try:
             units = take_units_out(db, item, dto.amount, dto.codes, consume=no_return)
         except ItemServiceError as exc:
@@ -429,7 +450,57 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
         raise HTTPException(404, "Item not found")
 
     units = []
-    if item.track_units and dto.codes:
+    if item.inner_quantity:
+        if not dto.codes or len(dto.codes) != 1:
+            raise HTTPException(400, "Elegí el código")
+        try:
+            unit = find_unit_by_code(db, dto.codes[0])
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+        if not unit:
+            raise HTTPException(400, "No hay una pieza con ese código")
+        pending = (
+            db.query(models.History)
+            .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+            .filter(
+                models.HistoryUnit.unit_id == unit.id,
+                models.History.action == models.ActionEnum.retiro,
+                models.History.turnback == False,
+                models.History.amountNotReturned > 0,
+            )
+        )
+        if dto.place:
+            pending = pending.filter(models.History.place == dto.place)
+        pending_rows = pending.order_by(models.History.date.asc()).all()
+        total_pending = sum(row.amountNotReturned or 0 for row in pending_rows)
+        if dto.amount > total_pending:
+            raise HTTPException(
+                status_code=400,
+                detail=f"En esa obra hay {total_pending}",
+            )
+        remaining = dto.amount
+        for row in pending_rows:
+            if remaining <= 0:
+                break
+            pending_amount = row.amountNotReturned or 0
+            if remaining >= pending_amount:
+                remaining -= pending_amount
+                row.amountNotReturned = 0
+            else:
+                row.amountNotReturned = pending_amount - remaining
+                remaining = 0
+            if row.amountNotReturned == 0:
+                row.turnback = True
+                row.turnbackDate = now()
+        try:
+            apply_inner_return(unit, dto.amount)
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+        home = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
+        if home:
+            home.actualAmount = (home.actualAmount or 0) + dto.amount
+        units = [unit]
+    elif item.track_units and dto.codes:
         try:
             units = restore_units(db, item, dto.amount, dto.codes, dto.place)
         except ItemServiceError as exc:

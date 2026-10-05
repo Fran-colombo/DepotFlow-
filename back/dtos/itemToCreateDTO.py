@@ -17,12 +17,19 @@ class ItemCreateDTO(ItemBaseDTO):
     shed_id: Optional[int] = None
     zone_id: Optional[int] = None
     track_units: bool = True
+    inner_quantity: bool = False
     codes: Optional[List[str]] = None
     code_prefix: Optional[str] = None
 
 class PieceNameDTO(BaseModel):
     code: str
     name: str
+    quantity: Optional[int] = None
+
+
+class UnitContentDTO(BaseModel):
+    id: int
+    quantity: int
 
 
 class UnitRenameDTO(BaseModel):
@@ -38,6 +45,7 @@ class ItemUpdateDTO(BaseModel):
     codes: Optional[List[str]] = None
     piece_names: Optional[List[PieceNameDTO]] = None
     renames: Optional[List[UnitRenameDTO]] = None
+    contents: Optional[List[UnitContentDTO]] = None
 
 class MoveItemDTO(BaseModel):
     item_id: int

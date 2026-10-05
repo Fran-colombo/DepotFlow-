@@ -10,7 +10,13 @@ from database import get_db
 from contextlib import contextmanager
 from item_images import copy_item_image
 from item_service import ItemServiceError
-from unit_service import STATUS_EN_STOCK, link_history_units, move_stock_units, select_relocatable_units
+from unit_service import (
+    STATUS_EN_STOCK,
+    link_history_units,
+    move_stock_units,
+    select_relocatable_units,
+    unit_out_quantity,
+)
 import logging
 
 router = APIRouter(prefix="/movements", tags=["movements"])
@@ -120,11 +126,17 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
         moved_units = []
         depot_count = movement_data.quantity
         moved_count = movement_data.quantity
+        if source_item.inner_quantity and not movement_data.codes:
+            raise HTTPException(status_code=400, detail="Elegí los códigos a mover")
         if source_item.track_units and movement_data.codes:
             moved_units = select_relocatable_units(db, source_item, movement_data.codes)
-            depot_count = sum(1 for unit in moved_units if unit.status == STATUS_EN_STOCK)
-            moved_count = len(moved_units)
-            if moved_count != movement_data.quantity:
+            if source_item.inner_quantity:
+                depot_count = sum(int(unit.quantity or 0) for unit in moved_units)
+                moved_count = depot_count + sum(unit_out_quantity(db, unit) for unit in moved_units)
+            else:
+                depot_count = sum(1 for unit in moved_units if unit.status == STATUS_EN_STOCK)
+                moved_count = len(moved_units)
+            if len(moved_units) != movement_data.quantity:
                 raise HTTPException(
                     status_code=400,
                     detail="La cantidad no coincide con las piezas elegidas",
@@ -159,6 +171,8 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
             target_item.totalAmount += moved_count
             if moved_units:
                 target_item.track_units = True
+            if source_item.inner_quantity:
+                target_item.inner_quantity = True
             db.refresh(source_item, attribute_names=["image_filename"])
             copy_item_image(source_item, target_item)
         else:
@@ -173,6 +187,7 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
                 is_available=True,
                 status=1,
                 track_units=bool(source_item.track_units),
+                inner_quantity=bool(source_item.inner_quantity),
                 code_prefix=source_item.code_prefix,
             )
             db.add(target_item)

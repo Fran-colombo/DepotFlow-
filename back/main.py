@@ -37,6 +37,7 @@ from whatsapp.router import router as whatsapp_router
 from telegram.bot import router as telegram_router, start_telegram_bot
 from item_images import router as item_images_router, delete_stored_image
 import categories
+import obras
 from item_categories import category_is_consumable, normalize_lookup, seed_categories
 from pydantic import BaseModel
 from observations import add_unit_observation
@@ -49,6 +50,7 @@ from unit_service import (
     peek_codes,
     suggest_prefix,
     unit_history,
+    unit_out_quantity,
 )
 from dotenv import load_dotenv
 
@@ -88,6 +90,7 @@ app.include_router(whatsapp_router)
 app.include_router(telegram_router)
 app.include_router(item_images_router)
 app.include_router(categories.router)
+app.include_router(obras.router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()
@@ -95,6 +98,8 @@ ensure_inventory_schema()
 _seed_db = SessionLocal()
 try:
     seed_categories(_seed_db)
+    from obras import seed_obras_from_history
+    seed_obras_from_history(_seed_db)
 finally:
     _seed_db.close()
 try:
@@ -186,6 +191,7 @@ def read_items(
             dto.zone_name = item.zone.name if item.zone else None
             dto.has_image = bool(item.image_filename)
             dto.track_units = bool(item.track_units)
+            dto.inner_quantity = bool(item.inner_quantity)
             dto.is_consumable = normalize_lookup(item.category) in consumable_keys
             data.append(dto)
 
@@ -240,6 +246,7 @@ def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
             zone_id=item.zone_id,
             shed_id=item.shed_id,
             track_units=item.track_units,
+            inner_quantity=item.inner_quantity,
             codes=item.codes,
             code_prefix=item.code_prefix,
         )
@@ -248,6 +255,7 @@ def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
             "name": created.name,
             "category": created.category,
             "track_units": bool(created.track_units),
+            "inner_quantity": bool(created.inner_quantity),
             "code_prefix": created.code_prefix,
             "codes": list(getattr(created, "_created_codes", []) or []),
         }
@@ -366,7 +374,7 @@ def update_item_by_id(
             detail="La cantidad debe ser mayor a cero"
         )
 
-    from unit_service import normalize_code, rename_unit
+    from unit_service import add_inner_boxes, normalize_code, rename_unit, set_inner_contents
 
     try:
         for row in item_update.renames or []:
@@ -378,6 +386,29 @@ def update_item_by_id(
             if not unit:
                 raise ItemServiceError("La pieza no pertenece a esta subcategoría")
             rename_unit(unit, row.name)
+
+        if item.inner_quantity:
+            if item_update.action == itemDTO.ActionEnum.rest and (item_update.quantity or 0) > 0:
+                raise ItemServiceError("Para sacar de una caja usá retirar")
+            if item_update.contents:
+                set_inner_contents(db, item, item_update.contents)
+            pieces = item_update.piece_names or []
+            if pieces:
+                add_inner_boxes(db, item, pieces)
+            elif (item_update.quantity or 0) > 0:
+                raise ItemServiceError(
+                    "Agregá una caja con su código, su nombre y cuántos hay adentro"
+                )
+            if not item_update.renames and not item_update.contents and not pieces:
+                raise ItemServiceError("No hay cambios para guardar")
+            db.commit()
+            db.refresh(item)
+            return {
+                "id": item.id,
+                "actualAmount": item.actualAmount,
+                "totalAmount": item.totalAmount,
+                "codes": list(getattr(item, "_created_codes", []) or []),
+            }
 
         if item_update.quantity == 0:
             if not item_update.renames:
@@ -616,6 +647,7 @@ def list_item_units(
     }
     return {
         "track_units": bool(item.track_units),
+        "inner_quantity": bool(item.inner_quantity),
         "is_consumable": category_is_consumable(db, item.category),
         "units": [
             {
@@ -623,6 +655,8 @@ def list_item_units(
                 "code": unit.code,
                 "status": unit.status,
                 "status_label": labels.get(unit.status, unit.status),
+                "quantity": int(unit.quantity or 0),
+                "out_quantity": unit_out_quantity(db, unit) if item.inner_quantity else 0,
                 "name": unit.name,
                 "is_broken": bool(unit.is_broken),
                 "damage_note": unit.damage_note,
@@ -645,6 +679,7 @@ class PieceCreateBody(BaseModel):
     is_broken: bool = False
     damage_note: Optional[str] = None
     repair_note: Optional[str] = None
+    quantity: Optional[int] = None
 
 
 class PieceUpdateBody(BaseModel):
@@ -662,6 +697,7 @@ def _piece_response(unit) -> dict:
         "is_broken": bool(unit.is_broken),
         "damage_note": unit.damage_note,
         "repair_note": unit.repair_note,
+        "quantity": int(unit.quantity or 0),
         "item_id": unit.item_id,
     }
 
@@ -687,8 +723,14 @@ def create_piece(
         )
         unit = units[0]
         apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note)
-        item.actualAmount = (item.actualAmount or 0) + 1
-        item.totalAmount = (item.totalAmount or 0) + 1
+        content = 1
+        if item.inner_quantity:
+            if body.quantity is None or body.quantity < 1:
+                raise ItemServiceError("Indicá cuántos hay adentro")
+            content = int(body.quantity)
+            unit.quantity = content
+        item.actualAmount = (item.actualAmount or 0) + content
+        item.totalAmount = (item.totalAmount or 0) + content
         add_unit_observation(db, item.id, unit.id, body.observation, current_user)
         db.commit()
         db.refresh(unit)

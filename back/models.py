@@ -32,6 +32,7 @@ class Item(Base):
     status = Column(Integer, default=1)
     image_filename = Column(String, nullable=True)
     track_units = Column(Boolean, default=False, nullable=False)
+    inner_quantity = Column(Boolean, default=False, nullable=False)
     code_prefix = Column(String, nullable=True)
 
     observations = relationship("Observation", back_populates="item")
@@ -138,6 +139,14 @@ class WhatsAppPendingAction(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class Obra(Base):
+    __tablename__ = "obras"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+    active = Column(Boolean, default=True, nullable=False)
+
+
 class Category(Base):
     __tablename__ = "categories"
 
@@ -157,6 +166,7 @@ class ItemUnit(Base):
     item_id = Column(Integer, ForeignKey("items.id"), nullable=False, index=True)
     code = Column(String, unique=True, nullable=False, index=True)
     status = Column(String, nullable=False, default="en_stock", index=True)
+    quantity = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     consumed_at = Column(DateTime, nullable=True)
     image_filename = Column(String, nullable=True)

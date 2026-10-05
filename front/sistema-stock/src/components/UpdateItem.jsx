@@ -28,6 +28,7 @@ const UpdateItemModal = ({
     shed_id: "",
     zone_id: "",
     quantityOnly: false,
+    innerQuantity: false,
   });
   const [createdLabels, setCreatedLabels] = useState(null);
   const [createStep, setCreateStep] = useState("form");
@@ -40,6 +41,7 @@ const UpdateItemModal = ({
   const [pieceBroken, setPieceBroken] = useState(false);
   const [pieceDamage, setPieceDamage] = useState("");
   const [pieceRepair, setPieceRepair] = useState("");
+  const [pieceContent, setPieceContent] = useState("");
   const [addedCodes, setAddedCodes] = useState([]);
   const [updateData, setUpdateData] = useState({
     item_id: "",
@@ -50,6 +52,7 @@ const UpdateItemModal = ({
   const [newPieces, setNewPieces] = useState([]);
   const [existingPieces, setExistingPieces] = useState([]);
   const [savedNames, setSavedNames] = useState({});
+  const [savedQuantities, setSavedQuantities] = useState({});
 
   const isLockedToItem = mode === "update" && itemId != null;
 
@@ -67,6 +70,7 @@ const UpdateItemModal = ({
       shed_id: "",
       zone_id: "",
       quantityOnly: false,
+      innerQuantity: false,
     });
     setCreatedLabels(null);
     setCreateStep("form");
@@ -79,6 +83,7 @@ const UpdateItemModal = ({
     setPieceBroken(false);
     setPieceDamage("");
     setPieceRepair("");
+    setPieceContent("");
     setAddedCodes([]);
     setUpdateData({
       item_id: itemId != null ? Number(itemId) : "",
@@ -89,6 +94,7 @@ const UpdateItemModal = ({
     setNewPieces([]);
     setExistingPieces([]);
     setSavedNames({});
+    setSavedQuantities({});
     getCategories()
       .then((data) => {
         const list = Array.isArray(data) ? data : [];
@@ -192,6 +198,7 @@ const UpdateItemModal = ({
     ? lockedItem
     : items.find((item) => item.id === updateData.item_id);
   const updateTracksUnits = Boolean(selectedUpdateItem?.track_units);
+  const updateInner = Boolean(selectedUpdateItem?.inner_quantity);
 
   useEffect(() => {
     if (!isOpen || mode !== "create" || formData.quantityOnly || prefixTouched || createStep !== "form") {
@@ -219,11 +226,12 @@ const UpdateItemModal = ({
   }, [isOpen, mode, formData.name, formData.quantityOnly, prefixTouched, createStep]);
 
   useEffect(() => {
-    if (!isOpen || mode !== "update" || !updateTracksUnits || updateData.action !== "add") {
+    if (!isOpen || mode !== "update" || !updateTracksUnits || (!updateInner && updateData.action !== "add")) {
       return;
     }
     let cancelled = false;
-    getNextCodes(updateData.quantity || 1, selectedUpdateItem?.code_prefix)
+    const count = updateInner ? 1 : updateData.quantity || 1;
+    getNextCodes(count, selectedUpdateItem?.code_prefix)
       .then((data) => {
         if (!cancelled) {
           const codes = data.codes || [];
@@ -231,6 +239,7 @@ const UpdateItemModal = ({
             codes.map((code, index) => ({
               code,
               name: prev.find((piece) => piece.code === code)?.name || prev[index]?.name || "",
+              quantity: prev.find((piece) => piece.code === code)?.quantity || prev[index]?.quantity || "",
             }))
           );
         }
@@ -241,12 +250,13 @@ const UpdateItemModal = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, mode, updateTracksUnits, updateData.action, updateData.quantity, selectedUpdateItem?.code_prefix]);
+  }, [isOpen, mode, updateTracksUnits, updateInner, updateData.action, updateData.quantity, selectedUpdateItem?.code_prefix]);
 
   useEffect(() => {
     if (!isOpen || mode !== "update" || !updateTracksUnits || !selectedUpdateItem?.id) {
       setExistingPieces([]);
       setSavedNames({});
+      setSavedQuantities({});
       return;
     }
     let cancelled = false;
@@ -258,15 +268,19 @@ const UpdateItemModal = ({
           id: unit.id,
           code: unit.code,
           name: unit.name || "",
+          status: unit.status || "",
           status_label: unit.status_label || "",
+          quantity: unit.quantity ?? 1,
         }));
         setExistingPieces(list);
         setSavedNames(Object.fromEntries(list.map((unit) => [unit.id, unit.name])));
+        setSavedQuantities(Object.fromEntries(list.map((unit) => [unit.id, unit.quantity])));
       })
       .catch(() => {
         if (!cancelled) {
           setExistingPieces([]);
           setSavedNames({});
+          setSavedQuantities({});
         }
       });
     return () => {
@@ -320,6 +334,46 @@ const UpdateItemModal = ({
     }
   };
 
+  const saveContents = async () => {
+    if (!selectedUpdateItem?.id) return;
+    setError("");
+    const contents = [];
+    for (const piece of existingPieces) {
+      if (piece.status === "consumida") continue;
+      const next = parseInt(piece.quantity, 10);
+      if (Number.isNaN(next) || next < 0) {
+        setError("La cantidad no puede ser negativa");
+        return;
+      }
+      if (next === savedQuantities[piece.id]) continue;
+      contents.push({ id: piece.id, quantity: next });
+    }
+    if (!contents.length) {
+      setError("No hay cantidades para guardar");
+      return;
+    }
+    setIsLoading(true);
+    try {
+      await updateItem(selectedUpdateItem.id, {
+        quantity: 0,
+        action: "add",
+        contents,
+      });
+      setSavedQuantities((prev) => {
+        const next = { ...prev };
+        contents.forEach((row) => {
+          next[row.id] = row.quantity;
+        });
+        return next;
+      });
+      refreshItems?.();
+    } catch (err) {
+      setError(err.message || "No se pudieron guardar las cantidades");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -339,6 +393,12 @@ const UpdateItemModal = ({
             setIsLoading(false);
             return;
           }
+          const inside = parseInt(pieceContent, 10);
+          if (createdSub?.inner_quantity && (!inside || inside < 1)) {
+            setError("Indicá cuántos hay adentro");
+            setIsLoading(false);
+            return;
+          }
           const updated = await addPiece(createdSub.id, {
             code,
             name: pieceName.trim(),
@@ -346,6 +406,7 @@ const UpdateItemModal = ({
             is_broken: pieceBroken,
             damage_note: pieceBroken ? pieceDamage.trim() : "",
             repair_note: pieceBroken ? pieceRepair.trim() : "",
+            ...(createdSub?.inner_quantity ? { quantity: inside } : {}),
           });
           const saved = updated?.code || code.toUpperCase();
           setAddedCodes((prev) => [...prev, saved]);
@@ -354,6 +415,7 @@ const UpdateItemModal = ({
           setPieceBroken(false);
           setPieceDamage("");
           setPieceRepair("");
+          setPieceContent("");
           setCreateStep("ask");
           refreshItems?.();
           return;
@@ -376,6 +438,7 @@ const UpdateItemModal = ({
           shed_id: Number(formData.shed_id),
           zone_id: Number(formData.zone_id),
           track_units: !formData.quantityOnly,
+          inner_quantity: !formData.quantityOnly && Boolean(formData.innerQuantity),
           code_prefix: formData.quantityOnly ? undefined : prefix.trim(),
         });
         refreshItems?.();
@@ -387,6 +450,37 @@ const UpdateItemModal = ({
         setCreateStep("ask");
         return;
       } else {
+        if (updateInner) {
+          const box = newPieces[0];
+          const inside = parseInt(box?.quantity, 10);
+          if (!box?.code?.trim() || !box?.name?.trim() || !inside || inside < 1) {
+            setError("La caja nueva necesita código, nombre y cuántos hay adentro");
+            setIsLoading(false);
+            return;
+          }
+          const renames = changedNames();
+          if (renames === null) {
+            setIsLoading(false);
+            return;
+          }
+          const updated = await updateItem(updateData.item_id, {
+            quantity: 1,
+            action: "add",
+            piece_names: [{
+              code: box.code.trim(),
+              name: box.name.trim(),
+              quantity: inside,
+            }],
+            ...(renames.length ? { renames } : {}),
+          });
+          refreshItems?.();
+          setCreatedLabels({
+            name: selectedUpdateItem?.name || "Artículo",
+            codes: updated?.codes?.length ? updated.codes : [box.code.trim()],
+            category: selectedUpdateItem?.category || "",
+          });
+          return;
+        }
         const { item_id, quantity, action } = updateData;
         if (!item_id || quantity <= 0 || !action) {
           setError("Ítem, cantidad y acción son obligatorios");
@@ -636,6 +730,20 @@ const UpdateItemModal = ({
                     />
                     <label className="form-check-label" htmlFor="piece-broken">Rota</label>
                   </div>
+                  {createdSub?.inner_quantity && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold" htmlFor="piece-inside">Cuántos hay adentro:</label>
+                      <input
+                        id="piece-inside"
+                        type="number"
+                        min="1"
+                        className="form-control"
+                        value={pieceContent}
+                        onChange={(e) => setPieceContent(e.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
                   {pieceBroken && (
                     <>
                       <div className="mb-3">
@@ -779,12 +887,35 @@ const UpdateItemModal = ({
                       className="form-check-input"
                       checked={formData.quantityOnly}
                       onChange={(e) =>
-                        setFormData({ ...formData, quantityOnly: e.target.checked })
+                        setFormData({
+                          ...formData,
+                          quantityOnly: e.target.checked,
+                          innerQuantity: e.target.checked ? false : formData.innerQuantity,
+                        })
                       }
                     />
                     <label className="form-check-label" htmlFor="quantity-only">
                       Solo cantidad (sin código por pieza)
                     </label>
+                  </div>
+
+                  <div className="form-check mb-3">
+                    <input
+                      id="inner-quantity"
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={Boolean(formData.innerQuantity) && !formData.quantityOnly}
+                      disabled={formData.quantityOnly}
+                      onChange={(e) =>
+                        setFormData({ ...formData, innerQuantity: e.target.checked })
+                      }
+                    />
+                    <label className="form-check-label" htmlFor="inner-quantity">
+                      Cantidad dentro del código
+                    </label>
+                    <div className="form-text">
+                      Un código guarda cuántos hay adentro, por ejemplo una caja de 100 o un juego de 4.
+                    </div>
                   </div>
 
                   {!formData.quantityOnly && (
@@ -872,6 +1003,120 @@ const UpdateItemModal = ({
                     </>
                   )}
 
+                  {updateInner ? (
+                    <>
+                      {existingPieces.length > 0 && (
+                        <div className="mb-3">
+                          <label className="form-label fw-bold">Códigos que ya existen</label>
+                          {existingPieces.map((piece) => (
+                            <div className="row g-2 align-items-center mb-2" key={piece.id}>
+                              <div className="col-4">
+                                <div className="fw-semibold">{piece.code}</div>
+                                <div className="small text-muted">{piece.status_label}</div>
+                              </div>
+                              <div className="col-5">
+                                <input
+                                  className="form-control"
+                                  placeholder="Nombre"
+                                  value={piece.name}
+                                  onChange={(e) =>
+                                    setExistingPieces((prev) =>
+                                      prev.map((row) =>
+                                        row.id === piece.id ? { ...row, name: e.target.value } : row
+                                      )
+                                    )
+                                  }
+                                />
+                              </div>
+                              <div className="col-3">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  className="form-control"
+                                  aria-label={`Cantidad de ${piece.code}`}
+                                  value={piece.quantity}
+                                  disabled={piece.status === "consumida"}
+                                  onChange={(e) =>
+                                    setExistingPieces((prev) =>
+                                      prev.map((row) =>
+                                        row.id === piece.id ? { ...row, quantity: e.target.value } : row
+                                      )
+                                    )
+                                  }
+                                />
+                              </div>
+                            </div>
+                          ))}
+                          <div className="form-text mb-2">
+                            La cantidad es lo que queda en depósito de ese código. Cambiarla no crea otro código.
+                          </div>
+                          <div className="d-flex gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-outline-primary btn-sm"
+                              onClick={saveNames}
+                              disabled={isLoading}
+                            >
+                              Guardar nombres
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-outline-primary btn-sm"
+                              onClick={saveContents}
+                              disabled={isLoading}
+                            >
+                              Guardar cantidades
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      <div className="mb-3">
+                        <label className="form-label fw-bold">Otra caja</label>
+                        <div className="row g-2 mb-2">
+                          <div className="col-4">
+                            <input
+                              className="form-control"
+                              aria-label="Código"
+                              value={newPieces[0]?.code || ""}
+                              onChange={(e) =>
+                                setNewPieces((prev) => {
+                                  const current = prev[0] || { code: "", name: "", quantity: "" };
+                                  return [{ ...current, code: e.target.value }];
+                                })
+                              }
+                            />
+                          </div>
+                          <div className="col-8">
+                            <input
+                              className="form-control"
+                              placeholder="Nombre"
+                              value={newPieces[0]?.name || ""}
+                              onChange={(e) =>
+                                setNewPieces((prev) => {
+                                  const current = prev[0] || { code: "", name: "", quantity: "" };
+                                  return [{ ...current, name: e.target.value }];
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                        <label className="form-label">Cuántos hay adentro</label>
+                        <input
+                          type="number"
+                          min="1"
+                          className="form-control"
+                          value={newPieces[0]?.quantity || ""}
+                          onChange={(e) =>
+                            setNewPieces((prev) => {
+                              const current = prev[0] || { code: "", name: "", quantity: "" };
+                              return [{ ...current, quantity: e.target.value }];
+                            })
+                          }
+                        />
+                      </div>
+                    </>
+                  ) : (
+                  <>
                   <div className="mb-3">
                     <label className="form-label fw-bold">Cantidad:</label>
                     <input
@@ -1001,6 +1246,8 @@ const UpdateItemModal = ({
                       </button>
                     </div>
                   )}
+                  </>
+                  )}
                 </>
               )}
 
@@ -1026,7 +1273,9 @@ const UpdateItemModal = ({
                         ? formData.quantityOnly
                           ? "Crear"
                           : "Crear subcategoría"
-                        : "Actualizar stock"}
+                        : updateInner
+                          ? "Agregar caja"
+                          : "Actualizar stock"}
                 </button>
               </div>
             </form>

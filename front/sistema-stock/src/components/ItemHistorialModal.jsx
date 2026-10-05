@@ -120,6 +120,9 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
                                 <div key={piece.code}>
                                   {piece.code}
                                   {piece.name ? ` ${piece.name}` : ""}
+                                  {row.pieces.length === 1 && row.amountRetired > 1
+                                    ? ` · ${row.amountRetired}`
+                                    : ""}
                                 </div>
                               ))
                             ) : (
