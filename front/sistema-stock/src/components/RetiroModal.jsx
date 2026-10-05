@@ -287,7 +287,7 @@ const RetirarItemModal = ({
                 )}
 
                 <div className="mb-3">
-                  <label className="form-label">Obra</label>
+                  <label className="form-label">Obra de destino</label>
                   <ObraPicker
                     obras={obras}
                     value={form.place}
