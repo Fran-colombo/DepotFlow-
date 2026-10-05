@@ -1,5 +1,13 @@
 import { apiFetch } from "./client";
 
+export const OBRA_STAGES = [
+  { value: "por_iniciar", label: "Por iniciar" },
+  { value: "trabajando", label: "Trabajando" },
+  { value: "terminaciones", label: "Terminaciones" },
+  { value: "postventa", label: "Postventa" },
+  { value: "finalizada", label: "Finalizada" },
+];
+
 export function getObras() {
   return apiFetch("/obras");
 }

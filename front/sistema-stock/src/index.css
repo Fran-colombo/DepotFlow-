@@ -210,11 +210,63 @@ body {
   box-shadow: 0 12px 24px rgba(16, 24, 40, 0.18);
 }
 
+.obra-picker {
+  position: relative;
+}
+
+.obra-picker-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid #d0d5dd;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #667085;
+  font-weight: 500;
+}
+
+.obra-picker-toggle.is-selected {
+  color: #101828;
+  font-weight: 600;
+}
+
+.obra-picker-toggle[aria-expanded="true"] {
+  border-color: #84caff;
+  box-shadow: 0 0 0 3px rgba(23, 92, 211, 0.12);
+}
+
+.obra-picker-caret {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid #667085;
+  border-bottom: 2px solid #667085;
+  transform: rotate(45deg) translateY(-2px);
+  flex-shrink: 0;
+}
+
+.obra-picker-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  right: 0;
+  padding: 0.5rem;
+  background: #fff;
+  border: 1px solid #d0d5dd;
+  border-radius: 0.75rem;
+  box-shadow: 0 12px 24px rgba(16, 24, 40, 0.14);
+}
+
 .obra-picker-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  max-height: 16rem;
+  gap: 0.25rem;
+  max-height: 14rem;
+  margin-top: 0.5rem;
   overflow-y: auto;
 }
 
@@ -224,40 +276,18 @@ body {
   gap: 0.75rem;
   width: 100%;
   text-align: left;
-  padding: 0.8rem 0.95rem;
-  border: 1px solid #d0d5dd;
-  border-radius: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 0;
+  border-radius: 0.5rem;
   background: #fff;
   color: #101828;
   font-weight: 600;
 }
 
-.obra-picker-option:hover {
-  border-color: #84caff;
-  background: #f5faff;
-}
-
+.obra-picker-option:hover,
 .obra-picker-option.is-selected {
-  border-color: #175cd3;
   background: #eff8ff;
   color: #175cd3;
-  box-shadow: inset 0 0 0 1px #175cd3;
-}
-
-.obra-picker-mark {
-  width: 1.15rem;
-  height: 1.15rem;
-  border-radius: 50%;
-  border: 2px solid #98a2b3;
-  flex-shrink: 0;
-  background: #fff;
-}
-
-.obra-picker-option.is-selected .obra-picker-mark {
-  border: 2px solid #175cd3;
-  background:
-    radial-gradient(circle, #175cd3 0 42%, transparent 46%),
-    #fff;
 }
 
 .obra-picker-name {
@@ -267,6 +297,11 @@ body {
 .obra-picker-tag {
   font-size: 0.75rem;
   font-weight: 600;
+  color: #667085;
+}
+
+.obra-picker-option.is-selected .obra-picker-tag,
+.obra-picker-option:hover .obra-picker-tag {
   color: #175cd3;
 }
 

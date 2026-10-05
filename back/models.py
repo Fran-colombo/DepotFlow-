@@ -145,6 +145,7 @@ class Obra(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False, index=True)
     active = Column(Boolean, default=True, nullable=False)
+    stage = Column(String, nullable=False, default="trabajando")
 
 
 class Category(Base):

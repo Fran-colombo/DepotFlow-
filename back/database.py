@@ -167,6 +167,7 @@ def ensure_inventory_schema():
                 id INTEGER NOT NULL PRIMARY KEY,
                 name VARCHAR NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT 1,
+                stage VARCHAR NOT NULL DEFAULT 'trabajando',
                 CONSTRAINT uq_obras_name UNIQUE (name)
             )
         """))
@@ -209,6 +210,12 @@ def ensure_inventory_schema():
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_history_units_unit_id ON history_units (unit_id)"
         ))
+
+    if _column_exists("obras", "id") and not _column_exists("obras", "stage"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE obras ADD COLUMN stage VARCHAR NOT NULL DEFAULT 'trabajando'"
+            ))
 
     if not _column_exists("items", "track_units"):
         with engine.begin() as conn:
