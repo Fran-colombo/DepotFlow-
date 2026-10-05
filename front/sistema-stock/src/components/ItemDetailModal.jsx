@@ -10,6 +10,7 @@ import {
   getUnitObservations,
   identifyItem,
   retirarItem,
+  updateItem,
   updateUnitProfile,
   uploadUnitImage,
 } from "../api/items";
@@ -48,6 +49,7 @@ const PieceCard = ({
   onRetire,
   onDevolver,
   onShowHistory,
+  onEditQuantity,
   returning,
   place = "depot",
 }) => {
@@ -152,6 +154,7 @@ const PieceCard = ({
       : unit.status_label;
   const canRetire = place === "depot" && (inner ? (unit.quantity || 0) > 0 : unit.status === "en_stock");
   const canReturn = place === "obra" && (inner ? (unit.out_quantity || 0) > 0 : unit.status === "retirada");
+  const canEditQty = inner && unit.status !== "consumida" && (place === "depot" || (unit.quantity || 0) === 0);
 
   return (
     <div className="border rounded p-3 mb-2 bg-white">
@@ -211,6 +214,16 @@ const PieceCard = ({
               >
                 Historial
               </button>
+              {canEditQty && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-primary"
+                  disabled={returning}
+                  onClick={() => onEditQuantity(unit)}
+                >
+                  Actualizar cantidad
+                </button>
+              )}
               {canRetire && (
                 <button
                   type="button"
@@ -339,6 +352,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [popupPerson, setPopupPerson] = useState("");
   const [popupError, setPopupError] = useState("");
   const [popupAmount, setPopupAmount] = useState(1);
+  const [qtyUnit, setQtyUnit] = useState(null);
+  const [qtyValue, setQtyValue] = useState("");
+  const [qtyError, setQtyError] = useState("");
   const [obras, setObras] = useState([]);
   const [busy, setBusy] = useState(false);
   const [freshCodes, setFreshCodes] = useState([]);
@@ -368,6 +384,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     if (!isOpen || !item?.id) return;
     setError("");
     setActionUnit(null);
+    setQtyUnit(null);
     getObras()
       .then((data) => setObras(Array.isArray(data) ? data : []))
       .catch(() => setObras([]));
@@ -626,6 +643,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
             onRetire={openRetire}
             onDevolver={openReturn}
             onShowHistory={setHistoryUnit}
+            onEditQuantity={(unit) => {
+              setQtyValue(unit.quantity == null ? "" : String(unit.quantity));
+              setQtyError("");
+              setQtyUnit(unit);
+            }}
             returning={busy}
           />
         ))
@@ -784,16 +806,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                             onChange={(e) => setPieceName(e.target.value)}
                           />
                         </div>
-                        <div className="mb-2">
-                          <label className="form-label mb-1">Observación</label>
-                          <textarea
-                            className="form-control"
-                            rows="2"
-                            value={pieceNote}
-                            placeholder="Opcional"
-                            onChange={(e) => setPieceNote(e.target.value)}
-                          />
-                        </div>
                         {innerQuantity && (
                           <div className="mb-2">
                             <label className="form-label mb-1">Cuántos hay adentro</label>
@@ -806,6 +818,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                             />
                           </div>
                         )}
+                        <div className="mb-2">
+                          <label className="form-label mb-1">Observación</label>
+                          <textarea
+                            className="form-control"
+                            rows="2"
+                            value={pieceNote}
+                            placeholder="Opcional"
+                            onChange={(e) => setPieceNote(e.target.value)}
+                          />
+                        </div>
                         <div className="form-check mb-2">
                           <input
                             id="detail-piece-broken"
@@ -855,6 +877,83 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
         </div>
       </div>
     </div>
+    {qtyUnit && (
+      <div
+        className="modal show d-block fade"
+        tabIndex="-1"
+        style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }}
+        onClick={() => !busy && setQtyUnit(null)}
+      >
+        <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content rounded shadow-lg">
+            <div className="modal-header">
+              <h5 className="modal-title mb-0">
+                Actualizar cantidad {qtyUnit.code}
+                {qtyUnit.name ? ` ${qtyUnit.name}` : ""}
+              </h5>
+              <button
+                type="button"
+                className="btn-close"
+                aria-label="Cerrar"
+                disabled={busy}
+                onClick={() => setQtyUnit(null)}
+              ></button>
+            </div>
+            <div className="modal-body">
+              <label className="form-label">Cuántos quedan en este código</label>
+              <input
+                type="number"
+                min="0"
+                className="form-control"
+                value={qtyValue}
+                onChange={(e) => setQtyValue(e.target.value)}
+              />
+              <div className="form-text">Cambia lo que hay en depósito. No crea otro código.</div>
+              {qtyError && <div className="alert alert-danger py-2 mt-3 mb-0">{qtyError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => setQtyUnit(null)}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={async () => {
+                  if (qtyValue.trim() === "") {
+                    setQtyError("Indicá la cantidad");
+                    return;
+                  }
+                  const next = parseInt(qtyValue, 10);
+                  if (Number.isNaN(next) || next < 0) {
+                    setQtyError("La cantidad no puede ser negativa");
+                    return;
+                  }
+                  setBusy(true);
+                  setQtyError("");
+                  try {
+                    await updateItem(item.id, {
+                      quantity: 0,
+                      action: "add",
+                      contents: [{ id: qtyUnit.id, quantity: next }],
+                    });
+                    setQtyUnit(null);
+                    await reload();
+                    onChanged?.();
+                  } catch (err) {
+                    setQtyError(err.message || "No se pudo actualizar la cantidad");
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     {actionUnit && (
       <div
         className="modal show d-block fade"

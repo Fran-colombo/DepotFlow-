@@ -230,7 +230,11 @@ const UpdateItemModal = ({
       return;
     }
     let cancelled = false;
-    const count = updateInner ? 1 : updateData.quantity || 1;
+    const typed = parseInt(updateData.quantity, 10);
+    if (!updateInner && (!typed || typed < 1)) {
+      return;
+    }
+    const count = updateInner ? 1 : typed;
     getNextCodes(count, selectedUpdateItem?.code_prefix)
       .then((data) => {
         if (!cancelled) {
@@ -341,8 +345,8 @@ const UpdateItemModal = ({
     for (const piece of existingPieces) {
       if (piece.status === "consumida") continue;
       const next = parseInt(piece.quantity, 10);
-      if (Number.isNaN(next) || next < 0) {
-        setError("La cantidad no puede ser negativa");
+      if (piece.quantity === "" || Number.isNaN(next) || next < 0) {
+        setError("Indicá la cantidad de cada código");
         return;
       }
       if (next === savedQuantities[piece.id]) continue;
@@ -430,15 +434,22 @@ const UpdateItemModal = ({
           setIsLoading(false);
           return;
         }
+        const markedInner = !formData.quantityOnly && Boolean(formData.innerQuantity);
+        const typedQuantity = parseInt(formData.quantity, 10);
+        if (formData.quantityOnly && (!typedQuantity || typedQuantity < 1)) {
+          setError("La cantidad tiene que ser mayor a 0");
+          setIsLoading(false);
+          return;
+        }
         const created = await createItem({
           name: formData.name,
           description: formData.description,
-          quantity: formData.quantityOnly ? formData.quantity : 0,
+          quantity: formData.quantityOnly ? typedQuantity : 0,
           category: formData.category,
           shed_id: Number(formData.shed_id),
           zone_id: Number(formData.zone_id),
           track_units: !formData.quantityOnly,
-          inner_quantity: !formData.quantityOnly && Boolean(formData.innerQuantity),
+          inner_quantity: markedInner,
           code_prefix: formData.quantityOnly ? undefined : prefix.trim(),
         });
         refreshItems?.();
@@ -446,7 +457,10 @@ const UpdateItemModal = ({
           onClose();
           return;
         }
-        setCreatedSub(created);
+        setCreatedSub({
+          ...created,
+          inner_quantity: Boolean(created?.inner_quantity) || markedInner,
+        });
         setCreateStep("ask");
         return;
       } else {
@@ -481,9 +495,10 @@ const UpdateItemModal = ({
           });
           return;
         }
-        const { item_id, quantity, action } = updateData;
-        if (!item_id || quantity <= 0 || !action) {
-          setError("Ítem, cantidad y acción son obligatorios");
+        const { item_id, action } = updateData;
+        const quantity = parseInt(updateData.quantity, 10);
+        if (!item_id || !action || !quantity || quantity < 1) {
+          setError("La cantidad tiene que ser mayor a 0");
           setIsLoading(false);
           return;
         }
@@ -709,6 +724,20 @@ const UpdateItemModal = ({
                       required
                     />
                   </div>
+                  {createdSub?.inner_quantity && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold" htmlFor="piece-inside">Cuántos hay adentro:</label>
+                      <input
+                        id="piece-inside"
+                        type="number"
+                        min="1"
+                        className="form-control"
+                        value={pieceContent}
+                        onChange={(e) => setPieceContent(e.target.value)}
+                        required
+                      />
+                    </div>
+                  )}
                   <div className="mb-3">
                     <label className="form-label fw-bold" htmlFor="piece-note">Observación:</label>
                     <textarea
@@ -730,20 +759,6 @@ const UpdateItemModal = ({
                     />
                     <label className="form-check-label" htmlFor="piece-broken">Rota</label>
                   </div>
-                  {createdSub?.inner_quantity && (
-                    <div className="mb-3">
-                      <label className="form-label fw-bold" htmlFor="piece-inside">Cuántos hay adentro:</label>
-                      <input
-                        id="piece-inside"
-                        type="number"
-                        min="1"
-                        className="form-control"
-                        value={pieceContent}
-                        onChange={(e) => setPieceContent(e.target.value)}
-                        required
-                      />
-                    </div>
-                  )}
                   {pieceBroken && (
                     <>
                       <div className="mb-3">
@@ -807,7 +822,7 @@ const UpdateItemModal = ({
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          quantity: parseInt(e.target.value) || 1,
+                          quantity: e.target.value,
                         })
                       }
                       required
@@ -1127,7 +1142,7 @@ const UpdateItemModal = ({
                       onChange={(e) =>
                         setUpdateData({
                           ...updateData,
-                          quantity: parseInt(e.target.value) || 1,
+                          quantity: e.target.value,
                         })
                       }
                       required
