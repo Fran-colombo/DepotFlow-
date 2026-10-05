@@ -17,6 +17,7 @@ import {
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
 import { printLabels } from "./printLabels";
+import useAuth from "../hooks/useAuth";
 
 const ACTION_LABEL = {
   retiro: "Retiro",
@@ -52,6 +53,7 @@ const PieceCard = ({
   onEditQuantity,
   returning,
   place = "depot",
+  isAdmin = false,
 }) => {
   const [notes, setNotes] = useState([]);
   const [note, setNote] = useState("");
@@ -154,7 +156,7 @@ const PieceCard = ({
       : unit.status_label;
   const canRetire = place === "depot" && (inner ? (unit.quantity || 0) > 0 : unit.status === "en_stock");
   const canReturn = place === "obra" && (inner ? (unit.out_quantity || 0) > 0 : unit.status === "retirada");
-  const canEditQty = inner && unit.status !== "consumida" && (place === "depot" || (unit.quantity || 0) === 0);
+  const canEditQty = isAdmin && inner && unit.status !== "consumida" && (place === "depot" || (unit.quantity || 0) === 0);
 
   return (
     <div className="border rounded p-3 mb-2 bg-white">
@@ -340,6 +342,8 @@ const PieceCard = ({
 };
 
 const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
   const [units, setUnits] = useState([]);
   const [trackUnits, setTrackUnits] = useState(false);
   const [consumable, setConsumable] = useState(false);
@@ -643,6 +647,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
             onRetire={openRetire}
             onDevolver={openReturn}
             onShowHistory={setHistoryUnit}
+            isAdmin={isAdmin}
             onEditQuantity={(unit) => {
               setQtyValue(unit.quantity == null ? "" : String(unit.quantity));
               setQtyError("");
@@ -998,13 +1003,24 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
               {innerQuantity && (
                 <div className="mb-3">
                   <label className="form-label">Cuántos</label>
-                  <input
-                    type="number"
-                    min="1"
-                    className="form-control"
-                    value={popupAmount}
-                    onChange={(e) => setPopupAmount(e.target.value)}
-                  />
+                  <div className="d-flex gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      className="form-control"
+                      value={popupAmount}
+                      onChange={(e) => setPopupAmount(e.target.value)}
+                    />
+                    {actionUnit.kind === "retire" && (
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary"
+                        onClick={() => setPopupAmount(String(actionUnit.unit.quantity ?? 0))}
+                      >
+                        Todo
+                      </button>
+                    )}
+                  </div>
                   <div className="form-text">
                     {actionUnit.kind === "retire"
                       ? `En este código quedan ${actionUnit.unit.quantity ?? 0}.`

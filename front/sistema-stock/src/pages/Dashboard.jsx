@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
 import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown } from "lucide-react"
@@ -10,12 +10,24 @@ const Dashboard = ({ title, children }) => {
   const navigate = useNavigate()
   const location = useLocation()
   const [navOpen, setNavOpen] = useState(false)
+  const [adminOpen, setAdminOpen] = useState(false)
+  const adminMenuRef = useRef(null)
   const [telegramBot, setTelegramBot] = useState(null)
   const [openingTelegram, setOpeningTelegram] = useState(false)
 
   useEffect(() => {
     setNavOpen(false)
+    setAdminOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    if (!adminOpen) return
+    const close = (event) => {
+      if (!adminMenuRef.current?.contains(event.target)) setAdminOpen(false)
+    }
+    document.addEventListener("mousedown", close)
+    return () => document.removeEventListener("mousedown", close)
+  }, [adminOpen])
 
   useEffect(() => {
     let cancelled = false
@@ -108,17 +120,17 @@ const Dashboard = ({ title, children }) => {
               </button>
 
               {role === "admin" && (
-                <div className="dropdown">
+                <div className="dropdown" ref={adminMenuRef}>
                   <button
-                    className="btn btn-link text-decoration-none d-flex align-items-center fs-6 px-2 py-2 py-lg-1 text-secondary dropdown-toggle w-100"
+                    className="btn btn-link text-decoration-none d-flex align-items-center fs-6 px-2 py-2 py-lg-1 text-secondary w-100"
                     type="button"
-                    data-bs-toggle="dropdown"
-                    aria-expanded="false"
+                    aria-expanded={adminOpen}
+                    onClick={() => setAdminOpen((open) => !open)}
                   >
                     <ChevronDown className="me-1" size={18} />
                     Administración
                   </button>
-                  <ul className="dropdown-menu dropdown-menu-end">
+                  <ul className={`dropdown-menu dropdown-menu-end${adminOpen ? " show" : ""}`}>
                     <li>
                       <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/obras")}>
                         <MapPin className="me-2" size={16} /> Obras

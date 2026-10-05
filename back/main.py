@@ -353,7 +353,8 @@ async def import_items_update_excel(
 def update_item_by_id(
     item_id: int,
     item_update: itemDTO.ItemUpdateDTO,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Annotated[dict, Depends(get_current_user)] = None,
 ):
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
@@ -372,6 +373,12 @@ def update_item_by_id(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La cantidad debe ser mayor a cero"
+        )
+
+    if item_update.contents and (not current_user or current_user.get("role") != "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden cambiar la cantidad de un código",
         )
 
     from unit_service import add_inner_boxes, normalize_code, rename_unit, set_inner_contents

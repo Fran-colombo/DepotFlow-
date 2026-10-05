@@ -4,6 +4,7 @@ import { getCategories } from "../api/categories";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { printLabels } from "./printLabels";
+import useAuth from "../hooks/useAuth";
 
 const UpdateItemModal = ({
   isOpen,
@@ -12,6 +13,8 @@ const UpdateItemModal = ({
   mode = "create",
   itemId = null,
 }) => {
+  const { role } = useAuth();
+  const isAdmin = role === "admin";
   const [items, setItems] = useState([]);
   const [lockedItem, setLockedItem] = useState(null);
   const [sheds, setSheds] = useState([]);
@@ -1050,7 +1053,7 @@ const UpdateItemModal = ({
                                   className="form-control"
                                   aria-label={`Cantidad de ${piece.code}`}
                                   value={piece.quantity}
-                                  disabled={piece.status === "consumida"}
+                                  disabled={!isAdmin || piece.status === "consumida"}
                                   onChange={(e) =>
                                     setExistingPieces((prev) =>
                                       prev.map((row) =>
@@ -1074,14 +1077,16 @@ const UpdateItemModal = ({
                             >
                               Guardar nombres
                             </button>
-                            <button
-                              type="button"
-                              className="btn btn-outline-primary btn-sm"
-                              onClick={saveContents}
-                              disabled={isLoading}
-                            >
-                              Guardar cantidades
-                            </button>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className="btn btn-outline-primary btn-sm"
+                                onClick={saveContents}
+                                disabled={isLoading}
+                              >
+                                Guardar cantidades
+                              </button>
+                            )}
                           </div>
                         </div>
                       )}
