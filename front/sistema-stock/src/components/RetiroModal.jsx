@@ -129,7 +129,7 @@
 // export default RetirarItemModal;
 
 import { useEffect, useState } from "react";
-import { getItemById, retirarItem } from "../api/items";
+import { getItemById, getItemUnits, retirarItem } from "../api/items";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
 
@@ -141,18 +141,30 @@ const RetirarItemModal = ({
   onGenerateRemito // Nueva prop para manejar la generación del remito
 }) => {
   const [item, setItem] = useState(null);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', codesText: '', noReturn: false });
+  const [stockUnits, setStockUnits] = useState([]);
+  const [innerQuantity, setInnerQuantity] = useState(false);
+  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false });
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showRemitoConfirmation, setShowRemitoConfirmation] = useState(false);
   const [obras, setObras] = useState([]);
 
+  const selectedUnit = stockUnits.find((unit) => unit.code === form.code);
+
   useEffect(() => {
     if (isOpen && itemId) {
-      setForm({ amount: '', place: '', personWhoTook: '', codesText: '', noReturn: false });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false });
       setRetiredCodes([]);
+      setStockUnits([]);
+      setInnerQuantity(false);
       getItemById(itemId).then(res => setItem(res.item)).catch(console.error);
+      getItemUnits(itemId, "en_stock")
+        .then((data) => {
+          setStockUnits(Array.isArray(data?.units) ? data.units : []);
+          setInnerQuantity(Boolean(data?.inner_quantity));
+        })
+        .catch(() => setStockUnits([]));
       getObras().then((data) => setObras(Array.isArray(data) ? data : [])).catch(() => setObras([]));
     }
   }, [isOpen, itemId]);
@@ -162,21 +174,42 @@ const RetirarItemModal = ({
     setLoading(true);
     setError("");
     try {
-      const codes = (form.codesText || "")
-        .split(/[\s,;]+/)
-        .map((code) => code.trim())
-        .filter(Boolean);
       if (!form.place.trim()) {
         setError("Elegí una obra");
         setLoading(false);
         return;
       }
+      let amount = parseInt(form.amount, 10);
+      let codes;
+      if (item?.track_units) {
+        if (!form.code) {
+          setError("Elegí un código");
+          setLoading(false);
+          return;
+        }
+        if (innerQuantity) {
+          const available = selectedUnit?.quantity ?? 0;
+          amount = form.scope === "total" ? available : amount;
+          if (!amount || amount < 1 || amount > available) {
+            setError(`Podés retirar hasta ${available}`);
+            setLoading(false);
+            return;
+          }
+        } else {
+          amount = 1;
+        }
+        codes = [form.code];
+      } else if (!amount || amount < 1) {
+        setError("La cantidad tiene que ser mayor a 0");
+        setLoading(false);
+        return;
+      }
       const result = await retirarItem({
         itemId,
-        amount: parseInt(form.amount),
+        amount,
         place: form.place,
         ...(form.personWhoTook && { personWhoTook: form.personWhoTook }),
-        ...(codes.length ? { codes } : {}),
+        ...(codes ? { codes } : {}),
         noReturn: Boolean(item?.is_consumable) || form.noReturn,
       });
       setRetiredCodes(result?.unit_codes || []);
@@ -185,7 +218,7 @@ const RetirarItemModal = ({
       setShowRemitoConfirmation(true);
       
       // No cerramos el modal todavía, solo limpiamos el formulario
-      setForm({ amount: '', place: '', personWhoTook: '', codesText: '', noReturn: false });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false });
       
       // Llamamos a onSuccess para actualizar la lista
       onSuccess?.();
@@ -240,6 +273,7 @@ const RetirarItemModal = ({
             </div>
             <div className="modal-body">
               <form onSubmit={handleSubmit}>
+                {!item?.track_units && (
                 <div className="mb-3">
                   <label className="form-label">Cantidad a retirar</label>
                   <input
@@ -247,10 +281,10 @@ const RetirarItemModal = ({
                     className="form-control"
                     value={form.amount}
                     onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                    required
                     min={1}
                   />
                 </div>
+                )}
 
                 <div className="mb-3">
                   <label className="form-label">Obra</label>
@@ -263,14 +297,61 @@ const RetirarItemModal = ({
 
                 {item?.track_units && (
                   <div className="mb-3">
-                    <label className="form-label">Códigos (opcional)</label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={form.codesText}
-                      onChange={(e) => setForm({ ...form, codesText: e.target.value })}
-                      placeholder="Si lo dejás vacío salen los más antiguos"
-                    />
+                    <label className="form-label">Código</label>
+                    <select
+                      className="form-select"
+                      value={form.code}
+                      onChange={(e) => setForm({ ...form, code: e.target.value, amount: "" })}
+                    >
+                      <option value="">Elegir código</option>
+                      {stockUnits.map((unit) => (
+                        <option key={unit.id} value={unit.code}>
+                          {unit.code}{unit.name ? ` ${unit.name}` : ""}
+                          {innerQuantity ? ` · ${unit.quantity ?? 0}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {item?.track_units && innerQuantity && form.code && (
+                  <div className="mb-3">
+                    <div className="form-check">
+                      <input
+                        id="retire-parcial"
+                        type="radio"
+                        className="form-check-input"
+                        name="retire-scope"
+                        checked={form.scope === "parcial"}
+                        onChange={() => setForm({ ...form, scope: "parcial" })}
+                      />
+                      <label className="form-check-label" htmlFor="retire-parcial">Parcial</label>
+                    </div>
+                    <div className="form-check mb-2">
+                      <input
+                        id="retire-total"
+                        type="radio"
+                        className="form-check-input"
+                        name="retire-scope"
+                        checked={form.scope === "total"}
+                        onChange={() => setForm({ ...form, scope: "total" })}
+                      />
+                      <label className="form-check-label" htmlFor="retire-total">Total</label>
+                    </div>
+                    {form.scope === "parcial" ? (
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-control"
+                        value={form.amount}
+                        onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                      />
+                    ) : (
+                      <div className="form-text">Se retiran los {selectedUnit?.quantity ?? 0} de este código.</div>
+                    )}
+                    {form.scope === "parcial" && (
+                      <div className="form-text">En este código quedan {selectedUnit?.quantity ?? 0}.</div>
+                    )}
                   </div>
                 )}
 

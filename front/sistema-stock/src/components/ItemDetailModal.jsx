@@ -194,8 +194,8 @@ const PieceCard = ({
               {unit.name && <div className="fw-semibold">{unit.name}</div>}
               <div className="app-muted small">
                 {statusText}
-                {inner && place === "depot" ? ` · ${unit.quantity ?? 0} en el código` : ""}
-                {inner && place === "obra" ? ` · ${unit.out_quantity ?? 0} afuera` : ""}
+                {place === "depot" ? ` · ${unit.quantity ?? 1} en el código` : ""}
+                {place === "obra" && inner ? ` · ${unit.out_quantity ?? 0} afuera` : ""}
                 {unit.is_broken ? " · Rota" : ""}
               </div>
             </div>
@@ -356,6 +356,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [popupPerson, setPopupPerson] = useState("");
   const [popupError, setPopupError] = useState("");
   const [popupAmount, setPopupAmount] = useState(1);
+  const [retireScope, setRetireScope] = useState("parcial");
   const [qtyUnit, setQtyUnit] = useState(null);
   const [qtyValue, setQtyValue] = useState("");
   const [qtyError, setQtyError] = useState("");
@@ -506,7 +507,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setPopupPlace("");
     setPopupPerson("");
     setPopupError("");
-    setPopupAmount(1);
+    setPopupAmount("");
+    setRetireScope("parcial");
     setActionUnit({ unit, kind: "retire" });
   };
 
@@ -550,8 +552,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
       setPopupError("Indicá quién lo retira");
       return;
     }
-    const amount = innerQuantity ? parseInt(popupAmount, 10) : 1;
     const max = actionUnit.unit.quantity || 0;
+    const amount = !innerQuantity
+      ? 1
+      : retireScope === "total"
+        ? max
+        : parseInt(popupAmount, 10);
     if (innerQuantity && (!amount || amount < 1 || amount > max)) {
       setPopupError(`Podés retirar hasta ${max}`);
       return;
@@ -1000,10 +1006,31 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                   />
                 </div>
               )}
-              {innerQuantity && (
+              {innerQuantity && actionUnit.kind === "retire" && (
                 <div className="mb-3">
-                  <label className="form-label">Cuántos</label>
-                  <div className="d-flex gap-2">
+                  <div className="form-check">
+                    <input
+                      id="piece-retire-parcial"
+                      type="radio"
+                      className="form-check-input"
+                      name="piece-retire-scope"
+                      checked={retireScope === "parcial"}
+                      onChange={() => setRetireScope("parcial")}
+                    />
+                    <label className="form-check-label" htmlFor="piece-retire-parcial">Parcial</label>
+                  </div>
+                  <div className="form-check mb-2">
+                    <input
+                      id="piece-retire-total"
+                      type="radio"
+                      className="form-check-input"
+                      name="piece-retire-scope"
+                      checked={retireScope === "total"}
+                      onChange={() => setRetireScope("total")}
+                    />
+                    <label className="form-check-label" htmlFor="piece-retire-total">Total</label>
+                  </div>
+                  {retireScope === "parcial" ? (
                     <input
                       type="number"
                       min="1"
@@ -1011,21 +1038,25 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                       value={popupAmount}
                       onChange={(e) => setPopupAmount(e.target.value)}
                     />
-                    {actionUnit.kind === "retire" && (
-                      <button
-                        type="button"
-                        className="btn btn-outline-secondary"
-                        onClick={() => setPopupAmount(String(actionUnit.unit.quantity ?? 0))}
-                      >
-                        Todo
-                      </button>
-                    )}
-                  </div>
-                  <div className="form-text">
-                    {actionUnit.kind === "retire"
-                      ? `En este código quedan ${actionUnit.unit.quantity ?? 0}.`
-                      : `En obra hay ${actionUnit.unit.out_quantity ?? 0}.`}
-                  </div>
+                  ) : (
+                    <div className="form-text">Se retiran los {actionUnit.unit.quantity ?? 0} de este código.</div>
+                  )}
+                  {retireScope === "parcial" && (
+                    <div className="form-text">En este código quedan {actionUnit.unit.quantity ?? 0}.</div>
+                  )}
+                </div>
+              )}
+              {innerQuantity && actionUnit.kind === "return" && (
+                <div className="mb-3">
+                  <label className="form-label">Cuántos</label>
+                  <input
+                    type="number"
+                    min="1"
+                    className="form-control"
+                    value={popupAmount}
+                    onChange={(e) => setPopupAmount(e.target.value)}
+                  />
+                  <div className="form-text">En obra hay {actionUnit.unit.out_quantity ?? 0}.</div>
                 </div>
               )}
               <div className="mb-3">
