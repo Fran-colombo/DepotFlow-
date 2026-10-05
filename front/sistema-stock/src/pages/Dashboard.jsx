@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown } from "lucide-react"
+import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 import { createTelegramLink, getTelegramBot } from "../api/auth"
 
@@ -154,6 +154,11 @@ const Dashboard = ({ title, children }) => {
                     <li>
                       <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/deleted-items")}>
                         <Trash2 className="me-2" size={16} /> Eliminados
+                      </button>
+                    </li>
+                    <li>
+                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/sysadmin")}>
+                        <Wrench className="me-2" size={16} /> Sysadmin
                       </button>
                     </li>
                   </ul>

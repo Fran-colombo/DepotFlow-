@@ -141,6 +141,11 @@ const PieceCard = ({
 
   const imageUrl = getUnitImageUrl(unit);
   const inner = Boolean(item.inner_quantity);
+  const outPlaces = Array.isArray(unit.out_places) ? unit.out_places.filter((row) => row.quantity > 0) : [];
+  const obraLine = outPlaces
+    .map((row) => (inner ? `${row.place} ${row.quantity}` : row.place))
+    .filter(Boolean)
+    .join(" · ");
   const statusText = inner && place === "obra"
     ? "En obra"
     : inner && place === "depot"
@@ -187,7 +192,7 @@ const PieceCard = ({
               <div className="app-muted small">
                 {statusText}
                 {place === "depot" ? ` · ${unit.quantity ?? 1} en el código` : ""}
-                {place === "obra" && inner ? ` · ${unit.out_quantity ?? 0} afuera` : ""}
+                {place === "obra" && obraLine ? ` · ${obraLine}` : ""}
                 {unit.is_broken ? " · Rota" : ""}
               </div>
             </div>

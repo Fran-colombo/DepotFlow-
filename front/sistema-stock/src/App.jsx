@@ -12,6 +12,7 @@ import UsersPage from "./pages/Users";
 import WarehouseManagement from "./pages/WarehouseManagement";
 import CategoriesPage from "./pages/Categories";
 import ObrasPage from "./pages/Obras";
+import SysadminPage from "./pages/Sysadmin";
 
 
 function App() {
@@ -47,6 +48,7 @@ function App() {
           <Route path="/admin/warehouses" element={<WarehouseManagement />} />
           <Route path="/admin/categories" element={<CategoriesPage />} />
           <Route path="/admin/obras" element={<ObrasPage />} />
+          <Route path="/admin/sysadmin" element={<SysadminPage />} />
           <Route path="/admin/zones" element={<Navigate to="/admin/warehouses" replace />} />
           <Route path="/deleted-items" element={<DeletedItemsPage />} />
 

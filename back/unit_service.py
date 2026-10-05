@@ -229,6 +229,31 @@ def unit_out_quantity(db: Session, unit: models.ItemUnit) -> int:
     return int(total or 0)
 
 
+def unit_out_places(db: Session, unit: models.ItemUnit) -> list:
+    rows = (
+        db.query(
+            models.History.place,
+            func.coalesce(func.sum(models.History.amountNotReturned), 0),
+        )
+        .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+        .filter(
+            models.HistoryUnit.unit_id == unit.id,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.amountNotReturned > 0,
+        )
+        .group_by(models.History.place)
+        .all()
+    )
+    places = []
+    for place, quantity in rows:
+        amount = int(quantity or 0)
+        if amount <= 0:
+            continue
+        places.append({"place": place or "", "quantity": amount})
+    return places
+
+
 def take_inner_quantity(unit: models.ItemUnit, amount: int, consume: bool):
     available = int(unit.quantity or 0)
     if amount <= 0:

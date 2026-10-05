@@ -97,6 +97,7 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
                     <tr>
                       <th>Fecha</th>
                       <th>Acción</th>
+                      <th>Pieza</th>
                       <th>Lugar</th>
                       <th>Persona</th>
                       <th className="text-end">Cantidad</th>
@@ -112,28 +113,25 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
                               {actionLabel(row.action)}
                             </span>
                           </td>
-                          <td>{row.place || "—"}</td>
-                          <td>{row.personWhoTook || row.userName || "—"}</td>
-                          <td className="text-end">
+                          <td>
                             {row.pieces?.length ? (
                               row.pieces.map((piece) => (
                                 <div key={piece.code}>
-                                  {piece.code}
-                                  {piece.name ? ` ${piece.name}` : ""}
-                                  {row.pieces.length === 1 && row.amountRetired > 1
-                                    ? ` · ${row.amountRetired}`
-                                    : ""}
+                                  {piece.name ? `${piece.code} · ${piece.name}` : piece.code}
                                 </div>
                               ))
                             ) : (
-                              row.amountRetired ?? "—"
+                              "—"
                             )}
                           </td>
+                          <td>{row.place || "—"}</td>
+                          <td>{row.personWhoTook || row.userName || "—"}</td>
+                          <td className="text-end">{row.amountRetired ?? "—"}</td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="5" className="text-center text-muted py-4">
+                        <td colSpan="6" className="text-center text-muted py-4">
                           No hay movimientos registrados
                         </td>
                       </tr>

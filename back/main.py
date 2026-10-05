@@ -38,6 +38,7 @@ from telegram.bot import router as telegram_router, start_telegram_bot
 from item_images import router as item_images_router, delete_stored_image
 import categories
 import obras
+import sysadmin
 from item_categories import category_is_consumable, normalize_lookup, seed_categories
 from pydantic import BaseModel
 from observations import add_unit_observation
@@ -51,6 +52,7 @@ from unit_service import (
     peek_codes,
     suggest_prefix,
     unit_history,
+    unit_out_places,
     unit_out_quantity,
 )
 from dotenv import load_dotenv
@@ -92,6 +94,7 @@ app.include_router(telegram_router)
 app.include_router(item_images_router)
 app.include_router(categories.router)
 app.include_router(obras.router)
+app.include_router(sysadmin.router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()
@@ -665,6 +668,7 @@ def list_item_units(
                 "status_label": labels.get(unit.status, unit.status),
                 "quantity": int(unit.quantity or 0),
                 "out_quantity": unit_out_quantity(db, unit) if item.inner_quantity else 0,
+                "out_places": unit_out_places(db, unit),
                 "name": unit.name,
                 "is_broken": bool(unit.is_broken),
                 "damage_note": unit.damage_note,

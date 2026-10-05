@@ -451,55 +451,60 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
 
     units = []
     if item.inner_quantity:
-        if not dto.codes or len(dto.codes) != 1:
-            raise HTTPException(400, "Elegí el código")
-        try:
-            unit = find_unit_by_code(db, dto.codes[0])
-        except ItemServiceError as exc:
-            raise HTTPException(status_code=exc.status_code, detail=exc.message)
-        if not unit:
-            raise HTTPException(400, "No hay una pieza con ese código")
+        chosen = [code for code in (dto.codes or []) if code and str(code).strip()]
+        if len(chosen) > 1:
+            raise HTTPException(400, "Elegí un solo código")
         pending = (
-            db.query(models.History)
+            db.query(models.History, models.ItemUnit)
             .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+            .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
             .filter(
-                models.HistoryUnit.unit_id == unit.id,
+                models.History.itemId == item.id,
+                models.ItemUnit.item_id == item.id,
                 models.History.action == models.ActionEnum.retiro,
                 models.History.turnback == False,
                 models.History.amountNotReturned > 0,
             )
         )
+        if chosen:
+            try:
+                unit = find_unit_by_code(db, chosen[0])
+            except ItemServiceError as exc:
+                raise HTTPException(status_code=exc.status_code, detail=exc.message)
+            if not unit or unit.item_id != item.id:
+                raise HTTPException(400, "No hay una pieza con ese código")
+            pending = pending.filter(models.HistoryUnit.unit_id == unit.id)
         if dto.place:
             pending = pending.filter(models.History.place == dto.place)
-        pending_rows = pending.order_by(models.History.date.asc()).all()
-        total_pending = sum(row.amountNotReturned or 0 for row in pending_rows)
+        pending_rows = pending.order_by(models.History.date.asc(), models.History.id.asc()).all()
+        total_pending = sum(row.amountNotReturned or 0 for row, _unit in pending_rows)
         if dto.amount > total_pending:
             raise HTTPException(
                 status_code=400,
                 detail=f"En esa obra hay {total_pending}",
             )
         remaining = dto.amount
-        for row in pending_rows:
+        taken_by_unit = {}
+        for row, unit in pending_rows:
             if remaining <= 0:
                 break
             pending_amount = row.amountNotReturned or 0
-            if remaining >= pending_amount:
-                remaining -= pending_amount
-                row.amountNotReturned = 0
-            else:
-                row.amountNotReturned = pending_amount - remaining
-                remaining = 0
+            take = pending_amount if remaining >= pending_amount else remaining
+            row.amountNotReturned = pending_amount - take
+            remaining -= take
             if row.amountNotReturned == 0:
                 row.turnback = True
                 row.turnbackDate = now()
+            taken_by_unit[unit.id] = taken_by_unit.get(unit.id, 0) + take
+        units = []
         try:
-            apply_inner_return(unit, dto.amount)
+            for unit_id, taken in taken_by_unit.items():
+                unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+                apply_inner_return(unit, taken)
+                units.append(unit)
         except ItemServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
-        home = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
-        if home:
-            home.actualAmount = (home.actualAmount or 0) + dto.amount
-        units = [unit]
+        item.actualAmount = (item.actualAmount or 0) + dto.amount
     elif item.track_units and dto.codes:
         try:
             units = restore_units(db, item, dto.amount, dto.codes, dto.place)

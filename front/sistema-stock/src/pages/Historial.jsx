@@ -354,7 +354,16 @@ useEffect(() => {
                 {historial.length > 0 ? (
                   historial.map((registro) => (
                     <tr key={registro.id} className="text-center">
-                      <td className="fw-medium">{registro.itemName}</td>
+                      <td className="fw-medium">
+                        <div>{registro.itemName}</div>
+                        {registro.pieces?.length > 0 && (
+                          <div className="small text-secondary fw-normal">
+                            {registro.pieces.map((piece) => (
+                              piece.name ? `${piece.code} · ${piece.name}` : piece.code
+                            )).join(", ")}
+                          </div>
+                        )}
+                      </td>
                       <td>{registro.itemCategory || 'N/A'}</td>
                       <td>{registro.userName}</td>
                       <td>{registro.personWhoTook || registro.userName}</td>
