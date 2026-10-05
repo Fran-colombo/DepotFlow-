@@ -462,7 +462,7 @@ const UpdateItemModal = ({
         }
         setCreatedSub({
           ...created,
-          inner_quantity: Boolean(created?.inner_quantity) || markedInner,
+          inner_quantity: Boolean(created?.inner_quantity),
         });
         setCreateStep("ask");
         return;

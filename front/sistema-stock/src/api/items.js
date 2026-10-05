@@ -117,6 +117,7 @@ export async function createItem(data) {
       shed_id: data.shed_id,
       zone_id: data.zone_id,
       track_units: data.track_units !== false,
+      inner_quantity: Boolean(data.inner_quantity),
       codes: data.codes && data.codes.length ? data.codes : undefined,
       ...(data.code_prefix ? { code_prefix: data.code_prefix } : {}),
     }),
