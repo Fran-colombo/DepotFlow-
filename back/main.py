@@ -45,6 +45,7 @@ from unit_service import (
     apply_piece_profile,
     create_units_for_item,
     find_unit_by_code,
+    change_item_counting,
     identify_current_stock,
     last_unit_movement,
     peek_codes,
@@ -769,6 +770,46 @@ def update_piece(
 
 class IdentifyUnitsBody(BaseModel):
     prefix: str
+
+
+class CountingBody(BaseModel):
+    mode: str
+    prefix: Optional[str] = None
+
+
+def _counting_payload(item, units) -> dict:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "track_units": bool(item.track_units),
+        "inner_quantity": bool(item.inner_quantity),
+        "code_prefix": item.code_prefix,
+        "actualAmount": item.actualAmount,
+        "totalAmount": item.totalAmount,
+        "codes": [unit.code for unit in units],
+    }
+
+
+@app.put("/items/{item_id}/counting")
+def update_item_counting(
+    item_id: int,
+    body: CountingBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if not current_user or current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden cambiar cómo se cuenta",
+        )
+    item = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    try:
+        units = change_item_counting(db, item, body.mode, body.prefix)
+    except ItemServiceError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return _counting_payload(item, units)
 
 
 @app.post("/items/{item_id}/identify")

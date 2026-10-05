@@ -5,6 +5,7 @@ import {
   getHistorialPlaces,
   trasladarItem,
 } from "../api/items";
+import FeedbackModal from "./FeedbackModal";
 
 const OTHER_VALUE = "__other__";
 
@@ -13,6 +14,7 @@ const TrasladoModal = ({
   isOpen,
   onClose,
   onSuccess,
+  onFinished,
   defaultFromPlace = "",
 }) => {
   const [item, setItem] = useState(null);
@@ -28,6 +30,7 @@ const TrasladoModal = ({
   const [loading, setLoading] = useState(false);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
     if (!isOpen || !itemId) return;
@@ -40,6 +43,7 @@ const TrasladoModal = ({
       personWhoMoved: "",
     });
     setError("");
+    setFeedback(null);
     setPendingPlaces([]);
     setKnownPlaces([]);
 
@@ -139,10 +143,11 @@ const TrasladoModal = ({
         toPlace,
         personWhoMoved: form.personWhoMoved.trim(),
       });
+      onFinished?.({ type: "success", message: `Se trasladó a ${toPlace}.` });
       onSuccess?.();
       onClose();
     } catch (err) {
-      setError(err.message || "Ocurrió un error");
+      setFeedback({ type: "error", message: err.message || "Ocurrió un error" });
     } finally {
       setLoading(false);
     }
@@ -324,6 +329,12 @@ const TrasladoModal = ({
           </div>
         </div>
       </div>
+      <FeedbackModal
+        open={Boolean(feedback)}
+        type={feedback?.type}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
+      />
     </div>
   );
 };

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createObra, getAdminObras, OBRA_STAGES, updateObra } from "../api/obras";
+import FeedbackModal from "../components/FeedbackModal";
 import Dashboard from "./Dashboard";
 
 const ObrasPage = () => {
@@ -10,16 +11,17 @@ const ObrasPage = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingId, setSavingId] = useState(null);
-  const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState(null);
 
   const load = async ({ silent = false } = {}) => {
     if (!silent) setLoading(true);
     try {
       const data = await getAdminObras();
       setObras(Array.isArray(data) ? data : []);
-      setError("");
+      return true;
     } catch (err) {
-      setError(err.message || "No se pudieron cargar las obras");
+      setFeedback({ type: "error", message: err.message || "No se pudieron cargar las obras" });
+      return false;
     } finally {
       if (!silent) setLoading(false);
     }
@@ -33,7 +35,6 @@ const ObrasPage = () => {
     setEditing(obra.id);
     setName(obra.name);
     setStage(obra.stage || "trabajando");
-    setError("");
   };
 
   const cancelEdit = () => {
@@ -45,7 +46,7 @@ const ObrasPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
-    setError("");
+    const wasEdit = editing != null;
     try {
       if (editing != null) {
         const current = obras.find((obra) => obra.id === editing);
@@ -58,9 +59,15 @@ const ObrasPage = () => {
         await createObra({ name: name.trim(), stage });
       }
       cancelEdit();
-      await load();
+      const loaded = await load();
+      if (loaded) {
+        setFeedback({
+          type: "success",
+          message: wasEdit ? "Obra actualizada" : "Obra agregada",
+        });
+      }
     } catch (err) {
-      setError(err.message || "No se pudo guardar la obra");
+      setFeedback({ type: "error", message: err.message || "No se pudo guardar la obra" });
     } finally {
       setSaving(false);
     }
@@ -68,7 +75,6 @@ const ObrasPage = () => {
 
   const changeStage = async (obra, nextStage) => {
     setSavingId(obra.id);
-    setError("");
     try {
       await updateObra(obra.id, {
         name: obra.name,
@@ -76,9 +82,16 @@ const ObrasPage = () => {
         stage: nextStage,
       });
       if (editing === obra.id) setStage(nextStage);
-      await load({ silent: true });
+      const loaded = await load({ silent: true });
+      if (loaded) {
+        const label = OBRA_STAGES.find((item) => item.value === nextStage)?.label || nextStage;
+        setFeedback({
+          type: "success",
+          message: `El estado de ${obra.name} quedó en ${label}`,
+        });
+      }
     } catch (err) {
-      setError(err.message || "No se pudo cambiar el estado");
+      setFeedback({ type: "error", message: err.message || "No se pudo cambiar el estado" });
     } finally {
       setSavingId(null);
     }
@@ -122,7 +135,12 @@ const ObrasPage = () => {
           )}
         </div>
       </form>
-      {error && <div className="alert alert-danger">{error}</div>}
+      <FeedbackModal
+        open={Boolean(feedback)}
+        type={feedback?.type}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
+      />
       {loading ? (
         <div className="text-secondary">Cargando...</div>
       ) : (

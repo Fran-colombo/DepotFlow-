@@ -451,6 +451,14 @@ export function updateUnitProfile(unitId, data) {
   });
 }
 
+export function updateItemCounting(itemId, data) {
+  return apiFetch(`/items/${itemId}/counting`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export function identifyItem(itemId, prefix) {
   return apiFetch(`/items/${itemId}/identify`, {
     method: "POST",

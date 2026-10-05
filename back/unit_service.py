@@ -458,19 +458,136 @@ def move_stock_units(db: Session, source: models.Item, target: models.Item, quan
     return []
 
 
-def identify_current_stock(db: Session, item: models.Item, prefix: str):
-    if item.track_units:
-        raise ItemServiceError("Este artículo ya identifica cada pieza")
-    quantity = item.actualAmount or 0
-    item.track_units = True
-    normalized = normalize_prefix(prefix)
+def counting_mode(item: models.Item) -> str:
+    if not item.track_units:
+        return "quantity"
+    if item.inner_quantity:
+        return "inner"
+    return "units"
+
+
+def _units_of(db: Session, item: models.Item) -> list:
+    return (
+        db.query(models.ItemUnit)
+        .filter(models.ItemUnit.item_id == item.id)
+        .order_by(models.ItemUnit.id.asc())
+        .all()
+    )
+
+
+def _assert_all_home(db: Session, item: models.Item) -> list:
+    if (item.totalAmount or 0) != (item.actualAmount or 0):
+        raise ItemServiceError("Hay stock afuera. Devolvelo antes de cambiar cómo se cuenta")
+    units = _units_of(db, item)
+    for unit in units:
+        if unit.status != STATUS_EN_STOCK or unit_out_quantity(db, unit) > 0:
+            raise ItemServiceError(
+                "Hay piezas que no están en depósito. Devolvelas antes de cambiar cómo se cuenta"
+            )
+    return units
+
+
+def _drop_units(db: Session, units: list) -> None:
+    from item_images import stored_image_path
+
+    ids = [unit.id for unit in units]
+    if not ids:
+        return
+    (
+        db.query(models.HistoryUnit)
+        .filter(models.HistoryUnit.unit_id.in_(ids))
+        .delete(synchronize_session=False)
+    )
+    (
+        db.query(models.Observation)
+        .filter(models.Observation.unit_id.in_(ids))
+        .update({models.Observation.unit_id: None}, synchronize_session=False)
+    )
+    for unit in units:
+        if unit.image_filename:
+            path = stored_image_path(unit.image_filename)
+            try:
+                if path.is_file():
+                    path.unlink()
+            except OSError:
+                pass
+        db.delete(unit)
+    db.flush()
+
+
+def _assign_prefix(db: Session, item: models.Item, prefix: str) -> str:
+    normalized = normalize_prefix(prefix) if prefix else suggest_prefix(db, item.name)
     if prefix_conflicts(db, normalized, item.name):
         raise ItemServiceError(f"El prefijo {normalized} ya está usado")
     item.code_prefix = normalized
-    units = create_units_for_item(db, item, quantity, prefix=normalized) if quantity > 0 else []
+    return normalized
+
+
+def change_item_counting(db: Session, item: models.Item, mode: str, prefix: str = None):
+    try:
+        return _change_item_counting(db, item, mode, prefix)
+    except ItemServiceError:
+        db.rollback()
+        raise
+
+
+def _change_item_counting(db: Session, item: models.Item, mode: str, prefix: str = None):
+    if mode not in ("quantity", "units", "inner"):
+        raise ItemServiceError("El modo no es válido")
+    current = counting_mode(item)
+    if mode == current:
+        raise ItemServiceError("La subcategoría ya se cuenta así")
+    units = _assert_all_home(db, item)
+
+    if current == "quantity" and units:
+        raise ItemServiceError("Esta subcategoría ya tiene códigos")
+
+    created = []
+    if current == "quantity" and mode == "units":
+        normalized = _assign_prefix(db, item, prefix)
+        item.track_units = True
+        item.inner_quantity = False
+        quantity = item.actualAmount or 0
+        if quantity > 0:
+            created = create_units_for_item(db, item, quantity, prefix=normalized)
+    elif current == "quantity" and mode == "inner":
+        normalized = _assign_prefix(db, item, prefix)
+        item.track_units = True
+        item.inner_quantity = True
+        quantity = item.actualAmount or 0
+        if quantity > 0:
+            created = create_units_for_item(db, item, 1, prefix=normalized)
+            created[0].quantity = quantity
+            created[0].name = item.name
+    elif current == "units" and mode == "inner":
+        item.inner_quantity = True
+        created = units
+    elif current == "inner" and mode == "units":
+        if any(int(unit.quantity or 0) != 1 for unit in units):
+            raise ItemServiceError(
+                "Hay un código con más de 1 adentro. No se puede pasar a un código por pieza"
+            )
+        item.inner_quantity = False
+        created = units
+    elif mode == "quantity":
+        total = sum(int(unit.quantity or 0) for unit in units)
+        _drop_units(db, units)
+        item.track_units = False
+        item.inner_quantity = False
+        item.actualAmount = total
+        item.totalAmount = total
+    else:
+        raise ItemServiceError("No se puede cambiar a ese modo")
+
     db.commit()
     db.refresh(item)
-    return units
+    return created
+
+
+def identify_current_stock(db: Session, item: models.Item, prefix: str):
+    if item.track_units:
+        raise ItemServiceError("Este artículo ya identifica cada pieza")
+    return change_item_counting(db, item, "units", prefix)
 
 
 def find_unit_by_code(db: Session, code: str):

@@ -1,19 +1,22 @@
 import { useEffect, useState } from "react";
 import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
+import FeedbackModal from "./FeedbackModal";
 
-const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
+const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, onFinished, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
   const [pendingPlaces, setPendingPlaces] = useState([]);
   const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '', codesText: '' });
   const [loading, setLoading] = useState(false);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
     if (!isOpen || !itemId) return;
 
     setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '', codesText: '' });
     setError("");
+    setFeedback(null);
     setPendingPlaces([]);
 
     getItemById(itemId).then(res => setItem(res.item)).catch(console.error);
@@ -83,10 +86,11 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
         personWhoReturned: form.personWhoReturned.trim(),
         ...(codes.length ? { codes } : {}),
       });
+      onFinished?.({ type: "success", message: "Se devolvió al depósito." });
       onSuccess?.();
       onClose();
     } catch (error) {
-      setError(error.message || "Ocurrió un error");
+      setFeedback({ type: "error", message: error.message || "Ocurrió un error" });
     } finally {
       setLoading(false);
     }
@@ -219,6 +223,12 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
           </div>
         </div>
       </div>
+      <FeedbackModal
+        open={Boolean(feedback)}
+        type={feedback?.type}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
+      />
     </div>
   );
 };

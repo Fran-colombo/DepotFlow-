@@ -21,6 +21,7 @@ import PendingLocationsModal from "../components/PendingLocationsModal";
 import ItemHistorialModal from "../components/ItemHistorialModal";
 import ItemImageModal from "../components/ItemImageModal";
 import ItemDetailModal from "../components/ItemDetailModal";
+import FeedbackModal from "../components/FeedbackModal";
 
 const isConsumable = (item) => Boolean(item?.is_consumable);
 
@@ -53,6 +54,7 @@ const Items = () => {
   const [showItemHistorialModal, setShowItemHistorialModal] = useState(false);
   const [itemImageModal, setItemImageModal] = useState({ open: false, mode: "upload" });
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [feedback, setFeedback] = useState(null);
   const [codeHit, setCodeHit] = useState(null);
 
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -894,6 +896,9 @@ const Items = () => {
           isOpen={showDevolverModal}
           onClose={() => setShowDevolverModal(false)}
           onSuccess={refreshCurrentPage}
+          onFinished={(result) => {
+            if (result?.type === "success") setFeedback(result);
+          }}
         />
       )}
 
@@ -903,6 +908,9 @@ const Items = () => {
           isOpen={showTrasladoModal}
           onClose={() => setShowTrasladoModal(false)}
           onSuccess={refreshCurrentPage}
+          onFinished={(result) => {
+            if (result?.type === "success") setFeedback(result);
+          }}
         />
       )}
 
@@ -1003,6 +1011,13 @@ const Items = () => {
         item={selectedItem}
         onClose={() => setItemImageModal({ open: false, mode: "upload" })}
         onSuccess={refreshCurrentPage}
+      />
+
+      <FeedbackModal
+        open={Boolean(feedback)}
+        type={feedback?.type}
+        message={feedback?.message}
+        onClose={() => setFeedback(null)}
       />
     </Dashboard>
   );

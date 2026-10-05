@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { addPiece, createItem, updateItem, getItems, getItemById, getItemUnits, getNextCodes, suggestPrefix } from "../api/items";
+import { addPiece, createItem, updateItem, updateItemCounting, getItems, getItemById, getItemUnits, getNextCodes, suggestPrefix } from "../api/items";
 import { getCategories } from "../api/categories";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
@@ -46,6 +46,9 @@ const UpdateItemModal = ({
   const [pieceRepair, setPieceRepair] = useState("");
   const [pieceContent, setPieceContent] = useState("");
   const [addedCodes, setAddedCodes] = useState([]);
+  const [countingMode, setCountingMode] = useState("quantity");
+  const [countingPrefix, setCountingPrefix] = useState("");
+  const [countingNotice, setCountingNotice] = useState("");
   const [updateData, setUpdateData] = useState({
     item_id: "",
     quantity: 1,
@@ -202,6 +205,62 @@ const UpdateItemModal = ({
     : items.find((item) => item.id === updateData.item_id);
   const updateTracksUnits = Boolean(selectedUpdateItem?.track_units);
   const updateInner = Boolean(selectedUpdateItem?.inner_quantity);
+  const currentCounting = !updateTracksUnits ? "quantity" : updateInner ? "inner" : "units";
+
+  useEffect(() => {
+    if (!selectedUpdateItem) return;
+    setCountingMode(currentCounting);
+    setCountingPrefix(selectedUpdateItem.code_prefix || "");
+  }, [selectedUpdateItem, currentCounting]);
+
+  const pickCounting = (mode) => {
+    setCountingMode(mode);
+    setCountingNotice("");
+    if (currentCounting === "quantity" && mode !== "quantity" && !countingPrefix && selectedUpdateItem?.name) {
+      suggestPrefix(selectedUpdateItem.name)
+        .then((data) => setCountingPrefix(data.prefix || ""))
+        .catch(() => {});
+    }
+  };
+
+  const saveCounting = async () => {
+    if (!selectedUpdateItem?.id || countingMode === currentCounting) return;
+    setIsLoading(true);
+    setError("");
+    setCountingNotice("");
+    try {
+      const updated = await updateItemCounting(selectedUpdateItem.id, {
+        mode: countingMode,
+        prefix: countingPrefix.trim() || undefined,
+      });
+      const patch = (item) => (item && item.id === updated.id ? { ...item, ...updated } : item);
+      setItems((prev) => prev.map(patch));
+      setLockedItem((prev) => patch(prev));
+      setCountingNotice("Quedó actualizado cómo se cuenta.");
+      refreshItems?.();
+    } catch (err) {
+      setError(err.message || "No se pudo cambiar cómo se cuenta");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const depotNow = selectedUpdateItem?.actualAmount ?? 0;
+  const countingHelp = countingMode === currentCounting
+    ? "Así se cuenta ahora."
+    : currentCounting === "quantity" && countingMode === "units"
+      ? (depotNow > 0
+        ? `Los ${depotNow} en depósito pasan a ser ${depotNow} códigos de a 1.`
+        : "Queda lista para cargar códigos. Ahora no hay stock en depósito.")
+      : currentCounting === "quantity" && countingMode === "inner"
+        ? (depotNow > 0
+          ? `Los ${depotNow} en depósito quedan en un solo código.`
+          : "Queda lista para cargar un código con cantidad adentro.")
+        : currentCounting === "units" && countingMode === "inner"
+          ? "Cada código sigue en 1. Después se carga cuántos hay adentro."
+          : currentCounting === "inner" && countingMode === "units"
+            ? "Pasa a un código por pieza solo si cada código tiene 1."
+            : "El stock pasa a ser la suma de lo que hay en depósito y se borran los códigos. El historial queda en la subcategoría.";
 
   useEffect(() => {
     if (!isOpen || mode !== "create" || formData.quantityOnly || prefixTouched || createStep !== "form") {
@@ -1019,6 +1078,54 @@ const UpdateItemModal = ({
                         </select>
                       </div>
                     </>
+                  )}
+
+                  {isAdmin && selectedUpdateItem && (
+                    <div className="mb-3 border rounded p-3">
+                      <div className="form-label fw-bold">Cómo se cuenta</div>
+                      {[
+                        ["quantity", "Solo cantidad"],
+                        ["units", "Un código por pieza"],
+                        ["inner", "Cantidad dentro del código"],
+                      ].map(([value, label]) => (
+                        <div className="form-check" key={value}>
+                          <input
+                            id={`counting-${value}`}
+                            type="radio"
+                            className="form-check-input"
+                            name="counting-mode"
+                            checked={countingMode === value}
+                            onChange={() => pickCounting(value)}
+                          />
+                          <label className="form-check-label" htmlFor={`counting-${value}`}>{label}</label>
+                        </div>
+                      ))}
+                      {currentCounting === "quantity" && countingMode !== "quantity" && (
+                        <div className="mt-2">
+                          <label className="form-label" htmlFor="counting-prefix">Prefijo</label>
+                          <input
+                            id="counting-prefix"
+                            className="form-control"
+                            style={{ maxWidth: 140 }}
+                            maxLength={4}
+                            value={countingPrefix}
+                            onChange={(e) => setCountingPrefix(e.target.value.toUpperCase())}
+                          />
+                        </div>
+                      )}
+                      <div className="form-text mt-2">{countingHelp}</div>
+                      {countingNotice && (
+                        <div className="alert alert-success py-2 mt-2 mb-0">{countingNotice}</div>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm mt-2"
+                        disabled={isLoading || countingMode === currentCounting}
+                        onClick={saveCounting}
+                      >
+                        Guardar forma de contar
+                      </button>
+                    </div>
                   )}
 
                   {updateInner ? (

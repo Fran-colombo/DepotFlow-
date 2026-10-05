@@ -8,13 +8,13 @@ import {
   addPiece,
   getNextCodes,
   getUnitObservations,
-  identifyItem,
   retirarItem,
   updateItem,
   updateUnitProfile,
   uploadUnitImage,
 } from "../api/items";
 import { getObras } from "../api/obras";
+import FeedbackModal from "./FeedbackModal";
 import ObraPicker from "./ObraPicker";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
@@ -25,14 +25,6 @@ const ACTION_LABEL = {
   carga: "Carga",
   traslado: "Traslado",
 };
-
-function defaultPrefix(name) {
-  const clean = (name || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^A-Za-z0-9]/g, "");
-  return (clean[0] || "K").toUpperCase();
-}
 
 function lastRetiroPlace(unit) {
   const rows = [...(unit.history || [])].reverse();
@@ -349,7 +341,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [consumable, setConsumable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [prefix, setPrefix] = useState("K");
   const [historyUnit, setHistoryUnit] = useState(null);
   const [actionUnit, setActionUnit] = useState(null);
   const [popupPlace, setPopupPlace] = useState("");
@@ -362,6 +353,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [qtyError, setQtyError] = useState("");
   const [obras, setObras] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState(null);
   const [freshCodes, setFreshCodes] = useState([]);
   const [pieceCode, setPieceCode] = useState("");
   const [pieceName, setPieceName] = useState("");
@@ -403,7 +395,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setPieceInside("");
     setAddingMore(false);
     setOfferAnother(false);
-    setPrefix(defaultPrefix(item.name));
     setTrackUnits(Boolean(item.track_units));
     setConsumable(Boolean(item.is_consumable));
     setInnerQuantity(Boolean(item.inner_quantity));
@@ -520,27 +511,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setActionUnit({ unit, kind: "return" });
   };
 
-  const handleIdentify = async () => {
-    const clean = prefix.trim().toUpperCase();
-    if (!/^[A-Z][A-Z0-9]{0,3}$/.test(clean)) {
-      setError("El prefijo es una letra, por ejemplo H");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const result = await identifyItem(item.id, clean);
-      setFreshCodes(result.codes || []);
-      setTrackUnits(true);
-      await reload();
-      onChanged?.();
-    } catch (err) {
-      setError(err.message || "No se pudo identificar el stock");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleRetiro = async () => {
     const unit = actionUnit?.unit;
     if (!unit) return;
@@ -611,10 +581,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
         codes: [unit.code],
       });
       setActionUnit(null);
+      setFeedback({ type: "success", message: "Se devolvió al depósito." });
       await reload();
       onChanged?.();
     } catch (err) {
-      setPopupError(err.message || "No se pudo devolver");
+      setFeedback({ type: "error", message: err.message || "No se pudo devolver" });
     } finally {
       setBusy(false);
     }
@@ -703,34 +674,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                   <strong>{item.actualAmount ?? 0} en depósito.</strong> Este grupo se lleva por cantidad.
                   El retiro sigue siendo un número, no una pieza.
                 </p>
-                {(item.actualAmount ?? 0) > 0 && (
-                  <div className="border rounded p-3">
-                    <label className="form-label" htmlFor="unit-prefix">
-                      Prefijo para identificar el stock actual
-                    </label>
-                    <div className="d-flex gap-2">
-                      <input
-                        id="unit-prefix"
-                        className="form-control"
-                        style={{ maxWidth: 120 }}
-                        value={prefix}
-                        maxLength={4}
-                        onChange={(e) => setPrefix(e.target.value.toUpperCase())}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        disabled={busy}
-                        onClick={handleIdentify}
-                      >
-                        Identificar
-                      </button>
-                    </div>
-                    <div className="form-text">
-                      Hormigonera con H genera H-001, H-002, H-003. Después se pueden imprimir las etiquetas.
-                    </div>
-                  </div>
-                )}
+                <p className="text-secondary small mb-0">
+                  Para pasarlo a códigos, un administrador lo cambia en Actualizar stock.
+                </p>
               </div>
             ) : (
               <>
@@ -1172,6 +1118,12 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
         </div>
       </div>
     )}
+    <FeedbackModal
+      open={Boolean(feedback)}
+      type={feedback?.type}
+      message={feedback?.message}
+      onClose={() => setFeedback(null)}
+    />
     </>
   );
 };
