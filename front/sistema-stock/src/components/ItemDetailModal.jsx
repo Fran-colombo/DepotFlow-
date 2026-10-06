@@ -56,6 +56,7 @@ const PieceCard = ({
   const [draftDamage, setDraftDamage] = useState(unit.damage_note || "");
   const [draftRepair, setDraftRepair] = useState(unit.repair_note || "");
   const [savingProfile, setSavingProfile] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,12 +170,19 @@ const PieceCard = ({
         )}
         <div style={{ width: 72, flexShrink: 0 }}>
           {imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={unit.code}
-              className="rounded border"
-              style={{ width: 72, height: 72, objectFit: "cover" }}
-            />
+            <button
+              type="button"
+              className="btn p-0 border-0"
+              title="Agrandar foto"
+              onClick={() => setPhotoOpen(true)}
+            >
+              <img
+                src={imageUrl}
+                alt={unit.code}
+                className="rounded border"
+                style={{ width: 72, height: 72, objectFit: "cover", cursor: "zoom-in" }}
+              />
+            </button>
           ) : (
             <div
               className="rounded border d-flex align-items-center justify-content-center text-secondary"
@@ -334,6 +342,32 @@ const PieceCard = ({
           {localError && <div className="text-danger small mt-1">{localError}</div>}
         </div>
       </div>
+      {photoOpen && imageUrl && (
+        <div
+          className="modal show d-block"
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.72)", zIndex: 1080 }}
+          onClick={() => setPhotoOpen(false)}
+        >
+          <div className="modal-dialog modal-dialog-centered modal-lg" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content bg-transparent border-0 shadow-none">
+              <div className="d-flex justify-content-end mb-2">
+                <button
+                  type="button"
+                  className="btn-close btn-close-white"
+                  aria-label="Cerrar"
+                  onClick={() => setPhotoOpen(false)}
+                />
+              </div>
+              <img
+                src={imageUrl}
+                alt={unit.code}
+                className="img-fluid rounded bg-white"
+                style={{ maxHeight: "80vh", width: "100%", objectFit: "contain" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

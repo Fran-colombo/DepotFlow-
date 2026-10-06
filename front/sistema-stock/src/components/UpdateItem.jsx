@@ -1003,9 +1003,9 @@ const UpdateItemModal = ({
                       <input
                         id="subcategory-prefix"
                         className="form-control"
-                        style={{ maxWidth: 140 }}
+                        style={{ maxWidth: 180 }}
                         value={prefix}
-                        maxLength={4}
+                        maxLength={12}
                         onChange={(e) => {
                           setPrefixTouched(true);
                           setPrefix(e.target.value.toUpperCase());
@@ -1013,7 +1013,9 @@ const UpdateItemModal = ({
                         required
                       />
                       <div className="form-text">
-                        {prefix ? `La primera pieza va a ser ${prefix}-001.` : "Letra inicial, y más letras si ya está usado."}
+                        {prefix
+                          ? `La primera pieza va a ser ${prefix}-${String(new Date().getFullYear()).slice(-2)}-001.`
+                          : "Letras y guiones, por ejemplo AM-C."}
                       </div>
                     </div>
                   )}
@@ -1106,8 +1108,8 @@ const UpdateItemModal = ({
                           <input
                             id="counting-prefix"
                             className="form-control"
-                            style={{ maxWidth: 140 }}
-                            maxLength={4}
+                            style={{ maxWidth: 180 }}
+                            maxLength={12}
                             value={countingPrefix}
                             onChange={(e) => setCountingPrefix(e.target.value.toUpperCase())}
                           />

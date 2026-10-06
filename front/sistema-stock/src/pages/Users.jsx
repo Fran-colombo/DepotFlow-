@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram, createUserTelegramLink, promoteToSysadmin } from "../api/auth";
-import useAuth from "../hooks/useAuth";
+import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram, createUserTelegramLink } from "../api/auth";
 import Dashboard from "./Dashboard";
 
 const roleLabel = (value) => {
@@ -19,8 +18,6 @@ const roleBadge = (value) => {
 const canDeactivate = (value) => value !== "admin" && value !== "sysadmin";
 
 const UsersPage = () => {
-  const { userId, role: myRole } = useAuth();
-  const [promoting, setPromoting] = useState(false);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -67,29 +64,6 @@ const UsersPage = () => {
   });
 
   const navigate = useNavigate();
-
-  const canPromote = (user) => myRole === "admin" && Number(user.id) === Number(userId);
-
-  const handlePromote = async (user) => {
-    setPromoting(true);
-    try {
-      const data = await promoteToSysadmin(user.id);
-      setFeedbackModal({
-        open: true,
-        type: "success",
-        message: data.message || "Quedaste como sysadmin. Cerrá sesión y volvé a entrar.",
-      });
-      fetchUsers();
-    } catch (err) {
-      setFeedbackModal({
-        open: true,
-        type: "error",
-        message: err.message || "No se pudo cambiar el rol",
-      });
-    } finally {
-      setPromoting(false);
-    }
-  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -428,16 +402,6 @@ const UsersPage = () => {
                     >
                       Desactivar
                     </button>
-                    {canPromote(user) && (
-                      <button
-                        type="button"
-                        onClick={() => handlePromote(user)}
-                        className="btn btn-sm btn-dark"
-                        disabled={promoting}
-                      >
-                        Pasar a sysadmin
-                      </button>
-                    )}
                   </div>
                 </div>
               ))}
@@ -513,16 +477,6 @@ const UsersPage = () => {
                           >
                             Desactivar
                           </button>
-                          {canPromote(user) && (
-                            <button
-                              type="button"
-                              onClick={() => handlePromote(user)}
-                              className="btn btn-sm btn-dark"
-                              disabled={promoting}
-                            >
-                              Pasar a sysadmin
-                            </button>
-                          )}
                         </div>
                       </td>
                     </tr>

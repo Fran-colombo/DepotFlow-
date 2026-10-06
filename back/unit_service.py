@@ -2,6 +2,7 @@ import re
 import unicodedata
 from datetime import datetime
 
+import pytz
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -9,7 +10,8 @@ import models
 from item_service import ItemServiceError
 
 CODE_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9\-]{0,39}$")
-PREFIX_PATTERN = re.compile(r"^[A-Z][A-Z0-9]{0,3}$")
+PREFIX_PATTERN = re.compile(r"^[A-Z](?:[A-Z0-9]|-(?=[A-Z0-9])){0,11}$")
+TIMEZONE = pytz.timezone("America/Argentina/Buenos_Aires")
 
 STATUS_EN_STOCK = "en_stock"
 STATUS_RETIRADA = "retirada"
@@ -30,10 +32,15 @@ def _existing_codes(db: Session) -> set:
 
 
 def normalize_prefix(raw: str) -> str:
-    prefix = re.sub(r"[^A-Z0-9]", "", (raw or "").strip().upper())
+    prefix = re.sub(r"\s+", "", (raw or "").strip().upper())
+    prefix = re.sub(r"-{2,}", "-", prefix).strip("-")
     if not prefix or not PREFIX_PATTERN.fullmatch(prefix):
-        raise ItemServiceError("El prefijo es una letra, por ejemplo H")
+        raise ItemServiceError("El prefijo puede tener letras, números y guiones, por ejemplo AM-C")
     return prefix
+
+
+def _code_year() -> str:
+    return datetime.now(TIMEZONE).strftime("%y")
 
 
 def _folded_words(name: str) -> list:
@@ -85,7 +92,7 @@ def prefix_conflicts(db: Session, prefix: str, name: str) -> bool:
     for item in stored:
         if normalize_item_name(item.name).lower() != wanted:
             return True
-    pattern = re.compile(rf"^{re.escape(prefix)}-\d+$")
+    pattern = re.compile(rf"^{re.escape(prefix)}-(?:\d{{2}}-)?\d+$")
     rows = (
         db.query(models.ItemUnit.code, models.Item.name)
         .join(models.Item, models.Item.id == models.ItemUnit.item_id)
@@ -115,9 +122,13 @@ def infer_prefix(db: Session, item: models.Item) -> str:
         .first()
     )
     if unit and unit.code:
-        match = re.match(r"^([A-Z][A-Z0-9]{0,3})-\d+$", unit.code)
-        if match:
-            return match.group(1)
+        coded = unit.code or ""
+        current = re.fullmatch(r"^(.+)-(\d{2})-(\d+)$", coded)
+        if current and PREFIX_PATTERN.fullmatch(current.group(1) or ""):
+            return current.group(1)
+        legacy = re.fullmatch(r"^([A-Z](?:[A-Z0-9]|-(?=[A-Z0-9]))*)-(\d+)$", coded)
+        if legacy and PREFIX_PATTERN.fullmatch(legacy.group(1) or ""):
+            return legacy.group(1)
     return "K"
 
 
@@ -125,7 +136,8 @@ def peek_codes(db: Session, count: int, prefix: str = "K") -> list:
     if count <= 0:
         return []
     prefix = normalize_prefix(prefix)
-    pattern = re.compile(rf"^{re.escape(prefix)}-(\d+)$")
+    year = _code_year()
+    pattern = re.compile(rf"^{re.escape(prefix)}-{year}-(\d+)$")
     existing = _existing_codes(db)
     serial = 0
     for code in existing:
@@ -135,7 +147,7 @@ def peek_codes(db: Session, count: int, prefix: str = "K") -> list:
     codes = []
     while len(codes) < count:
         serial += 1
-        candidate = f"{prefix}-{serial:03d}"
+        candidate = f"{prefix}-{year}-{serial:03d}"
         if candidate not in existing:
             codes.append(candidate)
             existing.add(candidate)
