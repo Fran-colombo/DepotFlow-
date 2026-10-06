@@ -384,9 +384,17 @@ def take_units_out(db: Session, item: models.Item, quantity: int, codes, consume
     return units
 
 
-def link_history_units(db: Session, history_id: int, units) -> None:
+def link_history_units(db: Session, history_id: int, units, amounts=None) -> None:
+    amounts = amounts or {}
     for unit in units or []:
-        db.add(models.HistoryUnit(history_id=history_id, unit_id=unit.id))
+        raw = amounts.get(unit.id)
+        db.add(
+            models.HistoryUnit(
+                history_id=history_id,
+                unit_id=unit.id,
+                amount=int(raw) if raw is not None else None,
+            )
+        )
 
 
 def units_for_pending_place(db: Session, item: models.Item, place: str, amount: int):
@@ -620,6 +628,78 @@ def find_unit_by_code(db: Session, code: str):
     return db.query(models.ItemUnit).filter(models.ItemUnit.code == normalized).first()
 
 
+def _clock(value):
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def return_shares(db: Session, history: models.History) -> dict:
+    """Cantidad de una devolución que corresponde a cada código.
+
+    Si la devolución juntó varios juegos, cada vínculo guarda su parte.
+    En las que se guardaron antes, se reconstruye con los retiros que
+    esa devolución cerró.
+    """
+    links = (
+        db.query(models.HistoryUnit)
+        .filter(models.HistoryUnit.history_id == history.id)
+        .all()
+    )
+    if len(links) <= 1:
+        return {}
+    if any(link.amount is not None for link in links):
+        return {link.unit_id: int(link.amount) for link in links if link.amount is not None}
+
+    if history.action != models.ActionEnum.devolucion:
+        return {}
+
+    moment = _clock(history.date)
+    shares = {}
+    for link in links:
+        retiros = (
+            db.query(models.History)
+            .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+            .filter(
+                models.HistoryUnit.unit_id == link.unit_id,
+                models.History.action == models.ActionEnum.retiro,
+                models.History.place == history.place,
+                models.History.turnback == True,
+            )
+            .all()
+        )
+        closed_now = []
+        if moment is not None:
+            for retiro in retiros:
+                closed = _clock(retiro.turnbackDate)
+                if closed is None:
+                    continue
+                if abs((closed - moment).total_seconds()) <= 15:
+                    closed_now.append(retiro)
+        chosen = closed_now
+        if not chosen and len(retiros) == 1:
+            chosen = retiros
+        if not chosen:
+            return {}
+        shares[link.unit_id] = sum(int(retiro.amountRetired or 0) for retiro in chosen)
+
+    if sum(shares.values()) != int(history.amountRetired or 0):
+        return {}
+    return shares
+
+
+def piece_amount(db: Session, history: models.History, link: models.HistoryUnit, shares=None):
+    if link.amount is not None:
+        return int(link.amount)
+    if shares is None:
+        shares = return_shares(db, history)
+    if link.unit_id in shares:
+        return shares[link.unit_id]
+    return history.amountRetired
+
+
 def unit_history(db: Session, unit: models.ItemUnit) -> list:
     links = (
         db.query(models.HistoryUnit)
@@ -638,7 +718,7 @@ def unit_history(db: Session, unit: models.ItemUnit) -> list:
                 "place": history.place,
                 "person": history.personWhoTook,
                 "date": history.date.isoformat() if history.date else None,
-                "amount": history.amountRetired,
+                "amount": piece_amount(db, history, link),
             }
         )
     return rows

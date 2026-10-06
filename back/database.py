@@ -200,6 +200,7 @@ def ensure_inventory_schema():
                 id INTEGER NOT NULL PRIMARY KEY,
                 history_id INTEGER NOT NULL,
                 unit_id INTEGER NOT NULL,
+                amount INTEGER,
                 FOREIGN KEY(history_id) REFERENCES historal (id),
                 FOREIGN KEY(unit_id) REFERENCES item_units (id)
             )
@@ -210,6 +211,10 @@ def ensure_inventory_schema():
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_history_units_unit_id ON history_units (unit_id)"
         ))
+
+    if _column_exists("history_units", "id") and not _column_exists("history_units", "amount"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE history_units ADD COLUMN amount INTEGER"))
 
     if _column_exists("obras", "id") and not _column_exists("obras", "stage"):
         with engine.begin() as conn:

@@ -29,12 +29,78 @@ from unit_service import (
     apply_inner_return,
     find_unit_by_code,
     link_history_units,
+    piece_amount,
     restore_units,
+    return_shares,
     take_inner_quantity,
     take_units_out,
     units_for_pending_place,
 )
 
+
+
+def _piece_label(code, name):
+    if name:
+        return f"{code} · {name}"
+    return code or ""
+
+
+def split_grouped_returns(db):
+    """Una devolución que juntó varios juegos pasa a un movimiento por juego."""
+    grouped_ids = [
+        history_id
+        for (history_id,) in (
+            db.query(models.HistoryUnit.history_id)
+            .join(models.History, models.History.id == models.HistoryUnit.history_id)
+            .filter(models.History.action == models.ActionEnum.devolucion)
+            .group_by(models.HistoryUnit.history_id)
+            .having(func.count(models.HistoryUnit.id) > 1)
+            .all()
+        )
+    ]
+    changed = False
+    for history_id in grouped_ids:
+        history = db.query(models.History).filter(models.History.id == history_id).first()
+        if not history:
+            continue
+        links = (
+            db.query(models.HistoryUnit)
+            .filter(models.HistoryUnit.history_id == history.id)
+            .order_by(models.HistoryUnit.id.asc())
+            .all()
+        )
+        shares = return_shares(db, history)
+        if len(shares) != len(links):
+            continue
+        if sum(int(amount) for amount in shares.values()) != int(history.amountRetired or 0):
+            continue
+        keep = links[0]
+        history.amountRetired = int(shares[keep.unit_id])
+        keep.amount = int(shares[keep.unit_id])
+        for link in links[1:]:
+            share = int(shares[link.unit_id])
+            clone = models.History(
+                itemId=history.itemId,
+                userId=history.userId,
+                userName=history.userName,
+                personWhoTook=history.personWhoTook,
+                action=history.action,
+                amountRetired=share,
+                amountNotReturned=history.amountNotReturned,
+                date=history.date,
+                place=history.place,
+                turnback=history.turnback,
+                turnbackDate=history.turnbackDate,
+                lastNotification=history.lastNotification,
+                hideFromHistorial=history.hideFromHistorial,
+            )
+            db.add(clone)
+            db.flush()
+            db.add(models.HistoryUnit(history_id=clone.id, unit_id=link.unit_id, amount=share))
+            db.delete(link)
+        changed = True
+    if changed:
+        db.commit()
 
 
 router = APIRouter(
@@ -79,6 +145,7 @@ def read_history(
     page_size: int = Query(DEFAULT_PAGE_SIZE, le=MAX_PAGE_SIZE)
 ):
     try:
+        split_grouped_returns(db)
         original_name = case(
             (models.Item.name.like("%__DELETED_%"), 
              func.substr(models.Item.name, 1, func.instr(models.Item.name, "__DELETED_") - 1)),
@@ -102,10 +169,23 @@ def read_history(
         )
 
         if item_name:
+            piece_match = (
+                db.query(models.HistoryUnit.id)
+                .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
+                .filter(
+                    models.HistoryUnit.history_id == models.History.id,
+                    or_(
+                        models.ItemUnit.name.ilike(f"%{item_name}%"),
+                        models.ItemUnit.code.ilike(f"%{item_name}%"),
+                    ),
+                )
+                .exists()
+            )
             query = query.filter(
                 or_(
                     models.Item.name.ilike(f"%{item_name}%"),
-                    original_name.ilike(f"%{item_name}%")
+                    original_name.ilike(f"%{item_name}%"),
+                    piece_match,
                 )
             )
         if item_id is not None:
@@ -142,43 +222,81 @@ def read_history(
                       .all()
 
         history_ids = [history.id for history, *_rest in records]
+        history_by_id = {history.id: history for history, *_rest in records}
         pieces_by_history = {}
         if history_ids:
             links = (
-                db.query(models.HistoryUnit.history_id, models.ItemUnit.code, models.ItemUnit.name)
+                db.query(models.HistoryUnit, models.ItemUnit.code, models.ItemUnit.name)
                 .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
                 .filter(models.HistoryUnit.history_id.in_(history_ids))
                 .order_by(models.ItemUnit.code.asc())
                 .all()
             )
-            for history_id, code, piece_name in links:
-                pieces_by_history.setdefault(history_id, []).append(
-                    {"code": code, "name": piece_name}
+            shares_by_history = {}
+            for link, code, piece_name in links:
+                history = history_by_id.get(link.history_id)
+                if history is None:
+                    continue
+                if link.history_id not in shares_by_history:
+                    shares_by_history[link.history_id] = return_shares(db, history)
+                pieces_by_history.setdefault(link.history_id, []).append(
+                    {
+                        "code": code,
+                        "name": piece_name,
+                        "amount": piece_amount(
+                            db,
+                            history,
+                            link,
+                            shares_by_history[link.history_id],
+                        ),
+                    }
+                )
+
+        data = []
+        for history, item_name_db, category, shed_id, shed_name in records:
+            pieces = pieces_by_history.get(history.id) or []
+            amounts = [piece.get("amount") for piece in pieces]
+            total = int(history.amountRetired or 0)
+            real_split = (
+                len(pieces) > 1
+                and all(amount is not None for amount in amounts)
+                and sum(int(amount) for amount in amounts) == total
+                and any(int(amount) != total for amount in amounts)
+            )
+            shown = pieces if (len(pieces) == 1 or real_split) else [None]
+            for piece in shown:
+                label = item_name_db
+                amount = history.amountRetired
+                row_pieces = pieces
+                if piece is not None:
+                    label = _piece_label(piece["code"], piece["name"])
+                    if piece.get("amount") is not None:
+                        amount = piece["amount"]
+                    row_pieces = [piece]
+                data.append(
+                    HistoryResponseWithDetailsDTO(
+                        id=history.id,
+                        itemId=history.itemId,
+                        itemName=label,
+                        userId=history.userId,
+                        userName=history.userName,
+                        personWhoTook=history.personWhoTook or history.userName,
+                        action=history.action,
+                        amountRetired=amount,
+                        amountNotReturned=history.amountNotReturned,
+                        date=history.date,
+                        place=history.place,
+                        turnback=history.turnback,
+                        turnbackDate=history.turnbackDate,
+                        itemCategory=category,
+                        shedId=shed_id,
+                        shed_name=shed_name,
+                        pieces=row_pieces,
+                    )
                 )
 
         return {
-            "data": [
-                HistoryResponseWithDetailsDTO(
-                    id=history.id,
-                    itemId=history.itemId,
-                    itemName=item_name_db,
-                    userId=history.userId,
-                    userName=history.userName,
-                    personWhoTook=history.personWhoTook or history.userName,
-                    action=history.action,
-                    amountRetired=history.amountRetired,
-                    amountNotReturned=history.amountNotReturned,
-                    date=history.date,
-                    place=history.place,
-                    turnback=history.turnback,
-                    turnbackDate=history.turnbackDate,
-                    itemCategory=category,
-                    shedId=shed_id,
-                    shed_name=shed_name,
-                    pieces=pieces_by_history.get(history.id) or [],
-                )
-                for history, item_name_db, category, shed_id, shed_name in records
-            ],
+            "data": data,
             "pagination": {
                 "total_records": total_records,
                 "total_pages": total_pages,
@@ -450,6 +568,7 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
         raise HTTPException(404, "Item not found")
 
     units = []
+    return_amounts = None
     if item.inner_quantity:
         chosen = [code for code in (dto.codes or []) if code and str(code).strip()]
         if len(chosen) > 1:
@@ -505,6 +624,7 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
         except ItemServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
         item.actualAmount = (item.actualAmount or 0) + dto.amount
+        return_amounts = taken_by_unit
     elif item.track_units and dto.codes:
         try:
             units = restore_units(db, item, dto.amount, dto.codes, dto.place)
@@ -589,28 +709,41 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
 
     quien_devuelve = dto.personWhoReturned.strip() if dto.personWhoReturned and dto.personWhoReturned.strip() else user_name
 
-    
-    history = models.History(
-        itemId=dto.itemId,
-        userId=user_id,
-        userName=user_name,
-        action=models.ActionEnum.devolucion,
-        amountRetired=dto.amount,
-        date=now(),
-        turnback=True,
-        turnbackDate=now(),
-        place=dto.place,
-        personWhoTook=quien_devuelve,
-        lastNotification=None
-    )
+    shares = []
+    if return_amounts and len(return_amounts) > 1:
+        for unit in units:
+            shares.append((unit, int(return_amounts[unit.id])))
+    else:
+        shares.append((None, dto.amount))
 
-    db.add(history)
-    db.flush()
-    link_history_units(db, history.id, units)
+    moment = now()
+    created = None
+    for unit, share in shares:
+        history = models.History(
+            itemId=dto.itemId,
+            userId=user_id,
+            userName=user_name,
+            action=models.ActionEnum.devolucion,
+            amountRetired=share,
+            date=moment,
+            turnback=True,
+            turnbackDate=moment,
+            place=dto.place,
+            personWhoTook=quien_devuelve,
+            lastNotification=None
+        )
+        db.add(history)
+        db.flush()
+        if unit is not None:
+            link_history_units(db, history.id, [unit], {unit.id: share})
+        else:
+            link_history_units(db, history.id, units, return_amounts)
+        created = history
+
     db.commit()
-    db.refresh(history)
-    
-    return _history_with_codes(history, units)
+    db.refresh(created)
+
+    return _history_with_codes(created, units)
 
 
 @router.post("/trasladar")
@@ -734,6 +867,7 @@ def generate_remito(
     history_ids: list[int],
     db: db_dependency
 ):
+    split_grouped_returns(db)
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -788,10 +922,25 @@ def generate_remito(
         )
         if record:
             history, item_name, shed_name = record
+            link = (
+                db.query(models.HistoryUnit, models.ItemUnit)
+                .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
+                .filter(models.HistoryUnit.history_id == history.id)
+                .all()
+            )
+            if len(link) == 1:
+                history_link, unit = link[0]
+                item_name = _piece_label(unit.code, unit.name)
+                if history_link.amount is not None:
+                    amount = history_link.amount
+                else:
+                    amount = piece_amount(db, history, history_link)
+            else:
+                amount = history.amountRetired
             histories.append({
                 "itemName": item_name,
                 "personWhoTook": history.personWhoTook,
-                "amountRetired": history.amountRetired,
+                "amountRetired": amount,
                 "place": history.place,
                 "shedName": shed_name,
                 "date": history.date,

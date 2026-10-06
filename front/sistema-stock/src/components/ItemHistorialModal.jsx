@@ -106,7 +106,7 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
                   <tbody>
                     {records.length > 0 ? (
                       records.map((row) => (
-                        <tr key={row.id}>
+                        <tr key={`${row.id}-${row.itemName}`}>
                           <td>{formatDate(row.date)}</td>
                           <td className="text-center">
                             <span className={`badge ${actionBadgeClass(row.action)}`}>
@@ -115,11 +115,17 @@ const ItemHistorialModal = ({ itemId, isOpen, onClose }) => {
                           </td>
                           <td>
                             {row.pieces?.length ? (
-                              row.pieces.map((piece) => (
-                                <div key={piece.code}>
-                                  {piece.name ? `${piece.code} · ${piece.name}` : piece.code}
-                                </div>
-                              ))
+                              row.pieces.map((piece) => {
+                                const label = piece.name ? `${piece.code} · ${piece.name}` : piece.code;
+                                const split = row.pieces.length > 1
+                                  && piece.amount != null
+                                  && Number(piece.amount) !== Number(row.amountRetired);
+                                return (
+                                  <div key={piece.code}>
+                                    {split ? `${label} · ${piece.amount}` : label}
+                                  </div>
+                                );
+                              })
                             ) : (
                               "—"
                             )}

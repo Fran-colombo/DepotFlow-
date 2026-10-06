@@ -370,8 +370,8 @@ const Items = () => {
         </div>
       </div>
 
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div className="d-flex align-items-center gap-3">
+      <div className="d-flex flex-column flex-md-row justify-content-md-between align-items-stretch align-items-md-center gap-2 mb-3">
+        <div className="d-flex align-items-center justify-content-between gap-3">
           <p className="app-muted mb-0">
             {pagination.totalRecords} producto{pagination.totalRecords === 1 ? "" : "s"}
           </p>
@@ -384,7 +384,7 @@ const Items = () => {
             {isSelectingFiltered ? "Seleccionando..." : "Seleccionar filtrados"}
           </button>
         </div>
-        <div className="d-flex gap-2">
+        <div className="d-flex flex-wrap gap-2">
           <button
             onClick={() => setShowBulkImportModal(true)}
             className="btn btn-outline-primary btn-sm"
@@ -475,7 +475,154 @@ const Items = () => {
         </div>
       ) : (
         <>
-          <div className={`table-responsive${openMenuId != null ? " table-menu-open" : ""}`}>
+          <div className="d-md-none d-flex flex-column gap-3">
+            {filteredItems.length > 0 ? (
+              filteredItems.map((item) => {
+                const isOutOfStock = item.actualAmount === 0;
+                const cantEliminate = item.actualAmount != item.totalAmount;
+                const canReturn = item.actualAmount !== item.totalAmount;
+                const moreOpen = openMenuId === item.id;
+                return (
+                  <div key={item.id} className={`border rounded-3 p-3 ${selectedById[item.id] ? "border-primary" : ""}`}>
+                    <div className="d-flex align-items-start gap-2 mb-2">
+                      <input
+                        type="checkbox"
+                        className="form-check-input mt-1"
+                        checked={Boolean(selectedById[item.id])}
+                        onChange={() => toggleItemSelection(item)}
+                        disabled={isOutOfStock}
+                        aria-label={`Seleccionar ${item.name}`}
+                      />
+                      {item.has_image ? (
+                        <img
+                          src={getItemImageUrl(item)}
+                          alt={item.name}
+                          className="item-thumb"
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setItemImageModal({ open: true, mode: "view" });
+                          }}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="item-thumb-placeholder"
+                          onClick={() => {
+                            setSelectedItem(item);
+                            setItemImageModal({ open: true, mode: "upload" });
+                          }}
+                        >
+                          <i className="bi bi-camera"></i>
+                        </button>
+                      )}
+                      <div className="min-w-0">
+                        <div className="fw-semibold text-dark">{item.name}</div>
+                        {item.description && (
+                          <div className="app-muted text-truncate">{item.description}</div>
+                        )}
+                        <span className={`badge mt-1 ${isConsumable(item) ? "bg-warning text-dark" : "bg-secondary"}`}>
+                          {isConsumable(item) ? "Insumo" : "Herramienta"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="small text-secondary mb-1">{getLocationLabel(item)}</div>
+                    <div className={`fw-semibold mb-2 ${isOutOfStock ? "text-danger" : "text-dark"}`}>
+                      {item.actualAmount} en depósito
+                      {item.totalAmount !== item.actualAmount ? ` · ${item.totalAmount} en total` : ""}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-link btn-sm p-0 mb-2"
+                      onClick={() => {
+                        setSelectedItem(item);
+                        setShowDetailModal(true);
+                      }}
+                    >
+                      Ver en detalle
+                    </button>
+                    <div className="d-flex gap-2 mb-2">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-danger flex-fill"
+                        disabled={isOutOfStock || isLoading}
+                        onClick={() => handleShowRetirarModal(item)}
+                      >
+                        Retirar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-success flex-fill"
+                        disabled={!canReturn || isLoading}
+                        onClick={() => handleShowDevolverModal(item)}
+                      >
+                        Devolver
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-light border w-100"
+                      disabled={isLoading}
+                      onClick={() => setOpenMenuId((prev) => (prev === item.id ? null : item.id))}
+                    >
+                      {moreOpen ? "Cerrar" : "Más"}
+                    </button>
+                    {moreOpen && (
+                      <div className="d-grid gap-1 mt-2">
+                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => { setOpenMenuId(null); setSelectedItem(item); setItemImageModal({ open: true, mode: "upload" }); }}>
+                          {item.has_image ? "Actualizar imagen" : "Cargar imagen"}
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" disabled={!item.has_image} onClick={() => { setOpenMenuId(null); setSelectedItem(item); setItemImageModal({ open: true, mode: "view" }); }}>
+                          Ver imagen
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-danger" disabled={!item.has_image} onClick={async () => {
+                          setOpenMenuId(null);
+                          if (!window.confirm(`¿Eliminar la imagen de "${item.name}"?`)) return;
+                          try {
+                            await deleteItemImage(item.id);
+                            refreshCurrentPage();
+                          } catch (err) {
+                            window.alert(err.message || "No se pudo eliminar la imagen");
+                          }
+                        }}>
+                          Eliminar imagen
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => { setOpenMenuId(null); setItemModal({ open: true, mode: "update", itemId: item.id }); }}>
+                          Actualizar stock
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => { setOpenMenuId(null); setSelectedItem(item); setShowObservationsModal(true); }}>
+                          Observaciones
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" disabled={!canReturn} onClick={() => { setOpenMenuId(null); setSelectedItem(item); setShowPendingLocationsModal(true); }}>
+                          Ver dónde están
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" disabled={isOutOfStock} onClick={() => { setOpenMenuId(null); handleMoveItem(item); }}>
+                          Mover
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" disabled={!canReturn} onClick={() => { setOpenMenuId(null); setSelectedItem(item); setShowTrasladoModal(true); }}>
+                          Trasladar entre obras
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => { setOpenMenuId(null); handleShowMovements(item); }}>
+                          Historial de movimientos
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => { setOpenMenuId(null); setSelectedItem(item); setShowItemHistorialModal(true); }}>
+                          Historial de retiros
+                        </button>
+                        <button type="button" className="btn btn-sm btn-outline-danger" disabled={cantEliminate} onClick={() => { setOpenMenuId(null); setSelectedItem(item); setShowDeleteModal(true); }}>
+                          Eliminar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <div className="text-center text-muted py-5">
+                No se encontraron productos con los filtros aplicados
+              </div>
+            )}
+          </div>
+
+          <div className={`d-none d-md-block table-responsive${openMenuId != null ? " table-menu-open" : ""}`}>
             <table className="table app-table mb-0">
               <thead>
                 <tr>

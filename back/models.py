@@ -183,6 +183,7 @@ class HistoryUnit(Base):
     id = Column(Integer, primary_key=True, index=True)
     history_id = Column(Integer, ForeignKey("historal.id"), nullable=False, index=True)
     unit_id = Column(Integer, ForeignKey("item_units.id"), nullable=False, index=True)
+    amount = Column(Integer, nullable=True)
 
 
 class DeletedItem(Base):

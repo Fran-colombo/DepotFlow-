@@ -84,7 +84,8 @@ const Pendientes = () => {
  return (
     <Dashboard title={
       <div className="text-center">
-        <h1 className="display-5 fw-bold">Inventario Pendiente de Devolución</h1>
+        <h1 className="fw-bold mb-0 d-md-none fs-4">Inventario Pendiente de Devolución</h1>
+        <h1 className="display-5 fw-bold d-none d-md-block">Inventario Pendiente de Devolución</h1>
       </div>
     }>
       <div className="row g-3 mb-3">
@@ -122,7 +123,50 @@ const Pendientes = () => {
         <div className="alert alert-danger">{error}</div>
       ) : (
         <>
-          <div className="table-responsive">
+          <div className="d-md-none d-flex flex-column gap-3">
+            {pendientes.length > 0 ? (
+              pendientes.map((registro) => (
+                <div key={registro.id} className="border rounded-3 p-3">
+                  <div className="fw-semibold">{registro.itemName}</div>
+                  <div className="small text-secondary mt-1">
+                    {registro.personWhoTook || "—"}
+                  </div>
+                  <div className="fw-semibold text-warning my-2">
+                    {registro.amountNotReturned} pendiente{registro.amountNotReturned === 1 ? "" : "s"}
+                  </div>
+                  <div className="small mb-1">{registro.place || "Sin lugar"}</div>
+                  <div className="small text-secondary mb-3">{formatDate(registro.date)}</div>
+                  <div className="d-grid gap-2">
+                    <button
+                      type="button"
+                      className="btn btn-outline-success"
+                      onClick={() => {
+                        setSelectedPending(registro);
+                        setShowDevolverModal(true);
+                      }}
+                    >
+                      Devolver
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline-info"
+                      onClick={() => {
+                        setSelectedPending(registro);
+                        setShowTrasladoModal(true);
+                      }}
+                    >
+                      Trasladar
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-center text-muted py-4">
+                No se encontraron pendientes con los filtros aplicados
+              </div>
+            )}
+          </div>
+          <div className="table-responsive d-none d-md-block">
             <table className="table table-hover">
               <thead className="table-light">
                 <tr className="text-center">
@@ -180,14 +224,14 @@ const Pendientes = () => {
             </table>
           </div>
           {pendientes.length > 0 && (
-            <div className="d-flex justify-content-between align-items-center mt-3">
+            <div className="d-flex flex-column flex-md-row justify-content-md-between align-items-stretch align-items-md-center gap-3 mt-3">
               <div>
                 Mostrando {(pagination.current_page - 1) * pagination.page_size + 1}-
                 {Math.min(pagination.current_page * pagination.page_size, pagination.total_records)} 
                 de {pagination.total_records} registros
               </div>
               
-              <div className="btn-group">
+              <div className="btn-group align-self-start">
                 <button 
                   onClick={() => handlePageChange(pagination.current_page - 1)}
                   disabled={!pagination.has_previous}

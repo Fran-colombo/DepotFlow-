@@ -42,6 +42,7 @@ class HistoryResponseDTO(BaseModel):
 class HistoryPieceDTO(BaseModel):
     code: str
     name: Optional[str] = None
+    amount: Optional[int] = None
 
 
 class HistoryResponseWithDetailsDTO(HistoryResponseDTO):

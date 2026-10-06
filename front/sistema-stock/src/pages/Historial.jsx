@@ -353,10 +353,10 @@ useEffect(() => {
               <tbody>
                 {historial.length > 0 ? (
                   historial.map((registro) => (
-                    <tr key={registro.id} className="text-center">
+                    <tr key={`${registro.id}-${registro.itemName}`} className="text-center">
                       <td className="fw-medium">
                         <div>{registro.itemName}</div>
-                        {registro.pieces?.length > 0 && (
+                        {registro.pieces?.length > 1 && (
                           <div className="small text-secondary fw-normal">
                             {registro.pieces.map((piece) => (
                               piece.name ? `${piece.code} · ${piece.name}` : piece.code
