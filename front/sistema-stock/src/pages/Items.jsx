@@ -54,6 +54,7 @@ const Items = () => {
   const [showItemHistorialModal, setShowItemHistorialModal] = useState(false);
   const [itemImageModal, setItemImageModal] = useState({ open: false, mode: "upload" });
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailCode, setDetailCode] = useState("");
   const [feedback, setFeedback] = useState(null);
   const [codeHit, setCodeHit] = useState(null);
 
@@ -441,36 +442,42 @@ const Items = () => {
         </div>
       )}
 
-      {codeHit && (
-        <div className="alert alert-info d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div>
-            <strong>{codeHit.code}</strong> · {codeHit.item_name} · {codeHit.status_label}
-            {codeHit.last_place ? ` · ${codeHit.last_place}` : ""}
-            {codeHit.last_person ? ` · ${codeHit.last_person}` : ""}
-            {codeHit.last_date ? ` · ${new Date(codeHit.last_date).toLocaleDateString()}` : ""}
-          </div>
-          <button
-            type="button"
-            className="btn btn-sm btn-outline-primary"
-            onClick={() => {
-              setSelectedItem({
-                id: codeHit.item_id,
-                name: codeHit.item_name,
-                category: codeHit.category,
-                track_units: true,
-              });
-              setShowDetailModal(true);
-            }}
-          >
-            Ver en detalle
-          </button>
-        </div>
-      )}
-
       {isLoading ? (
         <div className="text-center my-5">
           <div className="spinner-border text-primary" role="status">
             <span className="visually-hidden">Cargando...</span>
+          </div>
+        </div>
+      ) : codeHit ? (
+        <div className="border rounded-3 p-3 bg-white">
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+              <div className="fs-5 fw-bold">{codeHit.code}</div>
+              {codeHit.name && <div className="fw-semibold">{codeHit.name}</div>}
+              <div className="text-secondary">
+                {codeHit.item_name}
+                {codeHit.status_label ? ` · ${codeHit.status_label}` : ""}
+                {codeHit.status === "en_stock"
+                  ? (codeHit.zone_name ? ` · ${codeHit.zone_name}` : "")
+                  : (codeHit.last_place ? ` · ${codeHit.last_place}` : "")}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setDetailCode(codeHit.code);
+                setSelectedItem({
+                  id: codeHit.item_id,
+                  name: codeHit.item_name,
+                  category: codeHit.category,
+                  track_units: true,
+                });
+                setShowDetailModal(true);
+              }}
+            >
+              Ver en detalle
+            </button>
           </div>
         </div>
       ) : (
@@ -534,6 +541,7 @@ const Items = () => {
                       type="button"
                       className="btn btn-link btn-sm p-0 mb-2"
                       onClick={() => {
+                        setDetailCode("");
                         setSelectedItem(item);
                         setShowDetailModal(true);
                       }}
@@ -727,6 +735,7 @@ const Items = () => {
                           type="button"
                           className="btn btn-link btn-sm p-0"
                           onClick={() => {
+                            setDetailCode("");
                             setSelectedItem(item);
                             setShowDetailModal(true);
                           }}
@@ -1116,7 +1125,11 @@ const Items = () => {
         <ItemDetailModal
           item={selectedItem}
           isOpen={showDetailModal}
-          onClose={() => setShowDetailModal(false)}
+          focusCode={detailCode}
+          onClose={() => {
+            setShowDetailModal(false);
+            setDetailCode("");
+          }}
           onChanged={refreshCurrentPage}
         />
       )}

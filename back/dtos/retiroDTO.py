@@ -8,3 +8,4 @@ class RetiroDTO(BaseModel):
     personWhoTook: Optional[str] = None
     codes: Optional[List[str]] = None
     noReturn: bool = False
+    repair: bool = False

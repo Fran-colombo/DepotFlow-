@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Annotated
 import models
 from database import get_db
-from auth import get_current_user
+from auth import get_current_user, has_admin_access
 import dtos.observationCreateDTO as dtos
 import pytz
 
@@ -120,4 +120,29 @@ def create_observation(
     db.commit()
     db.refresh(observation)
     
+    return observation
+
+
+@router.put("/{observation_id}", response_model=dtos.ObservationResponseDTO)
+def update_observation(
+    observation_id: int,
+    dto: dtos.ObservationUpdateDTO,
+    db: db_dependency,
+    current_user: dict = Depends(get_current_user),
+):
+    if not has_admin_access(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden editar una observación",
+        )
+    observation = db.query(models.Observation).filter(models.Observation.id == observation_id).first()
+    if not observation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No está esa observación")
+    text = (dto.description or "").strip()
+    if not text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="La observación no puede estar vacía")
+    observation.description = text
+    observation.observed_by = dto.observed_by.strip() if dto.observed_by and dto.observed_by.strip() else None
+    db.commit()
+    db.refresh(observation)
     return observation

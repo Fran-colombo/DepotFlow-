@@ -10,6 +10,11 @@ class ObservationCreateDTO(BaseModel):
     unit_id: Optional[int] = None
 
 
+class ObservationUpdateDTO(BaseModel):
+    description: str
+    observed_by: Optional[str] = None
+
+
 class ObservationResponseDTO(BaseModel):
     id: int
     item_id: int

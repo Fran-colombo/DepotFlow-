@@ -26,6 +26,8 @@ import pytz
 from item_categories import category_is_consumable
 from item_service import ItemServiceError
 from unit_service import (
+    REPAIR_PLACE,
+    STATUS_FUERA_DE_SERVICIO,
     apply_inner_return,
     find_unit_by_code,
     link_history_units,
@@ -330,7 +332,8 @@ def read_pending_history(
             models.Item,
             models.History.itemId == models.Item.id
         ).filter(
-            models.History.turnback == False
+            models.History.turnback == False,
+            models.History.place != REPAIR_PLACE,
         )
 
         if person_who_took:
@@ -427,7 +430,7 @@ def get_pending_places(
     by_place = {}
     for history in pending_rows:
         place = (history.place or "").strip()
-        if not place:
+        if not place or place == REPAIR_PLACE:
             continue
         entry = by_place.setdefault(
             place,
@@ -480,8 +483,12 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     if not item:
         raise HTTPException(404, "Item not found")
 
-    from obras import require_active_obra
-    dto.place = require_active_obra(db, dto.place)
+    repair = bool(dto.repair)
+    if repair:
+        dto.place = REPAIR_PLACE
+    else:
+        from obras import require_active_obra
+        dto.place = require_active_obra(db, dto.place)
 
     if item.actualAmount < dto.amount:
         raise HTTPException(400, "No hay suficiente stock")
@@ -491,7 +498,7 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     if dto.personWhoTook and dto.personWhoTook.strip():  
         quien_tomo = dto.personWhoTook.strip()
 
-    no_return = category_is_consumable(db, item.category) or bool(dto.noReturn)
+    no_return = (category_is_consumable(db, item.category) or bool(dto.noReturn)) and not repair
     units = []
     if item.inner_quantity:
         if not dto.codes or len(dto.codes) != 1:
@@ -505,7 +512,14 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
     elif item.track_units:
         try:
-            units = take_units_out(db, item, dto.amount, dto.codes, consume=no_return)
+            units = take_units_out(
+                db,
+                item,
+                dto.amount,
+                dto.codes,
+                consume=no_return,
+                out_status=STATUS_FUERA_DE_SERVICIO if repair else None,
+            )
         except ItemServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
     
@@ -598,9 +612,10 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
         pending_rows = pending.order_by(models.History.date.asc(), models.History.id.asc()).all()
         total_pending = sum(row.amountNotReturned or 0 for row, _unit in pending_rows)
         if dto.amount > total_pending:
+            where = "En reparación" if (dto.place or "").strip() == REPAIR_PLACE else "En esa obra"
             raise HTTPException(
                 status_code=400,
-                detail=f"En esa obra hay {total_pending}",
+                detail=f"{where} hay {total_pending}",
             )
         remaining = dto.amount
         taken_by_unit = {}
@@ -647,7 +662,11 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             if not history:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"No hay una salida pendiente de {unit.code} en esa obra",
+                    detail=(
+                        f"No hay una salida pendiente de {unit.code} en reparación"
+                        if (dto.place or "").strip() == REPAIR_PLACE
+                        else f"No hay una salida pendiente de {unit.code} en esa obra"
+                    ),
                 )
             history.amountNotReturned -= 1
             if history.amountNotReturned == 0:
@@ -758,6 +777,8 @@ def trasladar_item(
     from_place = (dto.fromPlace or "").strip()
     to_place = (dto.toPlace or "").strip()
 
+    if from_place == REPAIR_PLACE or to_place == REPAIR_PLACE:
+        raise HTTPException(400, "La reparación no es una obra")
     if not from_place or not to_place:
         raise HTTPException(400, "Origen y destino son obligatorios")
     if from_place.lower() == to_place.lower():

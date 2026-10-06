@@ -610,6 +610,7 @@ def get_unit_by_code(
         "en_stock": "En depósito",
         "retirada": "En obra",
         "consumida": "Usada",
+        "fuera_de_servicio": "Fuera de servicio",
     }.get(unit.status, unit.status)
     return {
         "id": unit.id,
@@ -655,6 +656,7 @@ def list_item_units(
         "en_stock": "En depósito",
         "retirada": "En obra",
         "consumida": "Usada",
+        "fuera_de_servicio": "Fuera de servicio",
     }
     return {
         "track_units": bool(item.track_units),

@@ -64,6 +64,17 @@ export function getUnitObservations(unitId) {
   return apiFetch(`/api/observations/unit/${unitId}`);
 }
 
+export async function updateObservation(observationId, description, observedBy = "") {
+  return apiFetch(`/api/observations/${observationId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      description,
+      observed_by: observedBy?.trim() || null,
+    }),
+  });
+}
+
 
 export async function retirarItem(data) {
   return apiFetch("/historical/retirar", {

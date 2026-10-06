@@ -8,6 +8,7 @@ import {
   addPiece,
   getNextCodes,
   getUnitObservations,
+  updateObservation,
   retirarItem,
   updateItem,
   updateUnitProfile,
@@ -26,10 +27,31 @@ const ACTION_LABEL = {
   traslado: "Traslado",
 };
 
+const REPAIR_PLACE = "Reparación";
+
 function lastRetiroPlace(unit) {
   const rows = [...(unit.history || [])].reverse();
-  const retiro = rows.find((row) => row.action === "retiro" && row.place);
+  const retiro = rows.find((row) => row.action === "retiro" && row.place && row.place !== REPAIR_PLACE);
   return retiro?.place || "";
+}
+
+function formatNoteWhen(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function repairAmountOf(unit) {
+  return (Array.isArray(unit.out_places) ? unit.out_places : [])
+    .filter((row) => row.place === REPAIR_PLACE && row.quantity > 0)
+    .reduce((sum, row) => sum + (row.quantity || 0), 0);
 }
 
 const PieceCard = ({
@@ -49,6 +71,11 @@ const PieceCard = ({
 }) => {
   const [notes, setNotes] = useState([]);
   const [note, setNote] = useState("");
+  const [noteBy, setNoteBy] = useState("");
+  const [shownNotes, setShownNotes] = useState(3);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [editBy, setEditBy] = useState("");
   const [noteBusy, setNoteBusy] = useState(false);
   const [localError, setLocalError] = useState("");
   const [draftName, setDraftName] = useState(unit.name || "");
@@ -70,6 +97,13 @@ const PieceCard = ({
     return () => {
       cancelled = true;
     };
+  }, [unit.id]);
+
+  useEffect(() => {
+    setShownNotes(3);
+    setEditingId(null);
+    setNote("");
+    setNoteBy("");
   }, [unit.id]);
 
   useEffect(() => {
@@ -107,11 +141,28 @@ const PieceCard = ({
     setNoteBusy(true);
     setLocalError("");
     try {
-      const created = await addObservation(item.id, description, "", unit.id);
+      const created = await addObservation(item.id, description, noteBy, unit.id);
       setNotes((prev) => [...prev, created]);
       setNote("");
+      setNoteBy("");
     } catch (err) {
       setLocalError(err.message || "No se pudo guardar la observación");
+    } finally {
+      setNoteBusy(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    const description = editText.trim();
+    if (!description || editingId == null) return;
+    setNoteBusy(true);
+    setLocalError("");
+    try {
+      const updated = await updateObservation(editingId, description, editBy);
+      setNotes((prev) => prev.map((row) => (row.id === editingId ? updated : row)));
+      setEditingId(null);
+    } catch (err) {
+      setLocalError(err.message || "No se pudo editar la observación");
     } finally {
       setNoteBusy(false);
     }
@@ -143,17 +194,29 @@ const PieceCard = ({
   const imageUrl = getUnitImageUrl(unit);
   const inner = Boolean(item.inner_quantity);
   const outPlaces = Array.isArray(unit.out_places) ? unit.out_places.filter((row) => row.quantity > 0) : [];
-  const obraLine = outPlaces
+  const obraPlaces = outPlaces.filter((row) => row.place !== REPAIR_PLACE);
+  const repairAmount = repairAmountOf(unit);
+  const obraLine = obraPlaces
     .map((row) => (inner ? `${row.place} ${row.quantity}` : row.place))
     .filter(Boolean)
     .join(" · ");
-  const statusText = inner && place === "obra"
-    ? "En obra"
-    : inner && place === "depot"
-      ? "En depósito"
-      : unit.status_label;
+  const statusText = place === "repair"
+    ? "Fuera de servicio"
+    : inner && place === "obra"
+      ? "En obra"
+      : inner && place === "depot"
+        ? "En depósito"
+        : unit.status_label;
   const canRetire = place === "depot" && (inner ? (unit.quantity || 0) > 0 : unit.status === "en_stock");
-  const canReturn = place === "obra" && (inner ? (unit.out_quantity || 0) > 0 : unit.status === "retirada");
+  const canReturn = place === "repair"
+    ? (inner ? repairAmount > 0 : unit.status === "fuera_de_servicio")
+    : place === "obra" && (inner ? obraPlaces.length > 0 : unit.status === "retirada");
+  const orderedNotes = [...notes].sort((a, b) => {
+    const left = new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+    if (left) return left;
+    return (b.id || 0) - (a.id || 0);
+  });
+  const visibleNotes = orderedNotes.slice(0, shownNotes);
   const canEditQty = isAdmin && inner && unit.status !== "consumida" && (place === "depot" || (unit.quantity || 0) === 0);
 
   return (
@@ -201,6 +264,7 @@ const PieceCard = ({
                 {statusText}
                 {place === "depot" ? ` · ${unit.quantity ?? 1} en el código` : ""}
                 {place === "obra" && obraLine ? ` · ${obraLine}` : ""}
+                {place === "repair" && inner && repairAmount > 0 ? ` · ${repairAmount}` : ""}
                 {unit.is_broken ? " · Rota" : ""}
               </div>
             </div>
@@ -248,7 +312,7 @@ const PieceCard = ({
                   disabled={returning}
                   onClick={() => onDevolver(unit)}
                 >
-                  Devolver
+                  {place === "repair" ? "Volver al depósito" : "Devolver"}
                 </button>
               )}
             </div>
@@ -260,18 +324,79 @@ const PieceCard = ({
               {unit.repair_note && <div>Qué habría que hacer: {unit.repair_note}</div>}
             </div>
           )}
-          {notes.length > 0 && (
-            <ul className="list-unstyled small mb-0 mt-2">
-              {notes.map((entry) => (
-                <li key={entry.id}>
-                  {entry.description}
-                  <span className="text-secondary">
-                    {" "}
-                    · {entry.observed_by || entry.user_name}
-                  </span>
-                </li>
-              ))}
-            </ul>
+          {orderedNotes.length > 0 && (
+            <div className="small mt-2">
+              <ul className="list-unstyled mb-1">
+                {visibleNotes.map((entry) => (
+                  <li key={entry.id} className="mb-2">
+                    {editingId === entry.id ? (
+                      <div className="d-flex flex-column gap-1">
+                        <input
+                          className="form-control form-control-sm"
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                        />
+                        <input
+                          className="form-control form-control-sm"
+                          value={editBy}
+                          placeholder="Si lo dejás vacío, fuiste vos"
+                          onChange={(e) => setEditBy(e.target.value)}
+                        />
+                        <div className="d-flex gap-2">
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            disabled={noteBusy || !editText.trim()}
+                            onClick={saveEdit}
+                          >
+                            Guardar
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-secondary"
+                            disabled={noteBusy}
+                            onClick={() => setEditingId(null)}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div>{entry.description}</div>
+                        <div className="text-secondary">
+                          {formatNoteWhen(entry.date)}
+                          {(formatNoteWhen(entry.date) ? " · " : "")}
+                          {entry.observed_by || entry.user_name}
+                        </div>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="btn btn-link btn-sm p-0"
+                            onClick={() => {
+                              setEditingId(entry.id);
+                              setEditText(entry.description || "");
+                              setEditBy(entry.observed_by || "");
+                            }}
+                          >
+                            Editar
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {orderedNotes.length > shownNotes && (
+                <button
+                  type="button"
+                  className="btn btn-link btn-sm p-0"
+                  onClick={() => setShownNotes((count) => count + 5)}
+                >
+                  Ver más
+                </button>
+              )}
+            </div>
           )}
           <div className="border rounded p-2 mt-2">
             <input
@@ -317,7 +442,7 @@ const PieceCard = ({
               Guardar pieza
             </button>
           </div>
-          <div className="d-flex gap-2 mt-2">
+          <div className="d-flex flex-column gap-2 mt-2">
             <input
               className="form-control form-control-sm"
               placeholder="Observación de esta pieza"
@@ -330,14 +455,22 @@ const PieceCard = ({
                 }
               }}
             />
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-primary"
-              disabled={noteBusy || !note.trim()}
-              onClick={saveNote}
-            >
-              Anotar
-            </button>
+            <div className="d-flex gap-2">
+              <input
+                className="form-control form-control-sm"
+                placeholder="Quién la anotó. Vacío: fuiste vos"
+                value={noteBy}
+                onChange={(e) => setNoteBy(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary"
+                disabled={noteBusy || !note.trim()}
+                onClick={saveNote}
+              >
+                Anotar
+              </button>
+            </div>
           </div>
           {localError && <div className="text-danger small mt-1">{localError}</div>}
         </div>
@@ -372,10 +505,11 @@ const PieceCard = ({
   );
 };
 
-const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
+const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) => {
   const { role } = useAuth();
   const isAdmin = role === "admin" || role === "sysadmin";
   const [units, setUnits] = useState([]);
+  const [codeFilter, setCodeFilter] = useState(focusCode || "");
   const [trackUnits, setTrackUnits] = useState(false);
   const [consumable, setConsumable] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -387,6 +521,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const [popupError, setPopupError] = useState("");
   const [popupAmount, setPopupAmount] = useState(1);
   const [retireScope, setRetireScope] = useState("parcial");
+  const [retireRepair, setRetireRepair] = useState(false);
+  const [returnFromRepair, setReturnFromRepair] = useState(false);
   const [qtyUnit, setQtyUnit] = useState(null);
   const [qtyValue, setQtyValue] = useState("");
   const [qtyError, setQtyError] = useState("");
@@ -434,6 +570,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setPieceInside("");
     setAddingMore(false);
     setOfferAnother(false);
+    setCodeFilter(focusCode || "");
     setTrackUnits(Boolean(item.track_units));
     setConsumable(Boolean(item.is_consumable));
     setInnerQuantity(Boolean(item.inner_quantity));
@@ -456,7 +593,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, item]);
+  }, [isOpen, item, focusCode]);
 
   useEffect(() => {
     if (!isOpen || !trackUnits || !item?.code_prefix || offerAnother) return;
@@ -518,17 +655,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     }
   };
 
-  const inStock = useMemo(() => units.filter((unit) => {
+  const visibleUnits = useMemo(() => {
+    const query = codeFilter.trim().toLowerCase();
+    if (!query) return units;
+    return units.filter((unit) => (unit.code || "").toLowerCase().includes(query));
+  }, [units, codeFilter]);
+  const inStock = useMemo(() => visibleUnits.filter((unit) => {
     if (unit.status === "consumida") return false;
     if (innerQuantity) return (unit.quantity || 0) > 0;
     return unit.status === "en_stock";
-  }), [units, innerQuantity]);
-  const onSite = useMemo(() => units.filter((unit) => {
+  }), [visibleUnits, innerQuantity]);
+  const onSite = useMemo(() => visibleUnits.filter((unit) => {
     if (unit.status === "consumida") return false;
-    if (innerQuantity) return (unit.out_quantity || 0) > 0;
+    if (innerQuantity) {
+      return (unit.out_places || []).some((row) => row.place !== REPAIR_PLACE && row.quantity > 0);
+    }
     return unit.status === "retirada";
-  }), [units, innerQuantity]);
-  const used = useMemo(() => units.filter((unit) => unit.status === "consumida"), [units]);
+  }), [visibleUnits, innerQuantity]);
+  const inRepair = useMemo(() => visibleUnits.filter((unit) => {
+    if (unit.status === "consumida") return false;
+    if (innerQuantity) return repairAmountOf(unit) > 0;
+    return unit.status === "fuera_de_servicio";
+  }), [visibleUnits, innerQuantity]);
+  const used = useMemo(() => visibleUnits.filter((unit) => unit.status === "consumida"), [visibleUnits]);
   const showUsed = consumable || used.length > 0;
 
   if (!isOpen || !item) return null;
@@ -539,11 +688,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     setPopupError("");
     setPopupAmount("");
     setRetireScope("parcial");
+    setRetireRepair(false);
     setActionUnit({ unit, kind: "retire" });
   };
 
-  const openReturn = (unit) => {
-    setPopupPlace(lastRetiroPlace(unit));
+  const openReturn = (unit, fromRepair = false) => {
+    const obra = (unit.out_places || []).find((row) => row.place !== REPAIR_PLACE && row.quantity > 0);
+    setReturnFromRepair(fromRepair);
+    setPopupPlace(fromRepair ? REPAIR_PLACE : (obra?.place || lastRetiroPlace(unit)));
     setPopupPerson("");
     setPopupError("");
     setPopupAmount(1);
@@ -553,7 +705,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const handleRetiro = async () => {
     const unit = actionUnit?.unit;
     if (!unit) return;
-    if (!popupPlace.trim()) {
+    if (!retireRepair && !popupPlace.trim()) {
       setPopupError("Elegí una obra");
       return;
     }
@@ -577,10 +729,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
       await retirarItem({
         itemId: item.id,
         amount,
-        place: popupPlace.trim(),
+        place: retireRepair ? REPAIR_PLACE : popupPlace.trim(),
         personWhoTook: popupPerson.trim(),
         codes: [unit.code],
-        noReturn: consumable,
+        noReturn: retireRepair ? false : consumable,
+        repair: retireRepair,
       });
       setActionUnit(null);
       await reload();
@@ -604,7 +757,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
       return;
     }
     const amount = innerQuantity ? parseInt(popupAmount, 10) : 1;
-    const max = actionUnit.unit.out_quantity || 0;
+    const max = returnFromRepair
+      ? repairAmountOf(actionUnit.unit)
+      : (actionUnit.unit.out_quantity || 0) - repairAmountOf(actionUnit.unit);
     if (innerQuantity && (!amount || amount < 1 || amount > max)) {
       setPopupError(`Podés devolver hasta ${max}`);
       return;
@@ -638,8 +793,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
     const shown = innerQuantity && place === "depot"
       ? list.reduce((sum, unit) => sum + (unit.quantity || 0), 0)
       : innerQuantity && place === "obra"
-        ? list.reduce((sum, unit) => sum + (unit.out_quantity || 0), 0)
-        : list.length;
+        ? list.reduce((sum, unit) => {
+            return sum + (unit.out_places || [])
+              .filter((row) => row.place !== REPAIR_PLACE)
+              .reduce((innerSum, row) => innerSum + (row.quantity || 0), 0);
+          }, 0)
+        : innerQuantity && place === "repair"
+          ? list.reduce((sum, unit) => sum + repairAmountOf(unit), 0)
+          : list.length;
     return (
     <section className="mb-4">
       <h6 className="mb-2">
@@ -661,7 +822,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
               reload().catch((err) => setError(err.message || "No se pudo actualizar"));
             }}
             onRetire={openRetire}
-            onDevolver={openReturn}
+            onDevolver={place === "repair" ? (unit) => openReturn(unit, true) : (unit) => openReturn(unit, false)}
             onShowHistory={setHistoryUnit}
             isAdmin={isAdmin}
             onEditQuantity={(unit) => {
@@ -864,9 +1025,23 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                     )}
                   </div>
                 )}
-                {section("En depósito", inStock, "depot")}
-                {section("En obra", onSite, "obra")}
-                {showUsed && section("Usadas", used, "used")}
+                <div className="mb-3">
+                  <label className="form-label mb-1" htmlFor="detail-code-filter">Filtrar por código</label>
+                  <input
+                    id="detail-code-filter"
+                    className="form-control"
+                    value={codeFilter}
+                    placeholder="HOR-26-001"
+                    onChange={(e) => setCodeFilter(e.target.value.toUpperCase())}
+                  />
+                </div>
+                {codeFilter.trim() && inStock.length + onSite.length + inRepair.length + used.length === 0 && (
+                  <p className="text-secondary mb-3">No hay una pieza con ese código.</p>
+                )}
+                {(!codeFilter.trim() || inStock.length > 0) && section("En depósito", inStock, "depot")}
+                {(!codeFilter.trim() || onSite.length > 0) && section("En obra", onSite, "obra")}
+                {inRepair.length > 0 && section("Fuera de servicio", inRepair, "repair")}
+                {showUsed && (!codeFilter.trim() || used.length > 0) && section("Usadas", used, "used")}
               </>
             )}
           </div>
@@ -977,10 +1152,29 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
             </div>
             <div className="modal-body">
               {actionUnit.kind === "retire" ? (
-                <div className="mb-3">
-                  <label className="form-label">Obra de destino</label>
-                  <ObraPicker obras={obras} value={popupPlace} onChange={setPopupPlace} />
-                </div>
+                <>
+                  <div className="form-check mb-3">
+                    <input
+                      id="piece-retire-repair"
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={retireRepair}
+                      onChange={(e) => setRetireRepair(e.target.checked)}
+                    />
+                    <label className="form-check-label" htmlFor="piece-retire-repair">
+                      Llevar a reparar
+                    </label>
+                    <div className="form-text">No es una obra. La pieza queda fuera de servicio.</div>
+                  </div>
+                  {!retireRepair && (
+                    <div className="mb-3">
+                      <label className="form-label">Obra de destino</label>
+                      <ObraPicker obras={obras} value={popupPlace} onChange={setPopupPlace} />
+                    </div>
+                  )}
+                </>
+              ) : returnFromRepair ? (
+                <p className="mb-3">Vuelve de reparación al depósito.</p>
               ) : (
                 <div className="mb-3">
                   <label className="form-label">Obra desde la que vuelve</label>
@@ -1041,7 +1235,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                     value={popupAmount}
                     onChange={(e) => setPopupAmount(e.target.value)}
                   />
-                  <div className="form-text">En obra hay {actionUnit.unit.out_quantity ?? 0}.</div>
+                  <div className="form-text">
+                    {returnFromRepair ? "En reparación" : "En obra"} hay{" "}
+                    {returnFromRepair
+                      ? repairAmountOf(actionUnit.unit)
+                      : (actionUnit.unit.out_quantity || 0) - repairAmountOf(actionUnit.unit)}
+                    .
+                  </div>
                 </div>
               )}
               <div className="mb-3">
@@ -1072,10 +1272,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
                 onClick={actionUnit.kind === "retire" ? handleRetiro : handleReturn}
               >
                 {actionUnit.kind === "retire"
-                  ? consumable
-                    ? "Retirar y marcar usada"
-                    : "Retirar"
-                  : "Devolver"}
+                  ? retireRepair
+                    ? "Llevar a reparar"
+                    : consumable
+                      ? "Retirar y marcar usada"
+                      : "Retirar"
+                  : returnFromRepair
+                    ? "Volver al depósito"
+                    : "Devolver"}
               </button>
             </div>
           </div>

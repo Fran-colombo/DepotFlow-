@@ -16,6 +16,8 @@ TIMEZONE = pytz.timezone("America/Argentina/Buenos_Aires")
 STATUS_EN_STOCK = "en_stock"
 STATUS_RETIRADA = "retirada"
 STATUS_CONSUMIDA = "consumida"
+STATUS_FUERA_DE_SERVICIO = "fuera_de_servicio"
+REPAIR_PLACE = "Reparación"
 
 
 def normalize_code(raw: str) -> str:
@@ -383,7 +385,7 @@ def select_stock_units(db: Session, item: models.Item, quantity: int, codes=None
     return units
 
 
-def take_units_out(db: Session, item: models.Item, quantity: int, codes, consume: bool):
+def take_units_out(db: Session, item: models.Item, quantity: int, codes, consume: bool, out_status: str = None):
     units = select_stock_units(db, item, quantity, codes)
     moment = datetime.utcnow()
     for unit in units:
@@ -391,7 +393,7 @@ def take_units_out(db: Session, item: models.Item, quantity: int, codes, consume
             unit.status = STATUS_CONSUMIDA
             unit.consumed_at = moment
         else:
-            unit.status = STATUS_RETIRADA
+            unit.status = out_status or STATUS_RETIRADA
             unit.consumed_at = None
     return units
 
@@ -436,7 +438,7 @@ def units_for_pending_place(db: Session, item: models.Item, place: str, amount: 
             if link.unit_id in seen:
                 continue
             unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == link.unit_id).first()
-            if unit and unit.status == STATUS_RETIRADA:
+            if unit and unit.status in (STATUS_RETIRADA, STATUS_FUERA_DE_SERVICIO):
                 selected.append(unit)
                 seen.add(unit.id)
                 if len(selected) >= amount:
@@ -446,7 +448,7 @@ def units_for_pending_place(db: Session, item: models.Item, place: str, amount: 
             db.query(models.ItemUnit)
             .filter(
                 models.ItemUnit.item_id == item.id,
-                models.ItemUnit.status == STATUS_RETIRADA,
+                models.ItemUnit.status.in_((STATUS_RETIRADA, STATUS_FUERA_DE_SERVICIO)),
             )
             .order_by(models.ItemUnit.id.asc())
             .all()
@@ -473,8 +475,8 @@ def restore_units(db: Session, item: models.Item, amount: int, codes, place: str
         units = []
         for code in normalized:
             unit = db.query(models.ItemUnit).filter(models.ItemUnit.code == code).first()
-            if not unit or unit.status != STATUS_RETIRADA:
-                raise ItemServiceError(f"El código {code} no está en obra para devolver")
+            if not unit or unit.status not in (STATUS_RETIRADA, STATUS_FUERA_DE_SERVICIO):
+                raise ItemServiceError(f"El código {code} no está afuera para devolver")
             units.append(unit)
     else:
         units = units_for_pending_place(db, item, place, amount)
