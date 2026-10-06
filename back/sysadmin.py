@@ -106,8 +106,8 @@ SUMMARY_KEYS = (
 
 
 def _require_admin(current_user: dict) -> None:
-    if not current_user or current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Solo los administradores pueden usar Sysadmin")
+    if not current_user or current_user.get("role") != "sysadmin":
+        raise HTTPException(status_code=403, detail="Solo sysadmin puede usar este panel")
 
 
 def _table(key: str):

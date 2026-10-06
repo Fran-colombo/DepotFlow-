@@ -14,7 +14,7 @@ const UpdateItemModal = ({
   itemId = null,
 }) => {
   const { role } = useAuth();
-  const isAdmin = role === "admin";
+  const isAdmin = role === "admin" || role === "sysadmin";
   const [items, setItems] = useState([]);
   const [lockedItem, setLockedItem] = useState(null);
   const [sheds, setSheds] = useState([]);

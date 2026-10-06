@@ -1,9 +1,26 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram, createUserTelegramLink } from "../api/auth";
+import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram, createUserTelegramLink, promoteToSysadmin } from "../api/auth";
+import useAuth from "../hooks/useAuth";
 import Dashboard from "./Dashboard";
 
+const roleLabel = (value) => {
+  if (value === "sysadmin") return "Sysadmin";
+  if (value === "admin") return "Admin";
+  return "Usuario";
+};
+
+const roleBadge = (value) => {
+  if (value === "sysadmin") return "bg-dark";
+  if (value === "admin") return "bg-danger";
+  return "bg-primary";
+};
+
+const canDeactivate = (value) => value !== "admin" && value !== "sysadmin";
+
 const UsersPage = () => {
+  const { userId, role: myRole } = useAuth();
+  const [promoting, setPromoting] = useState(false);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -50,6 +67,29 @@ const UsersPage = () => {
   });
 
   const navigate = useNavigate();
+
+  const canPromote = (user) => myRole === "admin" && Number(user.id) === Number(userId);
+
+  const handlePromote = async (user) => {
+    setPromoting(true);
+    try {
+      const data = await promoteToSysadmin(user.id);
+      setFeedbackModal({
+        open: true,
+        type: "success",
+        message: data.message || "Quedaste como sysadmin. Cerrá sesión y volvé a entrar.",
+      });
+      fetchUsers();
+    } catch (err) {
+      setFeedbackModal({
+        open: true,
+        type: "error",
+        message: err.message || "No se pudo cambiar el rol",
+      });
+    } finally {
+      setPromoting(false);
+    }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -342,12 +382,8 @@ const UsersPage = () => {
                       </div>
                       <div className="text-muted small">{user.email}</div>
                     </div>
-                    <span
-                      className={`badge ${
-                        user.role === "admin" ? "bg-danger" : "bg-primary"
-                      }`}
-                    >
-                      {user.role === "admin" ? "Admin" : "Usuario"}
+                    <span className={`badge ${roleBadge(user.role)}`}>
+                      {roleLabel(user.role)}
                     </span>
                   </div>
                   <div className="small mb-3">
@@ -388,10 +424,20 @@ const UsersPage = () => {
                       type="button"
                       onClick={() => handleDeleteUser(user.id)}
                       className="btn btn-sm btn-outline-danger"
-                      disabled={user.role === "admin"}
+                      disabled={!canDeactivate(user.role)}
                     >
                       Desactivar
                     </button>
+                    {canPromote(user) && (
+                      <button
+                        type="button"
+                        onClick={() => handlePromote(user)}
+                        className="btn btn-sm btn-dark"
+                        disabled={promoting}
+                      >
+                        Pasar a sysadmin
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -422,12 +468,8 @@ const UsersPage = () => {
                       <td>{user.phone || "—"}</td>
                       <td>{user.telegram_id || "—"}</td>
                       <td>
-                        <span
-                          className={`badge ${
-                            user.role === "admin" ? "bg-danger" : "bg-primary"
-                          }`}
-                        >
-                          {user.role === "admin" ? "Admin" : "Usuario"}
+                        <span className={`badge ${roleBadge(user.role)}`}>
+                          {roleLabel(user.role)}
                         </span>
                       </td>
                       <td>
@@ -467,10 +509,20 @@ const UsersPage = () => {
                             type="button"
                             onClick={() => handleDeleteUser(user.id)}
                             className="btn btn-sm btn-outline-danger"
-                            disabled={user.role === "admin"}
+                            disabled={!canDeactivate(user.role)}
                           >
                             Desactivar
                           </button>
+                          {canPromote(user) && (
+                            <button
+                              type="button"
+                              onClick={() => handlePromote(user)}
+                              className="btn btn-sm btn-dark"
+                              disabled={promoting}
+                            >
+                              Pasar a sysadmin
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

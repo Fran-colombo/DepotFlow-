@@ -29,8 +29,12 @@ def seed_admin_from_env() -> None:
     try:
         existing = db.query(User).filter(User.email == email).first()
         if existing:
+            if existing.role == RoleEnum.sysadmin and existing.status == 1:
+                logger.info("Sysadmin %s ya existe", email)
+                return
             if existing.role != RoleEnum.admin or existing.status != 1:
-                existing.role = RoleEnum.admin
+                if existing.role != RoleEnum.sysadmin:
+                    existing.role = RoleEnum.admin
                 existing.status = 1
                 db.commit()
                 logger.info("Usuario existente %s marcado como admin activo", email)

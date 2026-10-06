@@ -14,6 +14,7 @@ class ActionEnum(enum.Enum):
 class RoleEnum(enum.Enum):
      admin = "admin"
      user = "user"
+     sysadmin = "sysadmin"
 
 class Item(Base):
     __tablename__ = "items"

@@ -30,6 +30,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 db_dependency = Annotated[Session, Depends(get_db)]
 
 
+def has_admin_access(current_user) -> bool:
+    if not current_user:
+        return False
+    return current_user.get("role") in ("admin", "sysadmin")
+
+
 def create_access_token(email: str, user_id: int, role: str, expires_delta: timedelta | None = None):
     to_encode = {"sub": email, "user_id": user_id, "role": role.value if hasattr(role, "value") else role}
     if expires_delta:
@@ -89,7 +95,7 @@ async def create_user(
     db: db_dependency,
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
-    if current_user.get("role") != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden crear usuarios",

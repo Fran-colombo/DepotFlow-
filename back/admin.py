@@ -5,9 +5,9 @@ import math
 
 
 from database import get_db
-from models import User
-from dtos.userDTO import PaginatedUsersResponse, UpdatePasswordDTO, UpdatePhoneDTO, UpdateTelegramDTO
-from auth import get_current_user, get_user_name_by_id, bcrypt_context
+from models import RoleEnum, User
+from dtos.userDTO import PaginatedUsersResponse, UpdatePasswordDTO, UpdatePhoneDTO, UpdateRoleDTO, UpdateTelegramDTO
+from auth import get_current_user, get_user_name_by_id, bcrypt_context, has_admin_access
 from sqlalchemy.exc import IntegrityError
 from whatsapp.phone import normalize_phone, phone_in_use
 from telegram.identity import normalize_telegram_id, telegram_id_in_use
@@ -32,7 +32,7 @@ async def get_all_users(
     current_user: dict = Depends(get_current_user)
 ):
 
-    if current_user["role"] != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden acceder a esta información"
@@ -69,7 +69,7 @@ async def delete_user(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user)
 ):
-    if current_user["role"] != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden realizar esta acción"
@@ -99,7 +99,7 @@ async def update_user_password(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user["role"] != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden realizar esta acción",
@@ -124,7 +124,7 @@ async def update_user_phone(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user["role"] != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden realizar esta acción",
@@ -163,7 +163,7 @@ async def update_user_telegram(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user["role"] != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden realizar esta acción",
@@ -207,7 +207,7 @@ async def create_user_telegram_link(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    if current_user["role"] != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden realizar esta acción",
@@ -220,6 +220,42 @@ async def create_user_telegram_link(
             detail="Usuario no encontrado",
         )
     return issue_user_deeplink(db, user.id)
+
+
+@router.put("/users/{user_id}/role")
+async def promote_self_to_sysadmin(
+    user_id: int,
+    body: UpdateRoleDTO,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo un admin puede pasarse a sysadmin",
+        )
+    if int(current_user["user_id"]) != int(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo podés cambiar tu propio rol",
+        )
+    if (body.role or "").strip().lower() != "sysadmin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ese cambio de rol no está permitido",
+        )
+    user = db.query(User).filter(User.id == user_id, User.status == 1).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado",
+        )
+    user.role = RoleEnum.sysadmin
+    db.commit()
+    return {
+        "message": "Quedaste como sysadmin. Cerrá sesión y volvé a entrar.",
+        "role": "sysadmin",
+    }
 
 
 @router.get("/me")

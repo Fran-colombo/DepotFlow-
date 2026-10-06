@@ -119,7 +119,7 @@ const Dashboard = ({ title, children }) => {
                 {openingTelegram ? "Abriendo…" : "Telegram"}
               </button>
 
-              {role === "admin" && (
+              {(role === "admin" || role === "sysadmin") && (
                 <div className="dropdown" ref={adminMenuRef}>
                   <button
                     className="btn btn-link text-decoration-none d-flex align-items-center fs-6 px-2 py-2 py-lg-1 text-secondary w-100"
@@ -156,11 +156,13 @@ const Dashboard = ({ title, children }) => {
                         <Trash2 className="me-2" size={16} /> Eliminados
                       </button>
                     </li>
-                    <li>
-                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/sysadmin")}>
-                        <Wrench className="me-2" size={16} /> Sysadmin
-                      </button>
-                    </li>
+                    {role === "sysadmin" && (
+                      <li>
+                        <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/sysadmin")}>
+                          <Wrench className="me-2" size={16} /> Sysadmin
+                        </button>
+                      </li>
+                    )}
                   </ul>
                 </div>
               )}

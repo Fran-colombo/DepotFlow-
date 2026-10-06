@@ -340,7 +340,7 @@ const PieceCard = ({
 
 const ItemDetailModal = ({ item, isOpen, onClose, onChanged }) => {
   const { role } = useAuth();
-  const isAdmin = role === "admin";
+  const isAdmin = role === "admin" || role === "sysadmin";
   const [units, setUnits] = useState([]);
   const [trackUnits, setTrackUnits] = useState(false);
   const [consumable, setConsumable] = useState(false);

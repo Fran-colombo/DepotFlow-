@@ -70,6 +70,19 @@ export async function deleteUser(userId) {
   })
 }
 
+export async function promoteToSysadmin(userId) {
+  const token = localStorage.getItem("authToken")
+
+  return await apiFetch(`/admin/users/${userId}/role`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ role: "sysadmin" }),
+  })
+}
+
 export async function updateUserPassword(userId, password) {
   const token = localStorage.getItem("authToken")
 

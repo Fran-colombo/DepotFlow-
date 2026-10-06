@@ -21,7 +21,7 @@ from dtos.itemResponseDTO import ItemResponseDTO
 from dtos.deleteItemDTO import DeleteItemDTO, ResponseFakeDeleteDTO
 import dtos.itemToCreateDTO as itemDTO
 from historial import router
-from auth import get_current_user, router as auth_router
+from auth import get_current_user, has_admin_access, router as auth_router
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
 from seed_admin import seed_admin_from_env
@@ -379,7 +379,7 @@ def update_item_by_id(
             detail="La cantidad debe ser mayor a cero"
         )
 
-    if item_update.contents and (not current_user or current_user.get("role") != "admin"):
+    if item_update.contents and not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden cambiar la cantidad de un código",
@@ -801,7 +801,7 @@ def update_item_counting(
     db: item_dependency,
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
-    if not current_user or current_user.get("role") != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden cambiar cómo se cuenta",
@@ -843,7 +843,7 @@ def delete_product(
     item_name = item.name if item else "desconocido"
     can_delete = item.actualAmount == item.totalAmount
 
-    if current_user["role"] != "admin":
+    if not has_admin_access(current_user):
         fake_dto = ResponseFakeDeleteDTO(
             item_id=item_delete.item_id,
             description=item_delete.description,

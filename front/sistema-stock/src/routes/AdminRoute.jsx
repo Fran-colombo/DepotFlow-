@@ -19,7 +19,21 @@ export default function AdminRoute() {
     return <Navigate to="/login" replace />;
   }
 
-  if (role !== 'admin') {
+  if (role !== 'admin' && role !== 'sysadmin') {
+    return <Navigate to="/" replace state={{ error: 'Acceso no autorizado' }} />;
+  }
+
+  return <Outlet />;
+}
+
+export function SysadminRoute() {
+  const { isAuthenticated, role } = useContext(AuthContext);
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (role !== 'sysadmin') {
     return <Navigate to="/" replace state={{ error: 'Acceso no autorizado' }} />;
   }
 

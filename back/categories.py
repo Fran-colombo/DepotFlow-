@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 import models
-from auth import get_current_user
+from auth import get_current_user, has_admin_access
 from database import get_db
 from item_categories import category_payload, list_categories, normalize_lookup
 
@@ -19,7 +19,7 @@ class CategoryWriteDTO(BaseModel):
 
 
 def _require_admin(current_user: dict) -> None:
-    if current_user.get("role") != "admin":
+    if not has_admin_access(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden gestionar categorías",

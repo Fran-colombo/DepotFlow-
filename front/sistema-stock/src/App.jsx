@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import PrivateRoute from "./routes/PrivateRoute";
-import AdminRoute from "./routes/AdminRoute"
+import AdminRoute, { SysadminRoute } from "./routes/AdminRoute"
 import Historial from "./pages/Historial";
 import Pendientes from "./pages/Pendientes";
 import Login from "./pages/Login";
@@ -48,10 +48,12 @@ function App() {
           <Route path="/admin/warehouses" element={<WarehouseManagement />} />
           <Route path="/admin/categories" element={<CategoriesPage />} />
           <Route path="/admin/obras" element={<ObrasPage />} />
-          <Route path="/admin/sysadmin" element={<SysadminPage />} />
           <Route path="/admin/zones" element={<Navigate to="/admin/warehouses" replace />} />
           <Route path="/deleted-items" element={<DeletedItemsPage />} />
 
+        </Route>
+        <Route element={<SysadminRoute />}>
+          <Route path="/admin/sysadmin" element={<SysadminPage />} />
         </Route>
         </Routes>
       </Router>
