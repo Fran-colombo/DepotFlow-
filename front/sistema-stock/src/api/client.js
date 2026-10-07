@@ -1,3 +1,5 @@
+import { noteActivity } from "../sessionActivity";
+
 export async function apiFetch(endpoint, options = {}) {
   const token = localStorage.getItem("authToken");
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
@@ -34,8 +36,11 @@ export async function apiFetch(endpoint, options = {}) {
   }
 
   try {
-    return await response.json();
+    const data = await response.json();
+    noteActivity();
+    return data;
   } catch (e) {
+    noteActivity();
     return response.text(e);
   }
 }

@@ -77,10 +77,14 @@ const Dashboard = ({ title, children }) => {
       <nav className="navbar navbar-expand-lg navbar-light bg-white border-bottom app-navbar">
         <div className="container-fluid px-3 px-md-4">
           <div className="d-flex align-items-center gap-2 min-w-0">
-            <span className="navbar-brand fw-semibold fs-6 fs-lg-5 text-dark mb-0 d-flex align-items-center gap-2 text-truncate">
+            <button
+              type="button"
+              className="navbar-brand fw-semibold fs-6 fs-lg-5 text-dark mb-0 d-flex align-items-center gap-2 text-truncate btn btn-link text-decoration-none p-0"
+              onClick={() => go("/")}
+            >
               Gestión depósito
               <img src={logoConkreto} alt="Logo Conkreto" style={{ maxHeight: 40, width: "auto" }} />
-            </span>
+            </button>
           </div>
           <button
             className="navbar-toggler"

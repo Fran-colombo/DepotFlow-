@@ -162,7 +162,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, onFinished, def
               )}
 
               <div className="mb-3">
-                <label className="form-label">Cantidad a devolver</label>
+                <label className="form-label">{item?.unit === "metro" ? "Metros a devolver" : "Cantidad a devolver"}</label>
                 <input
                   type="number"
                   className="form-control"

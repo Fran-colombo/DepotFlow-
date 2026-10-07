@@ -88,6 +88,8 @@ COLUMN_LABELS = {
     "label": "Etiqueta",
     "sort_order": "Orden",
     "is_consumable": "No vuelve",
+    "unit": "Unidad",
+    "hint": "Qué entra",
     "seed_key": "Clave interna",
     "deletion_reason": "Motivo",
     "deleted_at": "Borrado",

@@ -1,5 +1,9 @@
 import { apiFetch } from "./client"
 
+export async function refreshSession() {
+  return apiFetch("/auth/refresh", { method: "POST" });
+}
+
 export async function signup(data) {
   return apiFetch("/signUp", {
     method: "POST",

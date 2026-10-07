@@ -6,7 +6,7 @@ from typing import Optional
 import models
 from auth import get_current_user, has_admin_access
 from database import get_db
-from item_categories import category_payload, list_categories, normalize_lookup
+from item_categories import category_payload, clean_unit, list_categories, normalize_lookup
 
 router = APIRouter(tags=["categories"])
 
@@ -15,6 +15,8 @@ class CategoryWriteDTO(BaseModel):
     name: str
     label: Optional[str] = None
     is_consumable: bool = False
+    unit: Optional[str] = "unidad"
+    hint: Optional[str] = None
     active: Optional[bool] = None
 
 
@@ -24,6 +26,22 @@ def _require_admin(current_user: dict) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los administradores pueden gestionar categorías",
         )
+
+
+def _clean_unit(value: str) -> str:
+    unit = clean_unit(value or "unidad")
+    if not unit:
+        raise HTTPException(status_code=400, detail="La unidad tiene que ser unidad o metro")
+    return unit
+
+
+def _clean_hint(value) -> str | None:
+    text = " ".join((value or "").strip().split())
+    if not text:
+        return None
+    if len(text) > 500:
+        raise HTTPException(status_code=400, detail="El texto de la categoría es demasiado largo")
+    return text
 
 
 def _clean_name(value: str) -> str:
@@ -79,6 +97,8 @@ def create_category(
         sort_order=(last.sort_order + 1) if last else 0,
         active=True if payload.active is None else bool(payload.active),
         is_consumable=bool(payload.is_consumable),
+        unit=_clean_unit(payload.unit),
+        hint=_clean_hint(payload.hint),
     )
     db.add(category)
     db.commit()
@@ -109,6 +129,8 @@ def update_category(
     category.name = name
     category.label = label
     category.is_consumable = bool(payload.is_consumable)
+    category.unit = _clean_unit(payload.unit)
+    category.hint = _clean_hint(payload.hint)
     if payload.active is not None:
         category.active = bool(payload.active)
 

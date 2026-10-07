@@ -19,6 +19,7 @@ import FeedbackModal from "./FeedbackModal";
 import ObraPicker from "./ObraPicker";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
+import { isMetro, measureMark, measureNoun } from "../measure";
 
 const ACTION_LABEL = {
   retiro: "Retiro",
@@ -48,6 +49,15 @@ function formatNoteWhen(value) {
   });
 }
 
+function codePrefixOf(code) {
+  const text = String(code || "").trim().toUpperCase();
+  const current = text.match(/^(.+)-(\d{2})-(\d+)$/);
+  if (current) return current[1];
+  const legacy = text.match(/^([A-Z](?:[A-Z0-9]|-(?=[A-Z0-9]))*)-(\d+)$/);
+  if (legacy) return legacy[1];
+  return text;
+}
+
 function repairAmountOf(unit) {
   return (Array.isArray(unit.out_places) ? unit.out_places : [])
     .filter((row) => row.place === REPAIR_PLACE && row.quantity > 0)
@@ -68,6 +78,7 @@ const PieceCard = ({
   returning,
   place = "depot",
   isAdmin = false,
+  onFeedback,
 }) => {
   const [notes, setNotes] = useState([]);
   const [note, setNote] = useState("");
@@ -128,8 +139,11 @@ const PieceCard = ({
         repair_note: draftBroken ? draftRepair.trim() : "",
       });
       onReload?.();
+      onFeedback?.({ type: "success", message: "Se guardó la pieza." });
     } catch (err) {
-      setLocalError(err.message || "No se pudo guardar la pieza");
+      const message = err.message || "No se pudo guardar la pieza";
+      setLocalError(message);
+      onFeedback?.({ type: "error", message });
     } finally {
       setSavingProfile(false);
     }
@@ -262,7 +276,7 @@ const PieceCard = ({
               {unit.name && <div className="fw-semibold">{unit.name}</div>}
               <div className="app-muted small">
                 {statusText}
-                {place === "depot" ? ` · ${unit.quantity ?? 1} en el código` : ""}
+                {place === "depot" ? ` · ${unit.quantity ?? 1}${isMetro(item.unit) ? " m" : " en el código"}` : ""}
                 {place === "obra" && obraLine ? ` · ${obraLine}` : ""}
                 {place === "repair" && inner && repairAmount > 0 ? ` · ${repairAmount}` : ""}
                 {unit.is_broken ? " · Rota" : ""}
@@ -538,6 +552,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [pieceRepair, setPieceRepair] = useState("");
   const [pieceInside, setPieceInside] = useState("");
   const [innerQuantity, setInnerQuantity] = useState(false);
+  const [measureUnit, setMeasureUnit] = useState(item?.unit || "unidad");
+  const [piecePrefixChoice, setPiecePrefixChoice] = useState(item?.code_prefix || "");
+  const [customPrefix, setCustomPrefix] = useState("");
+  const [openGroups, setOpenGroups] = useState({});
   const [addingMore, setAddingMore] = useState(false);
   const [offerAnother, setOfferAnother] = useState(false);
 
@@ -549,6 +567,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       setTrackUnits(Boolean(data.track_units));
       setConsumable(Boolean(data.is_consumable));
       setInnerQuantity(Boolean(data.inner_quantity));
+      if (data.unit) setMeasureUnit(data.unit);
     });
   };
 
@@ -574,6 +593,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setTrackUnits(Boolean(item.track_units));
     setConsumable(Boolean(item.is_consumable));
     setInnerQuantity(Boolean(item.inner_quantity));
+    setMeasureUnit(item.unit || "unidad");
+    setPiecePrefixChoice(item.code_prefix || "");
+    setCustomPrefix("");
+    setOpenGroups({});
     let cancelled = false;
     setLoading(true);
     getItemUnits(item.id, "all")
@@ -583,6 +606,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         setTrackUnits(Boolean(data.track_units));
         setConsumable(Boolean(data.is_consumable));
         setInnerQuantity(Boolean(data.inner_quantity ?? item.inner_quantity));
+        if (data.unit) setMeasureUnit(data.unit);
       })
       .catch((err) => {
         if (!cancelled) setError(err.message || "No se pudo abrir el detalle");
@@ -595,11 +619,26 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     };
   }, [isOpen, item, focusCode]);
 
+  const knownPrefixes = useMemo(() => {
+    const list = [];
+    const push = (value) => {
+      const prefix = codePrefixOf(value);
+      if (prefix && !list.includes(prefix)) list.push(prefix);
+    };
+    if (item?.code_prefix) push(item.code_prefix);
+    units.forEach((unit) => push(unit.code));
+    return list;
+  }, [units, item?.code_prefix]);
+
   useEffect(() => {
-    if (!isOpen || !trackUnits || !item?.code_prefix || offerAnother) return;
+    if (!isOpen || !trackUnits || offerAnother) return;
     if (units.length > 0 && !addingMore) return;
+    const prefix = piecePrefixChoice === "__new__"
+      ? customPrefix.trim().toUpperCase()
+      : (piecePrefixChoice || item?.code_prefix || "");
+    if (!prefix) return;
     let cancelled = false;
-    getNextCodes(1, item.code_prefix)
+    getNextCodes(1, prefix)
       .then((data) => {
         if (!cancelled) setPieceCode(data.codes?.[0] || "");
       })
@@ -609,7 +648,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     return () => {
       cancelled = true;
     };
-  }, [isOpen, trackUnits, item?.code_prefix, units.length, addingMore, offerAnother]);
+  }, [isOpen, trackUnits, item?.code_prefix, units.length, addingMore, offerAnother, piecePrefixChoice, customPrefix]);
 
   const addPiece = async () => {
     const code = pieceCode.trim();
@@ -658,7 +697,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const visibleUnits = useMemo(() => {
     const query = codeFilter.trim().toLowerCase();
     if (!query) return units;
-    return units.filter((unit) => (unit.code || "").toLowerCase().includes(query));
+    return units.filter((unit) => {
+      const code = (unit.code || "").toLowerCase();
+      const name = (unit.name || "").toLowerCase();
+      return code.includes(query) || name.includes(query);
+    });
   }, [units, codeFilter]);
   const inStock = useMemo(() => visibleUnits.filter((unit) => {
     if (unit.status === "consumida") return false;
@@ -804,35 +847,88 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     return (
     <section className="mb-4">
       <h6 className="mb-2">
-        {title} <span className="text-secondary fw-normal">({shown})</span>
+        {title} <span className="text-secondary fw-normal">({shown}{isMetro(measureUnit) && place !== "used" ? " m" : ""})</span>
       </h6>
       {list.length === 0 ? (
         <div className="text-secondary small">No hay piezas en esta sección.</div>
       ) : (
-        list.map((unit) => (
-          <PieceCard
-            key={`${place}-${unit.id}`}
-            unit={unit}
-            item={{ ...item, inner_quantity: innerQuantity }}
-            place={place}
-            selectable={false}
-            selected={false}
-            onToggle={() => {}}
-            onReload={() => {
-              reload().catch((err) => setError(err.message || "No se pudo actualizar"));
-            }}
-            onRetire={openRetire}
-            onDevolver={place === "repair" ? (unit) => openReturn(unit, true) : (unit) => openReturn(unit, false)}
-            onShowHistory={setHistoryUnit}
-            isAdmin={isAdmin}
-            onEditQuantity={(unit) => {
-              setQtyValue(unit.quantity == null ? "" : String(unit.quantity));
-              setQtyError("");
-              setQtyUnit(unit);
-            }}
-            returning={busy}
-          />
-        ))
+        (() => {
+          const groups = [];
+          const byPrefix = new Map();
+          list.forEach((unit) => {
+            const prefix = codePrefixOf(unit.code) || "Sin prefijo";
+            if (!byPrefix.has(prefix)) {
+              const group = { prefix, units: [], sample: unit.name || "" };
+              byPrefix.set(prefix, group);
+              groups.push(group);
+            } else if (!byPrefix.get(prefix).sample && unit.name) {
+              byPrefix.get(prefix).sample = unit.name;
+            }
+            byPrefix.get(prefix).units.push(unit);
+          });
+          const filtering = Boolean(codeFilter.trim());
+          const groupCount = (group) => {
+            if (innerQuantity && place === "depot") {
+              return group.units.reduce((sum, unit) => sum + (unit.quantity || 0), 0);
+            }
+            if (innerQuantity && place === "obra") {
+              return group.units.reduce((sum, unit) => sum + (unit.out_places || [])
+                .filter((row) => row.place !== REPAIR_PLACE)
+                .reduce((innerSum, row) => innerSum + (row.quantity || 0), 0), 0);
+            }
+            if (innerQuantity && place === "repair") {
+              return group.units.reduce((sum, unit) => sum + repairAmountOf(unit), 0);
+            }
+            return group.units.length;
+          };
+          return groups.map((group) => {
+            const key = `${place}:${group.prefix}`;
+            const expanded = filtering || groups.length <= 1 || Boolean(openGroups[key]);
+            return (
+              <div key={key}>
+                {groups.length > 1 && (
+                  <button
+                    type="button"
+                    className="btn btn-light border w-100 text-start mb-2"
+                    onClick={() => {
+                      if (filtering) return;
+                      setOpenGroups((prev) => ({ ...prev, [key]: !expanded }));
+                    }}
+                  >
+                    <span className="fw-semibold">{group.prefix}</span>
+                    {group.sample ? ` · ${group.sample}` : ""}
+                    <span className="text-secondary"> ({groupCount(group)}{isMetro(measureUnit) && place !== "used" ? " m" : ""})</span>
+                  </button>
+                )}
+                {expanded && group.units.map((unit) => (
+                  <PieceCard
+                    key={`${place}-${unit.id}`}
+                    unit={unit}
+                    item={{ ...item, inner_quantity: innerQuantity, unit: measureUnit }}
+                    place={place}
+                    selectable={false}
+                    selected={false}
+                    onToggle={() => {}}
+                    onReload={() => {
+                      reload().catch((err) => setError(err.message || "No se pudo actualizar"));
+                    }}
+                    onRetire={openRetire}
+                    onDevolver={place === "repair" ? (unit) => openReturn(unit, true) : (unit) => openReturn(unit, false)}
+                    onShowHistory={setHistoryUnit}
+                    isAdmin={isAdmin}
+                    onEditQuantity={(next) => {
+                      setQtyValue(next.quantity == null ? "" : String(next.quantity));
+                      setQtyError("");
+                      setQtyUnit(next);
+                    }}
+                    returning={busy}
+                    onFeedback={setFeedback}
+                  />
+                ))}
+              </div>
+            );
+          });
+        })()
       )}
     </section>
     );
@@ -871,7 +967,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
             ) : !trackUnits ? (
               <div>
                 <p className="mb-2">
-                  <strong>{item.actualAmount ?? 0} en depósito.</strong> Este grupo se lleva por cantidad.
+                  <strong>{item.actualAmount ?? 0}{measureMark(measureUnit)} en depósito.</strong> Este grupo se lleva por cantidad.
                   El retiro sigue siendo un número, no una pieza.
                 </p>
                 <p className="text-secondary small mb-0">
@@ -947,6 +1043,32 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                           {units.length === 0 ? " está en 0." : ""} El próximo código usa {item.code_prefix}.
                         </p>
                         <div className="mb-2">
+                          <label className="form-label mb-1">Tipo</label>
+                          <select
+                            className="form-select mb-2"
+                            value={knownPrefixes.includes(piecePrefixChoice) ? piecePrefixChoice : (piecePrefixChoice === "__new__" ? "__new__" : (knownPrefixes[0] || ""))}
+                            onChange={(e) => {
+                              setPiecePrefixChoice(e.target.value);
+                              if (e.target.value !== "__new__") setCustomPrefix("");
+                            }}
+                          >
+                            {knownPrefixes.map((prefix) => (
+                              <option key={prefix} value={prefix}>{prefix}</option>
+                            ))}
+                            <option value="__new__">Nuevo tipo</option>
+                          </select>
+                          {piecePrefixChoice === "__new__" && (
+                            <input
+                              className="form-control"
+                              value={customPrefix}
+                              placeholder="M-INT"
+                              maxLength={12}
+                              onChange={(e) => setCustomPrefix(e.target.value.toUpperCase())}
+                            />
+                          )}
+                          <div className="form-text">El próximo código sigue ese prefijo. La subcategoría no cambia.</div>
+                        </div>
+                        <div className="mb-2">
                           <label className="form-label mb-1">Código</label>
                           <input
                             className="form-control"
@@ -965,7 +1087,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                         </div>
                         {innerQuantity && (
                           <div className="mb-2">
-                            <label className="form-label mb-1">Cuántos hay adentro</label>
+                            <label className="form-label mb-1">{isMetro(measureUnit) ? "Cuántos metros hay" : "Cuántos hay adentro"}</label>
                             <input
                               type="number"
                               min="1"
@@ -1026,13 +1148,13 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                   </div>
                 )}
                 <div className="mb-3">
-                  <label className="form-label mb-1" htmlFor="detail-code-filter">Filtrar por código</label>
+                  <label className="form-label mb-1" htmlFor="detail-code-filter">Código o nombre</label>
                   <input
                     id="detail-code-filter"
                     className="form-control"
                     value={codeFilter}
-                    placeholder="HOR-26-001"
-                    onChange={(e) => setCodeFilter(e.target.value.toUpperCase())}
+                    placeholder="HOR-26-001 o el nombre"
+                    onChange={(e) => setCodeFilter(e.target.value)}
                   />
                 </div>
                 {codeFilter.trim() && inStock.length + onSite.length + inRepair.length + used.length === 0 && (
@@ -1071,7 +1193,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
               ></button>
             </div>
             <div className="modal-body">
-              <label className="form-label">Cuántos quedan en este código</label>
+              <label className="form-label">{isMetro(measureUnit) ? "Cuántos metros quedan en este código" : "Cuántos quedan en este código"}</label>
               <input
                 type="number"
                 min="0"
@@ -1218,16 +1340,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                       onChange={(e) => setPopupAmount(e.target.value)}
                     />
                   ) : (
-                    <div className="form-text">Se retiran los {actionUnit.unit.quantity ?? 0} de este código.</div>
+                    <div className="form-text">Se retiran los {actionUnit.unit.quantity ?? 0}{measureMark(measureUnit)} de este código.</div>
                   )}
                   {retireScope === "parcial" && (
-                    <div className="form-text">En este código quedan {actionUnit.unit.quantity ?? 0}.</div>
+                    <div className="form-text">En este código quedan {actionUnit.unit.quantity ?? 0}{measureMark(measureUnit)}.</div>
                   )}
                 </div>
               )}
               {innerQuantity && actionUnit.kind === "return" && (
                 <div className="mb-3">
-                  <label className="form-label">Cuántos</label>
+                  <label className="form-label">{isMetro(measureUnit) ? "Cuántos metros" : "Cuántos"}</label>
                   <input
                     type="number"
                     min="1"

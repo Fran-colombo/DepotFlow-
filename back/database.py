@@ -282,6 +282,16 @@ def ensure_inventory_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE categories ADD COLUMN seed_key VARCHAR"))
 
+    if _column_exists("categories", "id") and not _column_exists("categories", "unit"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE categories ADD COLUMN unit VARCHAR NOT NULL DEFAULT 'unidad'"
+            ))
+
+    if _column_exists("categories", "id") and not _column_exists("categories", "hint"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE categories ADD COLUMN hint VARCHAR"))
+
 
 def ensure_phone_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):

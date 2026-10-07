@@ -158,6 +158,8 @@ class Category(Base):
     sort_order = Column(Integer, nullable=False, default=0)
     active = Column(Boolean, default=True, nullable=False)
     is_consumable = Column(Boolean, default=False, nullable=False)
+    unit = Column(String, nullable=False, default="unidad")
+    hint = Column(String, nullable=True)
     seed_key = Column(String, unique=True, nullable=True, index=True)
 
 

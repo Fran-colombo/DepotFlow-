@@ -179,6 +179,19 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: 
     return {"access_token": token, "token_type": "bearer"}
 
 
+@router.post("/auth/refresh", response_model=Token)
+async def refresh_access_token(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    db: db_dependency,
+):
+    user = db.query(User).filter(User.id == current_user["user_id"]).first()
+    if not user or user.status == 0:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user")
+    role = user.role.value if hasattr(user.role, "value") else user.role
+    token = create_access_token(user.email, user.id, role, timedelta(minutes=30))
+    return {"access_token": token, "token_type": "bearer"}
+
+
 def delete_user_byId(db: Session, user_id: int):
     user = db.query(User).filter(User.id == user_id).first()
     if not user or user.status == 0:

@@ -275,7 +275,7 @@ const RetirarItemModal = ({
               <form onSubmit={handleSubmit}>
                 {!item?.track_units && (
                 <div className="mb-3">
-                  <label className="form-label">Cantidad a retirar</label>
+                  <label className="form-label">{item?.unit === "metro" ? "Metros a retirar" : "Cantidad a retirar"}</label>
                   <input
                     type="number"
                     className="form-control"

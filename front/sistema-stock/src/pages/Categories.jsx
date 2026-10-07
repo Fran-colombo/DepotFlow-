@@ -2,7 +2,38 @@ import { useEffect, useState } from "react";
 import { createCategory, getAdminCategories, updateCategory } from "../api/categories";
 import Dashboard from "./Dashboard";
 
-const emptyForm = { name: "", label: "", is_consumable: false };
+const emptyForm = { name: "", label: "", is_consumable: false, unit: "unidad", hint: "" };
+
+function UnitFields({ idPrefix, form, setForm }) {
+  return (
+    <>
+      <div className="mb-3">
+        <label className="form-label" htmlFor={`${idPrefix}-unit`}>Unidad</label>
+        <select
+          id={`${idPrefix}-unit`}
+          className="form-select"
+          value={form.unit || "unidad"}
+          onChange={(e) => setForm({ ...form, unit: e.target.value })}
+        >
+          <option value="unidad">Unidad</option>
+          <option value="metro">Metro</option>
+        </select>
+        <div className="form-text">En metros, 1 es un metro.</div>
+      </div>
+      <div className="mb-0">
+        <label className="form-label" htmlFor={`${idPrefix}-hint`}>Qué debería entrar ahí</label>
+        <textarea
+          id={`${idPrefix}-hint`}
+          className="form-control"
+          rows="3"
+          value={form.hint || ""}
+          placeholder="Por ejemplo: cables unipolares, cable taller, cable subterráneo."
+          onChange={(e) => setForm({ ...form, hint: e.target.value })}
+        />
+      </div>
+    </>
+  );
+}
 
 const CategoriesPage = () => {
   const [categories, setCategories] = useState([]);
@@ -39,6 +70,8 @@ const CategoriesPage = () => {
       name: category.name,
       label: category.label,
       is_consumable: Boolean(category.is_consumable),
+      unit: category.unit || "unidad",
+      hint: category.hint || "",
       active: category.active,
     });
     setPopupError("");
@@ -53,6 +86,8 @@ const CategoriesPage = () => {
         name: form.name.trim(),
         label: (form.label || form.name).trim(),
         is_consumable: Boolean(form.is_consumable),
+        unit: form.unit || "unidad",
+        hint: form.hint || "",
       });
       setForm(emptyForm);
       setFeedback("Categoría agregada");
@@ -74,6 +109,8 @@ const CategoriesPage = () => {
         name: editForm.name.trim(),
         label: (editForm.label || editForm.name).trim(),
         is_consumable: Boolean(editForm.is_consumable),
+        unit: editForm.unit || "unidad",
+        hint: editForm.hint || "",
         active: editing.active !== false,
       });
       setEditing(null);
@@ -149,6 +186,9 @@ const CategoriesPage = () => {
             <div className="form-text">Insumo, grifería, inodoro o bidet: al retirarlo queda usado.</div>
           </div>
         </div>
+        <div className="col-12 col-md-8">
+          <UnitFields idPrefix="create-category" form={form} setForm={setForm} />
+        </div>
         <div className="col-md-2">
           <button className="btn btn-primary" type="submit" disabled={saving}>
             Agregar
@@ -177,7 +217,10 @@ const CategoriesPage = () => {
                 <tr key={category.id} className={category.active ? "" : "text-secondary"}>
                   <td>{category.name}</td>
                   <td>{category.label}</td>
-                  <td>{category.is_consumable ? "No espera devolución" : "Puede volver"}</td>
+                  <td>
+                    {category.is_consumable ? "No espera devolución" : "Puede volver"}
+                    {category.unit === "metro" ? " · metros" : ""}
+                  </td>
                   <td>{category.active ? "Activa" : "Inactiva"}</td>
                   <td className="text-end">
                     <button
@@ -212,7 +255,7 @@ const CategoriesPage = () => {
           style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
           onClick={() => !saving && setEditing(null)}
         >
-          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
             <form className="modal-content rounded shadow-lg" onSubmit={handleEdit}>
               <div className="modal-header">
                 <h5 className="modal-title mb-0">Editar categoría</h5>
@@ -256,6 +299,7 @@ const CategoriesPage = () => {
                   </label>
                   <div className="form-text">Insumo, grifería, inodoro o bidet: al retirarlo queda usado.</div>
                 </div>
+                <UnitFields idPrefix="edit-category" form={editForm} setForm={setEditForm} />
                 {popupError && <div className="alert alert-danger py-2 mt-3 mb-0">{popupError}</div>}
               </div>
               <div className="modal-footer">

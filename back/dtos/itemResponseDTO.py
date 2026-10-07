@@ -18,6 +18,7 @@ class ItemResponseDTO(BaseModel):
     track_units: bool = False
     inner_quantity: bool = False
     is_consumable: bool = False
+    unit: str = "unidad"
     code_prefix: Optional[str] = None
 
     class Config:

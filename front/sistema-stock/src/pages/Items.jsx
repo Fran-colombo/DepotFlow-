@@ -21,6 +21,7 @@ import PendingLocationsModal from "../components/PendingLocationsModal";
 import ItemHistorialModal from "../components/ItemHistorialModal";
 import ItemImageModal from "../components/ItemImageModal";
 import ItemDetailModal from "../components/ItemDetailModal";
+import { measureMark } from "../measure";
 import FeedbackModal from "../components/FeedbackModal";
 
 const isConsumable = (item) => Boolean(item?.is_consumable);
@@ -92,9 +93,15 @@ const Items = () => {
 
   useEffect(() => {
     if (openMenuId == null) return;
-    const close = () => setOpenMenuId(null);
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
+    const close = (event) => {
+      if (event.target.closest?.("[data-item-menu]")) return;
+      setOpenMenuId(null);
+    };
+    const id = window.setTimeout(() => document.addEventListener("click", close), 0);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("click", close);
+    };
   }, [openMenuId]);
 
   useEffect(() => {
@@ -534,8 +541,8 @@ const Items = () => {
                     </div>
                     <div className="small text-secondary mb-1">{getLocationLabel(item)}</div>
                     <div className={`fw-semibold mb-2 ${isOutOfStock ? "text-danger" : "text-dark"}`}>
-                      {item.actualAmount} en depósito
-                      {item.totalAmount !== item.actualAmount ? ` · ${item.totalAmount} en total` : ""}
+                      {item.actualAmount}{measureMark(item.unit)} en depósito
+                      {item.totalAmount !== item.actualAmount ? ` · ${item.totalAmount}${measureMark(item.unit)} en total` : ""}
                     </div>
                     <button
                       type="button"
@@ -569,13 +576,17 @@ const Items = () => {
                     <button
                       type="button"
                       className="btn btn-sm btn-light border w-100"
+                      data-item-menu="true"
                       disabled={isLoading}
-                      onClick={() => setOpenMenuId((prev) => (prev === item.id ? null : item.id))}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId((prev) => (prev === item.id ? null : item.id));
+                      }}
                     >
                       {moreOpen ? "Cerrar" : "Más"}
                     </button>
                     {moreOpen && (
-                      <div className="d-grid gap-1 mt-2">
+                      <div className="d-grid gap-1 mt-2" data-item-menu="true">
                         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => { setOpenMenuId(null); setSelectedItem(item); setItemImageModal({ open: true, mode: "upload" }); }}>
                           {item.has_image ? "Actualizar imagen" : "Cargar imagen"}
                         </button>
@@ -726,10 +737,10 @@ const Items = () => {
                       </td>
                       <td className="text-end">
                         <div className={`fw-semibold ${isOutOfStock ? "text-danger" : "text-dark"}`}>
-                          {item.actualAmount} en depósito
+                          {item.actualAmount}{measureMark(item.unit)} en depósito
                         </div>
                         {item.totalAmount !== item.actualAmount && (
-                          <div className="app-muted small">{item.totalAmount} en total</div>
+                          <div className="app-muted small">{item.totalAmount}{measureMark(item.unit)} en total</div>
                         )}
                         <button
                           type="button"

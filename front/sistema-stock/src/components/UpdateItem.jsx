@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { addPiece, createItem, updateItem, updateItemCounting, getItems, getItemById, getItemUnits, getNextCodes, suggestPrefix } from "../api/items";
+import { addPiece, createItem, updateItem, updateItemCounting, getItems, getItemById, getItemUnits, getNextCodes, suggestPrefix, retirarItem } from "../api/items";
 import { getCategories } from "../api/categories";
+import { getObras } from "../api/obras";
+import ObraPicker from "./ObraPicker";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { printLabels } from "./printLabels";
@@ -23,6 +25,12 @@ const UpdateItemModal = ({
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [obras, setObras] = useState([]);
+  const [stockRevision, setStockRevision] = useState(0);
+  const [retireCode, setRetireCode] = useState("");
+  const [retireAmount, setRetireAmount] = useState("");
+  const [retirePlace, setRetirePlace] = useState("");
+  const [retirePerson, setRetirePerson] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -288,6 +296,21 @@ const UpdateItemModal = ({
   }, [isOpen, mode, formData.name, formData.quantityOnly, prefixTouched, createStep]);
 
   useEffect(() => {
+    if (!isOpen || mode !== "update") return;
+    let cancelled = false;
+    getObras()
+      .then((data) => {
+        if (!cancelled) setObras(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setObras([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, mode]);
+
+  useEffect(() => {
     if (!isOpen || mode !== "update" || !updateTracksUnits || (!updateInner && updateData.action !== "add")) {
       return;
     }
@@ -352,7 +375,7 @@ const UpdateItemModal = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, mode, updateTracksUnits, selectedUpdateItem?.id]);
+  }, [isOpen, mode, updateTracksUnits, selectedUpdateItem?.id, stockRevision]);
 
   const changedNames = () => {
     const renames = [];
@@ -433,8 +456,51 @@ const UpdateItemModal = ({
         return next;
       });
       refreshItems?.();
+      setStockRevision((value) => value + 1);
     } catch (err) {
       setError(err.message || "No se pudieron guardar las cantidades");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStockRetire = async () => {
+    if (!selectedUpdateItem?.id) return;
+    const onePiece = updateTracksUnits && !updateInner;
+    const amount = onePiece ? 1 : parseInt(retireAmount, 10);
+    if (!retirePlace.trim()) {
+      setError("Elegí una obra");
+      return;
+    }
+    if (!retirePerson.trim()) {
+      setError("Indicá quién lo retira");
+      return;
+    }
+    if (!amount || amount < 1) {
+      setError(selectedUpdateItem.unit === "metro" ? "Indicá cuántos metros" : "La cantidad tiene que ser mayor a 0");
+      return;
+    }
+    if ((updateTracksUnits || updateInner) && !retireCode) {
+      setError("Elegí el código");
+      return;
+    }
+    setIsLoading(true);
+    setError("");
+    try {
+      await retirarItem({
+        itemId: selectedUpdateItem.id,
+        amount,
+        place: retirePlace.trim(),
+        personWhoTook: retirePerson.trim(),
+        ...((updateTracksUnits || updateInner) ? { codes: [retireCode] } : {}),
+        noReturn: Boolean(selectedUpdateItem.is_consumable),
+      });
+      setRetireAmount("");
+      setRetirePerson("");
+      refreshItems?.();
+      setStockRevision((value) => value + 1);
+    } catch (err) {
+      setError(err.message || "No se pudo retirar");
     } finally {
       setIsLoading(false);
     }
@@ -527,34 +593,59 @@ const UpdateItemModal = ({
         return;
       } else {
         if (updateInner) {
-          const box = newPieces[0];
-          const inside = parseInt(box?.quantity, 10);
-          if (!box?.code?.trim() || !box?.name?.trim() || !inside || inside < 1) {
-            setError("La caja nueva necesita código, nombre y cuántos hay adentro");
-            setIsLoading(false);
-            return;
-          }
           const renames = changedNames();
           if (renames === null) {
             setIsLoading(false);
             return;
           }
+          const contents = [];
+          for (const piece of existingPieces) {
+            if (piece.status === "consumida") continue;
+            const next = parseInt(piece.quantity, 10);
+            if (piece.quantity === "" || Number.isNaN(next) || next < 0) {
+              setError("Indicá la cantidad de cada código");
+              setIsLoading(false);
+              return;
+            }
+            if (next !== savedQuantities[piece.id]) contents.push({ id: piece.id, quantity: next });
+          }
+          const box = newPieces[0];
+          const wantsBox = Boolean(box?.code?.trim() || box?.name?.trim() || String(box?.quantity || "").trim());
+          if (!wantsBox && !contents.length && !renames.length) {
+            setError("Cambiá la cantidad de un código o completá la caja nueva");
+            setIsLoading(false);
+            return;
+          }
+          if (wantsBox) {
+            const inside = parseInt(box?.quantity, 10);
+            if (!box?.code?.trim() || !box?.name?.trim() || !inside || inside < 1) {
+              setError("La caja nueva necesita código, nombre y cuántos hay adentro");
+              setIsLoading(false);
+              return;
+            }
+          }
           const updated = await updateItem(updateData.item_id, {
-            quantity: 1,
+            quantity: wantsBox ? 1 : 0,
             action: "add",
-            piece_names: [{
+            ...(wantsBox ? { piece_names: [{
               code: box.code.trim(),
               name: box.name.trim(),
-              quantity: inside,
-            }],
+              quantity: parseInt(box.quantity, 10),
+            }] } : {}),
+            ...(contents.length ? { contents } : {}),
             ...(renames.length ? { renames } : {}),
           });
           refreshItems?.();
-          setCreatedLabels({
-            name: selectedUpdateItem?.name || "Artículo",
-            codes: updated?.codes?.length ? updated.codes : [box.code.trim()],
-            category: selectedUpdateItem?.category || "",
-          });
+          setStockRevision((value) => value + 1);
+          if (wantsBox) {
+            setCreatedLabels({
+              name: selectedUpdateItem?.name || "Artículo",
+              codes: updated?.codes?.length ? updated.codes : [box.code.trim()],
+              category: selectedUpdateItem?.category || "",
+            });
+            return;
+          }
+          onClose();
           return;
         }
         const { item_id, action } = updateData;
@@ -660,7 +751,10 @@ const UpdateItemModal = ({
       tabIndex="-1"
       style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
     >
-      <div className="modal-dialog modal-dialog-centered" style={{ minWidth: "600px" }}>
+      <div
+        className="modal-dialog modal-dialog-centered modal-dialog-scrollable mx-auto"
+        style={{ width: "min(600px, calc(100vw - 1rem))", maxWidth: "100%", margin: "0.5rem auto" }}
+      >
         <div
           className="modal-content border-0 shadow-lg"
           style={{
@@ -695,7 +789,7 @@ const UpdateItemModal = ({
             ></button>
           </div>
 
-          <div className="modal-body px-4 py-3">
+          <div className="modal-body px-4 py-3" style={{ overflowY: "auto" }}>
             {createdLabels ? (
               <div>
                 <p>
@@ -788,7 +882,7 @@ const UpdateItemModal = ({
                   </div>
                   {createdSub?.inner_quantity && (
                     <div className="mb-3">
-                      <label className="form-label fw-bold" htmlFor="piece-inside">Cuántos hay adentro:</label>
+                      <label className="form-label fw-bold" htmlFor="piece-inside">{categories.find((cat) => cat.name === (createdSub?.category || formData.category))?.unit === "metro" ? "Cuántos metros hay:" : "Cuántos hay adentro:"}</label>
                       <input
                         id="piece-inside"
                         type="number"
@@ -908,6 +1002,11 @@ const UpdateItemModal = ({
                         </option>
                       ))}
                     </select>
+                    {categories.find((cat) => cat.name === formData.category)?.hint && (
+                      <div className="form-text mt-2">
+                        {categories.find((cat) => cat.name === formData.category).hint}
+                      </div>
+                    )}
                   </div>
 
                   <div className="mb-3">
@@ -1175,7 +1274,8 @@ const UpdateItemModal = ({
                             </div>
                           ))}
                           <div className="form-text mb-2">
-                            La cantidad es lo que queda en depósito de ese código. Cambiarla no crea otro código.
+                            Escribí la cantidad que queda en depósito. Puede ser cualquier número, no hace falta ir de a 1.
+                            {selectedUpdateItem?.unit === "metro" ? " 1 es un metro." : ""}
                           </div>
                           <div className="d-flex gap-2">
                             <button
@@ -1229,7 +1329,7 @@ const UpdateItemModal = ({
                             />
                           </div>
                         </div>
-                        <label className="form-label">Cuántos hay adentro</label>
+                        <label className="form-label">{selectedUpdateItem?.unit === "metro" ? "Cuántos metros hay" : "Cuántos hay adentro"}</label>
                         <input
                           type="number"
                           min="1"
@@ -1380,7 +1480,64 @@ const UpdateItemModal = ({
                 </>
               )}
 
-              <div className="d-flex justify-content-end mt-3 gap-2">
+              {mode === "update" && selectedUpdateItem && (
+                <div className="border rounded p-3 mb-3">
+                  <div className="form-label fw-bold">Retirar</div>
+                  {(updateTracksUnits || updateInner) && (
+                    <div className="mb-2">
+                      <label className="form-label">Código</label>
+                      <select
+                        className="form-select"
+                        value={retireCode}
+                        onChange={(e) => setRetireCode(e.target.value)}
+                      >
+                        <option value="">Elegí un código</option>
+                        {existingPieces
+                          .filter((piece) => piece.status !== "consumida" && (updateInner ? Number(piece.quantity) > 0 : piece.status === "en_stock"))
+                          .map((piece) => (
+                            <option key={piece.id} value={piece.code}>
+                              {piece.code}{piece.name ? ` · ${piece.name}` : ""}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
+                  {(!updateTracksUnits || updateInner) && (
+                    <div className="mb-2">
+                      <label className="form-label">{selectedUpdateItem.unit === "metro" ? "Metros" : "Cantidad"}</label>
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-control"
+                        value={retireAmount}
+                        onChange={(e) => setRetireAmount(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  <div className="mb-2">
+                    <label className="form-label">Obra</label>
+                    <ObraPicker obras={obras} value={retirePlace} onChange={setRetirePlace} />
+                  </div>
+                  <div className="mb-2">
+                    <label className="form-label">Quién lo retira</label>
+                    <input
+                      className="form-control"
+                      value={retirePerson}
+                      onChange={(e) => setRetirePerson(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline-danger btn-sm"
+                    disabled={isLoading}
+                    onClick={handleStockRetire}
+                  >
+                    Retirar
+                  </button>
+                </div>
+              )}
+
+              <div className="d-flex justify-content-end mt-3 gap-2 position-sticky bottom-0 bg-white py-2">
                 <button
                   type="button"
                   className="btn btn-outline-secondary"

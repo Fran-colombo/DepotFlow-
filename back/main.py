@@ -39,7 +39,7 @@ from item_images import router as item_images_router, delete_stored_image
 import categories
 import obras
 import sysadmin
-from item_categories import category_is_consumable, normalize_lookup, seed_categories
+from item_categories import category_is_consumable, category_units_by_name, normalize_lookup, seed_categories
 from pydantic import BaseModel
 from observations import add_unit_observation
 from unit_service import (
@@ -179,6 +179,7 @@ def read_items(
             normalize_lookup(category.name)
             for category in db.query(models.Category).filter(models.Category.is_consumable == True).all()
         }
+        unit_by_category = category_units_by_name(db)
 
         items = query.order_by(
                         models.Shed.name.asc().nullslast(),
@@ -197,6 +198,7 @@ def read_items(
             dto.track_units = bool(item.track_units)
             dto.inner_quantity = bool(item.inner_quantity)
             dto.is_consumable = normalize_lookup(item.category) in consumable_keys
+            dto.unit = unit_by_category.get(normalize_lookup(item.category), "unidad")
             data.append(dto)
 
         return {
@@ -529,6 +531,7 @@ def get_item_details(
             normalize_lookup(category.name)
             for category in db.query(models.Category).filter(models.Category.is_consumable == True).all()
         }
+        item_data["unit"] = category_units_by_name(db).get(normalize_lookup(item.category), "unidad")
         item_data["track_units"] = bool(item.track_units)
 
         response_data = {
@@ -662,6 +665,7 @@ def list_item_units(
         "track_units": bool(item.track_units),
         "inner_quantity": bool(item.inner_quantity),
         "is_consumable": category_is_consumable(db, item.category),
+        "unit": category_units_by_name(db).get(normalize_lookup(item.category), "unidad"),
         "units": [
             {
                 "id": unit.id,

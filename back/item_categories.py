@@ -91,6 +91,21 @@ def canonical_category(db: Session, raw: str):
     return None
 
 
+def clean_unit(value: str) -> str:
+    unit = (value or "unidad").strip().lower()
+    if unit not in ("unidad", "metro"):
+        return ""
+    return unit
+
+
+def category_units_by_name(db: Session) -> dict:
+    result = {}
+    for category in db.query(models.Category).all():
+        unit = clean_unit(getattr(category, "unit", None) or "unidad") or "unidad"
+        result[normalize_lookup(category.name)] = unit
+    return result
+
+
 def category_is_consumable(db: Session, name: str) -> bool:
     key = normalize_lookup(name)
     if not key:
@@ -109,4 +124,6 @@ def category_payload(category: models.Category) -> dict:
         "sort_order": category.sort_order,
         "active": bool(category.active),
         "is_consumable": bool(category.is_consumable),
+        "unit": clean_unit(getattr(category, "unit", None) or "unidad") or "unidad",
+        "hint": (category.hint or "").strip(),
     }
