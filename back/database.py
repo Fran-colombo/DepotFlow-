@@ -262,6 +262,10 @@ def ensure_inventory_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN damage_note VARCHAR"))
 
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "description"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE item_units ADD COLUMN description VARCHAR"))
+
     if _column_exists("item_units", "id") and not _column_exists("item_units", "repair_note"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN repair_note VARCHAR"))

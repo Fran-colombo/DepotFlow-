@@ -66,82 +66,8 @@ export default function AuthProvider({ children }) {
 
   const lastActivity = useRef(0);
   const refreshing = useRef(false);
-
-  useEffect(() => {
-    const mark = () => {
-      lastActivity.current = Date.now();
-      const token = localStorage.getItem("authToken");
-      if (!token || refreshing.current) return;
-      let exp = 0;
-      try {
-        exp = jwtDecode(token).exp * 1000;
-      } catch {
-        return;
-      }
-      if (exp - Date.now() > 5 * 60 * 1000) return;
-      refreshing.current = true;
-      refreshSession()
-        .then((data) => {
-          if (data?.access_token) handleLogin(data.access_token);
-        })
-        .catch(() => {})
-        .finally(() => {
-          refreshing.current = false;
-        });
-    };
-    setActivityListener(mark);
-    window.addEventListener("pointerdown", mark);
-    window.addEventListener("keydown", mark);
-    return () => {
-      setActivityListener(null);
-      window.removeEventListener("pointerdown", mark);
-      window.removeEventListener("keydown", mark);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!authState.token) return;
-
-    let decoded;
-    try {
-      decoded = jwtDecode(authState.token);
-    } catch {
-      handleLogout();
-      return;
-    }
-    const exp = decoded.exp * 1000;
-    const now = Date.now();
-
-    if (exp < now) {
-      handleLogout();
-      return;
-    }
-
-    let logoutId = 0;
-    const refreshId = setTimeout(async () => {
-      const idle = Date.now() - lastActivity.current;
-      const used = lastActivity.current > 0 && idle < 30 * 60 * 1000;
-      if (used) {
-        try {
-          const data = await refreshSession();
-          if (data?.access_token) {
-            handleLogin(data.access_token);
-            return;
-          }
-        } catch {
-          /* el token sigue hasta que vence */
-        }
-      }
-      const left = exp - Date.now();
-      logoutId = setTimeout(() => handleLogout(), Math.max(0, left));
-    }, Math.max(0, exp - now - 60 * 1000));
-
-    return () => {
-      clearTimeout(refreshId);
-      clearTimeout(logoutId);
-    };
-  }, [authState.token]);
-
+  const loginRef = useRef(null);
+  const logoutRef = useRef(null);
 
   const handleLogin = (token) => {
     localStorage.setItem('authToken', token);
@@ -166,6 +92,77 @@ export default function AuthProvider({ children }) {
       
     });
   };
+
+  loginRef.current = handleLogin;
+  logoutRef.current = handleLogout;
+
+  useEffect(() => {
+    const idleLimit = 30 * 60 * 1000;
+    const renewWithin = 10 * 60 * 1000;
+    const grace = 2 * 60 * 1000;
+
+    const maybeExtend = async () => {
+      const token = localStorage.getItem("authToken");
+      if (!token || refreshing.current) return;
+      let exp = 0;
+      try {
+        exp = jwtDecode(token).exp * 1000;
+      } catch {
+        logoutRef.current?.();
+        return;
+      }
+      const now = Date.now();
+      const active = lastActivity.current > 0 && now - lastActivity.current < idleLimit;
+      if (lastActivity.current > 0 && !active) {
+        logoutRef.current?.();
+        return;
+      }
+      const expired = exp <= now;
+      if (expired && (!active || now - exp >= grace)) {
+        logoutRef.current?.();
+        return;
+      }
+      if (!active || exp - now > renewWithin) return;
+      refreshing.current = true;
+      try {
+        const data = await refreshSession();
+        if (data?.access_token) loginRef.current?.(data.access_token);
+        else if (Date.now() >= exp) logoutRef.current?.();
+      } catch {
+        if (Date.now() >= exp) logoutRef.current?.();
+      } finally {
+        refreshing.current = false;
+      }
+    };
+
+    const mark = () => {
+      const now = Date.now();
+      if (lastActivity.current > 0 && now - lastActivity.current >= idleLimit) {
+        logoutRef.current?.();
+        return;
+      }
+      lastActivity.current = now;
+      maybeExtend();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") maybeExtend();
+    };
+
+    setActivityListener(mark);
+    window.addEventListener("pointerdown", mark);
+    window.addEventListener("keydown", mark);
+    document.addEventListener("visibilitychange", onVisible);
+    const tick = setInterval(maybeExtend, 60 * 1000);
+    maybeExtend();
+
+    return () => {
+      setActivityListener(null);
+      window.removeEventListener("pointerdown", mark);
+      window.removeEventListener("keydown", mark);
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(tick);
+    };
+  }, []);
 
   return (
     <AuthContext.Provider value={{ 

@@ -180,11 +180,12 @@ def select_relocatable_units(db: Session, item: models.Item, codes):
     return units
 
 
-def apply_piece_profile(unit, name: str, is_broken: bool, damage_note: str = None, repair_note: str = None):
+def apply_piece_profile(unit, name: str, is_broken: bool, damage_note: str = None, repair_note: str = None, description: str = None):
     cleaned = (name or "").strip()
     if not cleaned:
         raise ItemServiceError("El nombre de la pieza es obligatorio")
     unit.name = cleaned
+    unit.description = (description or "").strip() or None
     unit.is_broken = bool(is_broken)
     if unit.is_broken:
         unit.damage_note = (damage_note or "").strip() or None

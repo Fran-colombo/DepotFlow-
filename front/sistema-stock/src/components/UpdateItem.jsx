@@ -49,6 +49,7 @@ const UpdateItemModal = ({
   const [pieceCode, setPieceCode] = useState("");
   const [pieceName, setPieceName] = useState("");
   const [pieceNote, setPieceNote] = useState("");
+  const [pieceDescription, setPieceDescription] = useState("");
   const [pieceBroken, setPieceBroken] = useState(false);
   const [pieceDamage, setPieceDamage] = useState("");
   const [pieceRepair, setPieceRepair] = useState("");
@@ -94,6 +95,7 @@ const UpdateItemModal = ({
     setPieceCode("");
     setPieceName("");
     setPieceNote("");
+    setPieceDescription("");
     setPieceBroken(false);
     setPieceDamage("");
     setPieceRepair("");
@@ -534,6 +536,7 @@ const UpdateItemModal = ({
           const updated = await addPiece(createdSub.id, {
             code,
             name: pieceName.trim(),
+            description: pieceDescription.trim(),
             observation: pieceNote.trim(),
             is_broken: pieceBroken,
             damage_note: pieceBroken ? pieceDamage.trim() : "",
@@ -544,6 +547,7 @@ const UpdateItemModal = ({
           setAddedCodes((prev) => [...prev, saved]);
           setPieceName("");
           setPieceNote("");
+    setPieceDescription("");
           setPieceBroken(false);
           setPieceDamage("");
           setPieceRepair("");
@@ -720,6 +724,7 @@ const UpdateItemModal = ({
       setPieceCode(data.codes?.[0] || "");
       setPieceName("");
       setPieceNote("");
+    setPieceDescription("");
       setPieceBroken(false);
       setPieceDamage("");
       setPieceRepair("");
@@ -895,6 +900,17 @@ const UpdateItemModal = ({
                     </div>
                   )}
                   <div className="mb-3">
+                    <label className="form-label fw-bold" htmlFor="piece-description">Descripción:</label>
+                    <textarea
+                      id="piece-description"
+                      className="form-control"
+                      rows="2"
+                      value={pieceDescription}
+                      onChange={(e) => setPieceDescription(e.target.value)}
+                      placeholder="Qué es, para reconocerlo. No es una observación."
+                    />
+                  </div>
+                  <div className="mb-3">
                     <label className="form-label fw-bold" htmlFor="piece-note">Observación:</label>
                     <textarea
                       id="piece-note"
@@ -902,7 +918,7 @@ const UpdateItemModal = ({
                       rows="2"
                       value={pieceNote}
                       onChange={(e) => setPieceNote(e.target.value)}
-                      placeholder="Opcional"
+                      placeholder="Una nota de esta pieza, si hace falta"
                     />
                   </div>
                   <div className="form-check mb-3">

@@ -176,12 +176,17 @@ const Items = () => {
   const selectedOnPageCount = movableOnPage.filter((item) => selectedById[item.id]).length;
   const allPageSelected = movableOnPage.length > 0 && selectedOnPageCount === movableOnPage.length;
 
-  const handlePageChange = async (newPage) => {
+  const handlePageChange = async (newPage, pageSize = pagination.pageSize) => {
     setIsLoading(true);
     try {
-      const itemsData = await getItems(filters, newPage, pagination.pageSize);
+      const itemsData = await getItems(filters, newPage, pageSize);
       setItems(itemsData.data);
-      setPagination(prev => ({ ...prev, page: newPage }));
+      setPagination({
+        page: newPage,
+        pageSize,
+        totalRecords: itemsData.pagination.total_records,
+        totalPages: itemsData.pagination.total_pages,
+      });
     } catch (err) {
       console.error("Error cambiando página:", err);
     } finally {
@@ -1012,12 +1017,7 @@ const Items = () => {
                 <select
                   value={pagination.pageSize}
                   onChange={(e) => {
-                    setPagination({
-                      ...pagination,
-                      pageSize: Number(e.target.value),
-                      page: 1
-                    });
-                    handlePageChange(1);
+                    handlePageChange(1, Number(e.target.value));
                   }}
                   className="form-select form-select-sm w-auto"
                   disabled={isLoading}

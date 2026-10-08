@@ -90,6 +90,7 @@ const PieceCard = ({
   const [noteBusy, setNoteBusy] = useState(false);
   const [localError, setLocalError] = useState("");
   const [draftName, setDraftName] = useState(unit.name || "");
+  const [draftDescription, setDraftDescription] = useState(unit.description || "");
   const [draftBroken, setDraftBroken] = useState(Boolean(unit.is_broken));
   const [draftDamage, setDraftDamage] = useState(unit.damage_note || "");
   const [draftRepair, setDraftRepair] = useState(unit.repair_note || "");
@@ -119,10 +120,11 @@ const PieceCard = ({
 
   useEffect(() => {
     setDraftName(unit.name || "");
+    setDraftDescription(unit.description || "");
     setDraftBroken(Boolean(unit.is_broken));
     setDraftDamage(unit.damage_note || "");
     setDraftRepair(unit.repair_note || "");
-  }, [unit.id, unit.name, unit.is_broken, unit.damage_note, unit.repair_note]);
+  }, [unit.id, unit.name, unit.description, unit.is_broken, unit.damage_note, unit.repair_note]);
 
   const saveProfile = async () => {
     if (!draftName.trim()) {
@@ -134,6 +136,7 @@ const PieceCard = ({
     try {
       await updateUnitProfile(unit.id, {
         name: draftName.trim(),
+        description: draftDescription.trim(),
         is_broken: draftBroken,
         damage_note: draftBroken ? draftDamage.trim() : "",
         repair_note: draftBroken ? draftRepair.trim() : "",
@@ -274,6 +277,7 @@ const PieceCard = ({
             <div>
               <div className="fs-5 fw-bold">{unit.code}</div>
               {unit.name && <div className="fw-semibold">{unit.name}</div>}
+              {unit.description && <div className="small">{unit.description}</div>}
               <div className="app-muted small">
                 {statusText}
                 {place === "depot" ? ` · ${unit.quantity ?? 1}${isMetro(item.unit) ? " m" : " en el código"}` : ""}
@@ -419,6 +423,13 @@ const PieceCard = ({
               placeholder="Nombre de la pieza"
               onChange={(e) => setDraftName(e.target.value)}
             />
+            <textarea
+              className="form-control form-control-sm mb-2"
+              rows="2"
+              value={draftDescription}
+              placeholder="Descripción. Qué es, para reconocerlo."
+              onChange={(e) => setDraftDescription(e.target.value)}
+            />
             <div className="form-check mb-2">
               <input
                 id={`broken-${place}-${unit.id}`}
@@ -547,6 +558,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [pieceCode, setPieceCode] = useState("");
   const [pieceName, setPieceName] = useState("");
   const [pieceNote, setPieceNote] = useState("");
+  const [pieceDescription, setPieceDescription] = useState("");
   const [pieceBroken, setPieceBroken] = useState(false);
   const [pieceDamage, setPieceDamage] = useState("");
   const [pieceRepair, setPieceRepair] = useState("");
@@ -583,6 +595,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setPieceCode("");
     setPieceName("");
     setPieceNote("");
+    setPieceDescription("");
     setPieceBroken(false);
     setPieceDamage("");
     setPieceRepair("");
@@ -671,6 +684,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       await addPiece(item.id, {
         code,
         name: pieceName.trim(),
+        description: pieceDescription.trim(),
         observation: pieceNote.trim(),
         is_broken: pieceBroken,
         damage_note: pieceBroken ? pieceDamage.trim() : "",
@@ -679,6 +693,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       });
       setPieceName("");
       setPieceNote("");
+    setPieceDescription("");
       setPieceBroken(false);
       setPieceDamage("");
       setPieceRepair("");
@@ -1016,6 +1031,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                               setPieceCode("");
                               setPieceName("");
                               setPieceNote("");
+    setPieceDescription("");
                               setPieceBroken(false);
                               setPieceDamage("");
                               setPieceRepair("");
@@ -1098,12 +1114,22 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                           </div>
                         )}
                         <div className="mb-2">
+                          <label className="form-label mb-1">Descripción</label>
+                          <textarea
+                            className="form-control"
+                            rows="2"
+                            value={pieceDescription}
+                            placeholder="Qué es, para reconocerlo. No es una observación."
+                            onChange={(e) => setPieceDescription(e.target.value)}
+                          />
+                        </div>
+                        <div className="mb-2">
                           <label className="form-label mb-1">Observación</label>
                           <textarea
                             className="form-control"
                             rows="2"
                             value={pieceNote}
-                            placeholder="Opcional"
+                            placeholder="Una nota de esta pieza, si hace falta"
                             onChange={(e) => setPieceNote(e.target.value)}
                           />
                         </div>

@@ -1,5 +1,6 @@
 from datetime import timedelta, datetime
 import os
+import time
 from jose import jwt, JWTError
 from fastapi import HTTPException, APIRouter, Depends
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -47,25 +48,41 @@ def create_access_token(email: str, user_id: int, role: str, expires_delta: time
     return encoded_jwt
 
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+def _payload_from_token(token: str, leeway_seconds: int = 0) -> dict:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        user_id: int = payload.get("user_id")
-        role: str = payload.get("role")
-        if username is None or user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid authentication credentials",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return {"username": username, "user_id": user_id, "role": role}
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            options={"verify_exp": False},
+        )
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    username = payload.get("sub")
+    user_id = payload.get("user_id")
+    exp = payload.get("exp")
+    if username is None or user_id is None or exp is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    if time.time() > float(exp) + leeway_seconds:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
+
+
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+    payload = _payload_from_token(token)
+    return {"username": payload.get("sub"), "user_id": payload.get("user_id"), "role": payload.get("role")}
 
 
 def normalize_email(email: str | None) -> str:
@@ -181,10 +198,11 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: 
 
 @router.post("/auth/refresh", response_model=Token)
 async def refresh_access_token(
-    current_user: Annotated[dict, Depends(get_current_user)],
+    token: Annotated[str, Depends(oauth2_scheme)],
     db: db_dependency,
 ):
-    user = db.query(User).filter(User.id == current_user["user_id"]).first()
+    payload = _payload_from_token(token, leeway_seconds=120)
+    user = db.query(User).filter(User.id == payload.get("user_id")).first()
     if not user or user.status == 0:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user")
     role = user.role.value if hasattr(user.role, "value") else user.role

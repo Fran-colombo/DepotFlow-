@@ -676,6 +676,7 @@ def list_item_units(
                 "out_quantity": unit_out_quantity(db, unit) if item.inner_quantity else 0,
                 "out_places": unit_out_places(db, unit),
                 "name": unit.name,
+                "description": unit.description,
                 "is_broken": bool(unit.is_broken),
                 "damage_note": unit.damage_note,
                 "repair_note": unit.repair_note,
@@ -693,6 +694,7 @@ def list_item_units(
 class PieceCreateBody(BaseModel):
     code: Optional[str] = None
     name: str
+    description: Optional[str] = None
     observation: Optional[str] = None
     is_broken: bool = False
     damage_note: Optional[str] = None
@@ -702,6 +704,7 @@ class PieceCreateBody(BaseModel):
 
 class PieceUpdateBody(BaseModel):
     name: str
+    description: Optional[str] = None
     is_broken: bool = False
     damage_note: Optional[str] = None
     repair_note: Optional[str] = None
@@ -712,6 +715,7 @@ def _piece_response(unit) -> dict:
         "id": unit.id,
         "code": unit.code,
         "name": unit.name,
+        "description": unit.description,
         "is_broken": bool(unit.is_broken),
         "damage_note": unit.damage_note,
         "repair_note": unit.repair_note,
@@ -740,7 +744,7 @@ def create_piece(
             codes=[body.code] if body.code and body.code.strip() else None,
         )
         unit = units[0]
-        apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note)
+        apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note, body.description)
         content = 1
         if item.inner_quantity:
             if body.quantity is None or body.quantity < 1:
@@ -769,7 +773,7 @@ def update_piece(
     if not unit:
         raise HTTPException(status_code=404, detail="Pieza no encontrada")
     try:
-        apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note)
+        apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note, body.description)
         db.commit()
         db.refresh(unit)
     except ItemServiceError as e:

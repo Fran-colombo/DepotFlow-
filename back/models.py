@@ -175,6 +175,7 @@ class ItemUnit(Base):
     consumed_at = Column(DateTime, nullable=True)
     image_filename = Column(String, nullable=True)
     name = Column(String, nullable=True)
+    description = Column(String, nullable=True)
     is_broken = Column(Boolean, default=False, nullable=False)
     damage_note = Column(String, nullable=True)
     repair_note = Column(String, nullable=True)
