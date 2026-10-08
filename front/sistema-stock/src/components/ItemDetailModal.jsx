@@ -794,10 +794,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         repair: retireRepair,
       });
       setActionUnit(null);
+      setFeedback({
+        type: "success",
+        message: retireRepair ? "Se mandó a reparación." : "Se retiró.",
+      });
       await reload();
       onChanged?.();
     } catch (err) {
-      setPopupError(err.message || "No se pudo retirar");
+      setFeedback({ type: "error", message: err.message || "No se pudo retirar" });
     } finally {
       setBusy(false);
     }

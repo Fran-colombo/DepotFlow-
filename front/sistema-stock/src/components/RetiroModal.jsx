@@ -132,6 +132,7 @@ import { useEffect, useState } from "react";
 import { getItemById, getItemUnits, retirarItem } from "../api/items";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
+import FeedbackModal from "./FeedbackModal";
 
 const RetirarItemModal = ({ 
   itemId, 
@@ -147,6 +148,8 @@ const RetirarItemModal = ({
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState(null);
+  const [remitoDraft, setRemitoDraft] = useState(null);
   const [showRemitoConfirmation, setShowRemitoConfirmation] = useState(false);
   const [obras, setObras] = useState([]);
 
@@ -213,18 +216,20 @@ const RetirarItemModal = ({
         noReturn: Boolean(item?.is_consumable) || form.noReturn,
       });
       setRetiredCodes(result?.unit_codes || []);
-      
-      // Mostrar confirmación para remito
-      setShowRemitoConfirmation(true);
-      
-      // No cerramos el modal todavía, solo limpiamos el formulario
+      setRemitoDraft({
+        item,
+        amount,
+        place: form.place,
+        personWhoTook: form.personWhoTook || "Usuario actual",
+      });
       setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false });
-      
-      // Llamamos a onSuccess para actualizar la lista
       onSuccess?.();
+      setFeedback({ type: "success", message: "Se retiró." });
     } catch (error) {
-      const message = error?.response?.data?.detail || error.message || 'Ocurrió un error';
-      setError(message);
+      setFeedback({
+        type: "error",
+        message: error?.response?.data?.detail || error.message || "Ocurrió un error",
+      });
     } finally {
       setLoading(false);
     }
@@ -233,13 +238,7 @@ const RetirarItemModal = ({
   const handleGenerateRemito = () => {
     setShowRemitoConfirmation(false);
     onClose();
-    // Llamamos a la función para generar el remito con los datos del formulario
-    onGenerateRemito?.({
-      item,
-      amount: form.amount,
-      place: form.place,
-      personWhoTook: form.personWhoTook || 'Usuario actual' // Puedes ajustar esto
-    });
+    onGenerateRemito?.(remitoDraft);
   };
 
   const handleCancelRemito = () => {
@@ -460,6 +459,16 @@ const RetirarItemModal = ({
           </div>
         </div>
       )}
+      <FeedbackModal
+        open={Boolean(feedback)}
+        type={feedback?.type}
+        message={feedback?.message}
+        onClose={() => {
+          const done = feedback?.type === "success";
+          setFeedback(null);
+          if (done) setShowRemitoConfirmation(true);
+        }}
+      />
     </>
   );
 };

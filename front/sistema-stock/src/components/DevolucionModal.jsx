@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
 import FeedbackModal from "./FeedbackModal";
 
-const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, onFinished, defaultPlace = "" }) => {
+const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
   const [pendingPlaces, setPendingPlaces] = useState([]);
   const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '', codesText: '' });
@@ -86,9 +86,8 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, onFinished, def
         personWhoReturned: form.personWhoReturned.trim(),
         ...(codes.length ? { codes } : {}),
       });
-      onFinished?.({ type: "success", message: "Se devolvió al depósito." });
       onSuccess?.();
-      onClose();
+      setFeedback({ type: "success", message: "Se devolvió al depósito." });
     } catch (error) {
       setFeedback({ type: "error", message: error.message || "Ocurrió un error" });
     } finally {
@@ -101,6 +100,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, onFinished, def
   const noPending = !loadingPlaces && pendingPlaces.length === 0;
 
   return (
+    <>
     <div
       className="modal show d-block fade"
       tabIndex="-1"
@@ -223,13 +223,18 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, onFinished, def
           </div>
         </div>
       </div>
-      <FeedbackModal
-        open={Boolean(feedback)}
-        type={feedback?.type}
-        message={feedback?.message}
-        onClose={() => setFeedback(null)}
-      />
     </div>
+    <FeedbackModal
+      open={Boolean(feedback)}
+      type={feedback?.type}
+      message={feedback?.message}
+      onClose={() => {
+        const done = feedback?.type === "success";
+        setFeedback(null);
+        if (done) onClose();
+      }}
+    />
+    </>
   );
 };
 

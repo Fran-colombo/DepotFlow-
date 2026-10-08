@@ -6,6 +6,7 @@ import ObraPicker from "./ObraPicker";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { printLabels } from "./printLabels";
+import FeedbackModal from "./FeedbackModal";
 import useAuth from "../hooks/useAuth";
 
 const UpdateItemModal = ({
@@ -22,6 +23,7 @@ const UpdateItemModal = ({
   const [sheds, setSheds] = useState([]);
   const [zones, setZones] = useState([]);
   const [error, setError] = useState("");
+  const [feedback, setFeedback] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [categories, setCategories] = useState([]);
@@ -501,8 +503,9 @@ const UpdateItemModal = ({
       setRetirePerson("");
       refreshItems?.();
       setStockRevision((value) => value + 1);
+      setFeedback({ type: "success", message: "Se retiró." });
     } catch (err) {
-      setError(err.message || "No se pudo retirar");
+      setFeedback({ type: "error", message: err.message || "No se pudo retirar" });
     } finally {
       setIsLoading(false);
     }
@@ -751,6 +754,7 @@ const UpdateItemModal = ({
   if (!isOpen) return null;
 
   return (
+    <>
     <div
       className="modal show d-block fade"
       tabIndex="-1"
@@ -1588,6 +1592,13 @@ const UpdateItemModal = ({
         </div>
       </div>
     </div>
+    <FeedbackModal
+      open={Boolean(feedback)}
+      type={feedback?.type}
+      message={feedback?.message}
+      onClose={() => setFeedback(null)}
+    />
+    </>
   );
 };
 
