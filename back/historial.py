@@ -24,6 +24,7 @@ from reportlab.lib.units import cm
 
 import pytz
 from item_categories import category_is_consumable
+from obras import require_active_obra
 from item_service import ItemServiceError
 from unit_service import (
     REPAIR_PLACE,
@@ -786,6 +787,7 @@ def trasladar_item(
         raise HTTPException(400, "La reparación no es una obra")
     if not from_place or not to_place:
         raise HTTPException(400, "Origen y destino son obligatorios")
+    to_place = require_active_obra(db, to_place)
     if from_place.lower() == to_place.lower():
         raise HTTPException(400, "El origen y el destino deben ser distintos")
     if dto.amount <= 0:
@@ -801,9 +803,22 @@ def trasladar_item(
             "Los materiales consumibles no se pueden trasladar entre obras",
         )
 
-    moved_units = units_for_pending_place(db, item, from_place, dto.amount) if item.track_units else []
+    chosen_unit = None
+    code = (dto.code or "").strip()
+    if code:
+        try:
+            chosen_unit = find_unit_by_code(db, code)
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+        if not chosen_unit or chosen_unit.item_id != item.id:
+            raise HTTPException(400, "El código no pertenece a este artículo")
 
-    pendientes = (
+    if chosen_unit is not None:
+        moved_units = [chosen_unit] if item.track_units else []
+    else:
+        moved_units = units_for_pending_place(db, item, from_place, dto.amount) if item.track_units else []
+
+    pendientes_query = (
         db.query(models.History)
         .filter(
             models.History.itemId == dto.itemId,
@@ -812,9 +827,14 @@ def trasladar_item(
             models.History.place == from_place,
             models.History.amountNotReturned > 0,
         )
-        .order_by(models.History.date.asc())
-        .all()
     )
+    if chosen_unit is not None:
+        linked_ids = (
+            db.query(models.HistoryUnit.history_id)
+            .filter(models.HistoryUnit.unit_id == chosen_unit.id)
+        )
+        pendientes_query = pendientes_query.filter(models.History.id.in_(linked_ids))
+    pendientes = pendientes_query.order_by(models.History.date.asc()).all()
 
     total_pendiente = sum(p.amountNotReturned or 0 for p in pendientes)
     if dto.amount > total_pendiente:

@@ -18,6 +18,7 @@ import { getObras } from "../api/obras";
 import FeedbackModal from "./FeedbackModal";
 import ObraPicker from "./ObraPicker";
 import PersonPicker from "./PersonPicker";
+import TrasladoModal from "./TrasladoModal";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
 import { isMetro, measureMark, measureNoun } from "../measure";
@@ -74,6 +75,7 @@ const PieceCard = ({
   onReload,
   onRetire,
   onDevolver,
+  onTransfer,
   onShowHistory,
   onEditQuantity,
   returning,
@@ -324,6 +326,16 @@ const PieceCard = ({
                   Retirar
                 </button>
               )}
+              {onTransfer && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-info"
+                  disabled={returning}
+                  onClick={() => onTransfer(unit)}
+                >
+                  Trasladar
+                </button>
+              )}
               {canReturn && (
                 <button
                   type="button"
@@ -555,6 +567,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [obras, setObras] = useState([]);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
+  const [transferUnit, setTransferUnit] = useState(null);
   const [freshCodes, setFreshCodes] = useState([]);
   const [pieceCode, setPieceCode] = useState("");
   const [pieceName, setPieceName] = useState("");
@@ -852,6 +865,24 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     printLabels(item.name, codes, item.category || "");
   };
 
+  const openTransfer = (unit) => {
+    let places = (unit.out_places || [])
+      .filter((row) => row.place && row.place !== REPAIR_PLACE && row.quantity > 0)
+      .map((row) => ({
+        place: row.place,
+        pending_amount: innerQuantity ? row.quantity : 1,
+      }));
+    if (!innerQuantity && places.length === 0) {
+      const place = lastRetiroPlace(unit);
+      if (place) places = [{ place, pending_amount: 1 }];
+    }
+    setTransferUnit({
+      code: unit.code,
+      places,
+      fromPlace: places.length === 1 ? places[0].place : "",
+    });
+  };
+
   const section = (title, list, place) => {
     const shown = innerQuantity && place === "depot"
       ? list.reduce((sum, unit) => sum + (unit.quantity || 0), 0)
@@ -934,6 +965,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     }}
                     onRetire={openRetire}
                     onDevolver={place === "repair" ? (unit) => openReturn(unit, true) : (unit) => openReturn(unit, false)}
+                    onTransfer={place === "obra" && !consumable ? openTransfer : undefined}
                     onShowHistory={setHistoryUnit}
                     isAdmin={isAdmin}
                     onEditQuantity={(next) => {
@@ -1517,6 +1549,23 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
           </div>
         </div>
       </div>
+    )}
+    {transferUnit && (
+      <TrasladoModal
+        itemId={item.id}
+        code={transferUnit.code}
+        places={transferUnit.places}
+        defaultFromPlace={transferUnit.fromPlace}
+        isOpen
+        onClose={() => setTransferUnit(null)}
+        onSuccess={async () => {
+          await reload();
+          onChanged?.();
+        }}
+        onFinished={(result) => {
+          if (result?.type === "success") setFeedback(result);
+        }}
+      />
     )}
     <FeedbackModal
       open={Boolean(feedback)}

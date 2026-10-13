@@ -8,3 +8,4 @@ class TrasladoDTO(BaseModel):
     fromPlace: str
     toPlace: str
     personWhoMoved: Optional[str] = None
+    code: Optional[str] = None

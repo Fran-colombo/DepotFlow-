@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import {
   getItemById,
   getPendingPlaces,
-  getHistorialPlaces,
   trasladarItem,
 } from "../api/items";
+import { getObras } from "../api/obras";
 import FeedbackModal from "./FeedbackModal";
-
-const OTHER_VALUE = "__other__";
 
 const TrasladoModal = ({
   itemId,
@@ -16,15 +14,16 @@ const TrasladoModal = ({
   onSuccess,
   onFinished,
   defaultFromPlace = "",
+  code = "",
+  places = null,
 }) => {
   const [item, setItem] = useState(null);
   const [pendingPlaces, setPendingPlaces] = useState([]);
-  const [knownPlaces, setKnownPlaces] = useState([]);
+  const [obras, setObras] = useState([]);
   const [form, setForm] = useState({
     amount: "",
     fromPlace: "",
     toPlaceSelect: "",
-    toPlaceOther: "",
     personWhoMoved: "",
   });
   const [loading, setLoading] = useState(false);
@@ -39,25 +38,26 @@ const TrasladoModal = ({
       amount: "",
       fromPlace: defaultFromPlace || "",
       toPlaceSelect: "",
-      toPlaceOther: "",
       personWhoMoved: "",
     });
     setError("");
     setFeedback(null);
     setPendingPlaces([]);
-    setKnownPlaces([]);
+    setObras([]);
 
     getItemById(itemId)
       .then((res) => setItem(res.item || res))
       .catch(console.error);
 
     setLoadingPlaces(true);
-    Promise.all([getPendingPlaces(itemId), getHistorialPlaces()])
-      .then(([pending, known]) => {
+    const pendingRequest = Array.isArray(places)
+      ? Promise.resolve(places)
+      : getPendingPlaces(itemId);
+    Promise.all([pendingRequest, getObras()])
+      .then(([pending, obraList]) => {
         const pendingList = Array.isArray(pending) ? pending : [];
-        const knownList = Array.isArray(known) ? known : [];
         setPendingPlaces(pendingList);
-        setKnownPlaces(knownList);
+        setObras(Array.isArray(obraList) ? obraList : []);
 
         if (defaultFromPlace && pendingList.some((p) => p.place === defaultFromPlace)) {
           setForm((prev) => ({ ...prev, fromPlace: defaultFromPlace }));
@@ -69,27 +69,24 @@ const TrasladoModal = ({
         console.error(err);
         setError(err.message || "Error al cargar lugares");
         setPendingPlaces([]);
-        setKnownPlaces([]);
+        setObras([]);
       })
       .finally(() => setLoadingPlaces(false));
-  }, [isOpen, itemId, defaultFromPlace]);
+  }, [isOpen, itemId, defaultFromPlace, code, places]);
 
   const selectedPlace = pendingPlaces.find((p) => p.place === form.fromPlace);
   const maxAmount = selectedPlace?.pending_amount ?? 0;
   const noPending = !loadingPlaces && pendingPlaces.length === 0;
 
-  const destinationOptions = knownPlaces
-    .map((p) => p.place)
+  const destinationOptions = obras
+    .map((obra) => obra.name)
     .filter(
-      (place) =>
-        place &&
-        place.toLowerCase() !== (form.fromPlace || "").toLowerCase()
+      (name) =>
+        name &&
+        name.toLowerCase() !== (form.fromPlace || "").toLowerCase()
     );
 
-  const resolvedToPlace =
-    form.toPlaceSelect === OTHER_VALUE
-      ? form.toPlaceOther.trim()
-      : form.toPlaceSelect.trim();
+  const resolvedToPlace = form.toPlaceSelect.trim();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -142,6 +139,7 @@ const TrasladoModal = ({
         fromPlace: form.fromPlace,
         toPlace,
         personWhoMoved: form.personWhoMoved.trim(),
+        ...(code ? { code } : {}),
       });
       onFinished?.({ type: "success", message: `Se trasladó a ${toPlace}.` });
       onSuccess?.();
@@ -159,7 +157,7 @@ const TrasladoModal = ({
     <div
       className="modal show d-block fade"
       tabIndex="-1"
-      style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+      style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1070 }}
       onClick={onClose}
     >
       <div
@@ -183,6 +181,11 @@ const TrasladoModal = ({
               Mueve ítems pendientes de una obra a otra sin devolverlos al depósito
               (el stock del depósito no cambia).
             </p>
+            {code && (
+              <p className="mb-3">
+                Código: <span className="fw-semibold">{code}</span>
+              </p>
+            )}
             <form onSubmit={handleSubmit}>
               <div className="mb-3">
                 <label className="form-label">Origen</label>
@@ -195,7 +198,7 @@ const TrasladoModal = ({
                       fromPlace: e.target.value,
                       amount: "",
                       toPlaceSelect:
-                        form.toPlaceSelect === e.target.value
+                        form.toPlaceSelect.toLowerCase() === e.target.value.toLowerCase()
                           ? ""
                           : form.toPlaceSelect,
                     })
@@ -229,8 +232,6 @@ const TrasladoModal = ({
                     setForm({
                       ...form,
                       toPlaceSelect: e.target.value,
-                      toPlaceOther:
-                        e.target.value === OTHER_VALUE ? form.toPlaceOther : "",
                     })
                   }
                   required
@@ -242,19 +243,9 @@ const TrasladoModal = ({
                       {place}
                     </option>
                   ))}
-                  <option value={OTHER_VALUE}>Otro…</option>
                 </select>
-                {form.toPlaceSelect === OTHER_VALUE && (
-                  <input
-                    type="text"
-                    className="form-control mt-2"
-                    placeholder="Nombre del nuevo lugar"
-                    value={form.toPlaceOther}
-                    onChange={(e) =>
-                      setForm({ ...form, toPlaceOther: e.target.value })
-                    }
-                    required
-                  />
+                {!loadingPlaces && destinationOptions.length === 0 && (
+                  <div className="form-text">No hay otra obra abierta para el destino.</div>
                 )}
               </div>
 
