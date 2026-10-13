@@ -927,9 +927,10 @@ def generate_remito(
         left = 1.6 * cm
         right = width - 1.6 * cm
         table_w = right - left
-        row_h = 0.75 * cm
-        columns = [1.3 * cm, 3.6 * cm, table_w - 7.4 * cm, 2.5 * cm]
-        headers = ["Nº", "Código", "Descripción", "Cantidad"]
+        head_h = 0.75 * cm
+        row_h = 1.55 * cm
+        columns = [1.1 * cm, 3.2 * cm, table_w - 12.1 * cm, 2.0 * cm, 5.8 * cm]
+        headers = ["Nº", "Código", "Descripción", "Cantidad", "Quién, fecha y obra"]
 
         def header_block():
             y = height - 1.6 * cm
@@ -963,36 +964,49 @@ def generate_remito(
 
         def draw_header_row(y):
             p.setFillColorRGB(0.93, 0.94, 0.95)
-            p.rect(left, y - row_h, table_w, row_h, fill=1, stroke=0)
+            p.rect(left, y - head_h, table_w, head_h, fill=1, stroke=0)
             p.setFillColorRGB(0, 0, 0)
-            p.setFont("Helvetica-Bold", 9)
+            p.setFont("Helvetica-Bold", 8)
             x = left
             for index, title in enumerate(headers):
-                p.drawString(x + 0.15 * cm, y - 0.48 * cm, title)
+                p.drawString(x + 0.12 * cm, y - 0.48 * cm, clip(title, "Helvetica-Bold", 8, columns[index] - 0.24 * cm))
                 x += columns[index]
             p.setStrokeColorRGB(0.75, 0.75, 0.75)
-            p.rect(left, y - row_h, table_w, row_h, fill=0, stroke=1)
-            return y - row_h
+            p.rect(left, y - head_h, table_w, head_h, fill=0, stroke=1)
+            return y - head_h
 
         y = header_block()
         y = draw_header_row(y)
-        p.setFont("Helvetica", 9)
         for index, row in enumerate(rows, start=1):
             if y - row_h < 3.2 * cm:
                 p.showPage()
                 y = header_block()
                 y = draw_header_row(y)
-                p.setFont("Helvetica", 9)
+            when = row["date"].strftime("%d/%m/%Y") if row["date"] else "—"
+            detail = [
+                (row["personWhoTook"] or "").strip() or "—",
+                when,
+                (row["place"] or "").strip() or "—",
+            ]
             values = [
                 str(index),
-                clip(row["code"], "Helvetica", 9, columns[1] - 0.3 * cm),
-                clip(row["description"], "Helvetica", 9, columns[2] - 0.3 * cm),
-                clip(str(row["amountRetired"] if row["amountRetired"] is not None else ""), "Helvetica", 9, columns[3] - 0.3 * cm),
+                clip(row["code"], "Helvetica", 9, columns[1] - 0.24 * cm),
+                clip(row["description"], "Helvetica", 9, columns[2] - 0.24 * cm),
+                clip(str(row["amountRetired"] if row["amountRetired"] is not None else ""), "Helvetica", 9, columns[3] - 0.24 * cm),
             ]
+            p.setFont("Helvetica", 9)
             x = left
             for col, value in enumerate(values):
-                p.drawString(x + 0.15 * cm, y - 0.48 * cm, value)
+                p.drawString(x + 0.12 * cm, y - 0.48 * cm, value)
                 x += columns[col]
+            p.setFont("Helvetica", 8)
+            for line, text in enumerate(detail):
+                p.drawString(
+                    x + 0.12 * cm,
+                    y - 0.42 * cm - line * 0.42 * cm,
+                    clip(text, "Helvetica", 8, columns[4] - 0.24 * cm),
+                )
+            p.setStrokeColorRGB(0.75, 0.75, 0.75)
             p.rect(left, y - row_h, table_w, row_h, fill=0, stroke=1)
             y -= row_h
 
@@ -1046,7 +1060,7 @@ def generate_remito(
             histories.append({
                 "code": code,
                 "description": description,
-                "personWhoTook": history.personWhoTook,
+                "personWhoTook": history.personWhoTook or history.userName,
                 "amountRetired": amount,
                 "place": history.place,
                 "shedName": shed_name,
