@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { getFilteredHistorial } from "../api/items";
+import { getObras } from "../api/obras";
+import FeedbackModal from "./FeedbackModal";
 
 export default function PackingSlipModal({onClose}) {
   const [historial, setHistorial] = useState([]);
@@ -12,11 +14,22 @@ export default function PackingSlipModal({onClose}) {
   totalPages: 1,
 });
 const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const [feedback, setFeedback] = useState(null);
+  const [obras, setObras] = useState([]);
   const [filters, setFilters] = useState({
     itemName: "",
+    personWhoTook: "",
+    day: "",
     month: new Date().getMonth() + 1,
-    year: new Date().getFullYear()
+    year: new Date().getFullYear(),
+    place: "",
+    action: "retiro",
   });
+
+  useEffect(() => {
+    getObras().then((data) => setObras(Array.isArray(data) ? data : [])).catch(() => setObras([]));
+  }, []);
 
   useEffect(() => {
     loadHistorial();
@@ -69,6 +82,8 @@ async function confirmarGenerarRemito() {
     window.open(url, "_blank");
 
     setShowConfirmModal(false);
+    setSelectedIds([]);
+    setFeedback({ type: "success", message: "Se generó el remito." });
   } catch (err) {
     console.error(err);
     alert(err.message || "Error generando el remito");
@@ -86,10 +101,38 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
+    setSelectedIds([]);
     setFilters(prev => ({
       ...prev,
-      [name]: value
+      [name]: name === "day" ? value.replace(/\D/g, "").slice(0, 2) : value
     }));
+    setPagination(prev => ({ ...prev, page: 1 }));
+  };
+
+  const allSelected = pagination.totalRecords > 0 && selectedIds.length >= pagination.totalRecords;
+
+  const toggleSelectAll = async () => {
+    if (allSelected) {
+      setSelectedIds([]);
+      return;
+    }
+    setSelectingAll(true);
+    try {
+      const ids = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const res = await getFilteredHistorial(filters, page, 100);
+        ids.push(...(res.data || []).map((row) => row.id));
+        totalPages = res.pagination?.total_pages || 0;
+        page += 1;
+      } while (page <= totalPages);
+      setSelectedIds([...new Set(ids)]);
+    } catch (err) {
+      setFeedback({ type: "error", message: err.message || "No se pudo seleccionar" });
+    } finally {
+      setSelectingAll(false);
+    }
   };
 
   const months = [
@@ -184,6 +227,56 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
                   max="2100"
                 />
               </div>
+              <div className="col-md-3">
+                <label className="form-label">Día</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  name="day"
+                  value={filters.day}
+                  onChange={handleFilterChange}
+                  className="form-control"
+                  placeholder="Todo el mes"
+                />
+              </div>
+              <div className="col-md-4">
+                <label className="form-label">Persona</label>
+                <input
+                  type="text"
+                  name="personWhoTook"
+                  value={filters.personWhoTook}
+                  onChange={handleFilterChange}
+                  className="form-control"
+                  placeholder="Quién retiró"
+                />
+              </div>
+              <div className="col-md-5">
+                <label className="form-label">Obra</label>
+                <select
+                  name="place"
+                  value={filters.place}
+                  onChange={handleFilterChange}
+                  className="form-select"
+                >
+                  <option value="">Todas</option>
+                  {obras.map((obra) => (
+                    <option key={obra.id} value={obra.name}>{obra.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="form-check mb-3">
+              <input
+                id="remito-select-all"
+                type="checkbox"
+                className="form-check-input"
+                checked={allSelected}
+                disabled={loading || selectingAll || pagination.totalRecords === 0}
+                onChange={toggleSelectAll}
+              />
+              <label className="form-check-label" htmlFor="remito-select-all">
+                {selectingAll ? "Seleccionando…" : "Seleccionar todo"}
+              </label>
             </div>
 
             {loading ? (
@@ -297,6 +390,13 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
     </div>
 
    </div>
+
+        <FeedbackModal
+          open={Boolean(feedback)}
+          type={feedback?.type}
+          message={feedback?.message}
+          onClose={() => setFeedback(null)}
+        />
 
         {showConfirmModal && (
     <div

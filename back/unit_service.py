@@ -333,15 +333,15 @@ def add_inner_boxes(db: Session, item: models.Item, pieces) -> list:
         raise ItemServiceError("Esta subcategoría no guarda cantidad dentro del código")
     units = []
     for piece in pieces or []:
-        inside = piece.quantity
-        if inside is None or int(inside) < 1:
+        inside = int(piece.quantity) if piece.quantity is not None else 0
+        if inside < 1:
             raise ItemServiceError("Indicá cuántos hay adentro")
         created = create_units_for_item(db, item, 1, codes=[piece.code])
         unit = created[0]
         rename_unit(unit, piece.name)
-        unit.quantity = int(inside)
-        item.actualAmount = int(item.actualAmount or 0) + int(inside)
-        item.totalAmount = int(item.totalAmount or 0) + int(inside)
+        unit.quantity = inside
+        item.actualAmount = int(item.actualAmount or 0) + inside
+        item.totalAmount = int(item.totalAmount or 0) + inside
         units.append(unit)
     item._created_codes = [unit.code for unit in units]
     return units

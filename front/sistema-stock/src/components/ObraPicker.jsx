@@ -66,6 +66,9 @@ const ObraPicker = ({ obras, value, onChange }) => {
             autoFocus
             aria-label="Buscar obra"
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
           />
           <div className="obra-picker-list" role="listbox" aria-label="Obra de destino">
             {filtered.length === 0 ? (

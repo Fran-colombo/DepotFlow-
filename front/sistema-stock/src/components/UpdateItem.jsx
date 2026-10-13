@@ -3,6 +3,7 @@ import { addPiece, createItem, updateItem, updateItemCounting, getItems, getItem
 import { getCategories } from "../api/categories";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
+import PersonPicker from "./PersonPicker";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { printLabels } from "./printLabels";
@@ -29,6 +30,7 @@ const UpdateItemModal = ({
   const [categories, setCategories] = useState([]);
   const [obras, setObras] = useState([]);
   const [stockRevision, setStockRevision] = useState(0);
+  const [showRetire, setShowRetire] = useState(false);
   const [retireCode, setRetireCode] = useState("");
   const [retireAmount, setRetireAmount] = useState("");
   const [retirePlace, setRetirePlace] = useState("");
@@ -103,6 +105,7 @@ const UpdateItemModal = ({
     setPieceRepair("");
     setPieceContent("");
     setAddedCodes([]);
+    setShowRetire(false);
     setUpdateData({
       item_id: itemId != null ? Number(itemId) : "",
       quantity: 1,
@@ -617,27 +620,27 @@ const UpdateItemModal = ({
             if (next !== savedQuantities[piece.id]) contents.push({ id: piece.id, quantity: next });
           }
           const box = newPieces[0];
-          const wantsBox = Boolean(box?.code?.trim() || box?.name?.trim() || String(box?.quantity || "").trim());
+          const boxName = (box?.name || "").trim();
+          const boxRaw = String(box?.quantity ?? "").trim();
+          const wantsBox = Boolean(boxName || boxRaw);
           if (!wantsBox && !contents.length && !renames.length) {
             setError("Cambiá la cantidad de un código o completá la caja nueva");
             setIsLoading(false);
             return;
           }
-          if (wantsBox) {
-            const inside = parseInt(box?.quantity, 10);
-            if (!box?.code?.trim() || !box?.name?.trim() || !inside || inside < 1) {
-              setError("La caja nueva necesita código, nombre y cuántos hay adentro");
-              setIsLoading(false);
-              return;
-            }
+          const inside = parseInt(boxRaw, 10);
+          if (wantsBox && (!box?.code?.trim() || !boxName || !inside || inside < 1)) {
+            setError("La caja nueva necesita código, nombre y cuántos hay adentro");
+            setIsLoading(false);
+            return;
           }
           const updated = await updateItem(updateData.item_id, {
-            quantity: wantsBox ? 1 : 0,
+            quantity: wantsBox ? inside : 0,
             action: "add",
             ...(wantsBox ? { piece_names: [{
               code: box.code.trim(),
-              name: box.name.trim(),
-              quantity: parseInt(box.quantity, 10),
+              name: boxName,
+              quantity: inside,
             }] } : {}),
             ...(contents.length ? { contents } : {}),
             ...(renames.length ? { renames } : {}),
@@ -1249,7 +1252,7 @@ const UpdateItemModal = ({
                     </div>
                   )}
 
-                  {updateInner ? (
+                  {!selectedUpdateItem ? null : updateInner ? (
                     <>
                       {existingPieces.length > 0 && (
                         <div className="mb-3">
@@ -1501,8 +1504,18 @@ const UpdateItemModal = ({
               )}
 
               {mode === "update" && selectedUpdateItem && (
+                showRetire ? (
                 <div className="border rounded p-3 mb-3">
-                  <div className="form-label fw-bold">Retirar</div>
+                  <div className="d-flex justify-content-between align-items-center mb-2">
+                    <div className="form-label fw-bold mb-0">Retirar</div>
+                    <button
+                      type="button"
+                      className="btn btn-link btn-sm"
+                      onClick={() => setShowRetire(false)}
+                    >
+                      Cerrar
+                    </button>
+                  </div>
                   {(updateTracksUnits || updateInner) && (
                     <div className="mb-2">
                       <label className="form-label">Código</label>
@@ -1540,11 +1553,7 @@ const UpdateItemModal = ({
                   </div>
                   <div className="mb-2">
                     <label className="form-label">Quién lo retira</label>
-                    <input
-                      className="form-control"
-                      value={retirePerson}
-                      onChange={(e) => setRetirePerson(e.target.value)}
-                    />
+                    <PersonPicker value={retirePerson} onChange={setRetirePerson} disabled={isLoading} />
                   </div>
                   <button
                     type="button"
@@ -1555,6 +1564,17 @@ const UpdateItemModal = ({
                     Retirar
                   </button>
                 </div>
+                ) : (
+                <div className="mb-3">
+                  <button
+                    type="button"
+                    className="btn btn-outline-danger btn-sm"
+                    onClick={() => setShowRetire(true)}
+                  >
+                    Retirar
+                  </button>
+                </div>
+                )
               )}
 
               <div className="d-flex justify-content-end mt-3 gap-2 position-sticky bottom-0 bg-white py-2">
@@ -1580,7 +1600,9 @@ const UpdateItemModal = ({
                           ? "Crear"
                           : "Crear subcategoría"
                         : updateInner
-                          ? "Agregar caja"
+                          ? ((newPieces[0]?.name || "").trim() || String(newPieces[0]?.quantity ?? "").trim()
+                            ? "Agregar caja"
+                            : "Guardar cantidades")
                           : "Actualizar stock"}
                 </button>
               </div>

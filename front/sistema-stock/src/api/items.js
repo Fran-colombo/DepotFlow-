@@ -170,11 +170,13 @@ export const getFilteredHistorial = async (filters = {}, page = 1, pageSize = 10
     item_id: filters.itemId || undefined,
     user_name: filters.userName || undefined,
     place: filters.place || undefined,
+    person_who_took: filters.personWhoTook || undefined,
     action: filters.action || undefined,
     item_category: filters.category || undefined,
     shedId: filters.shed || undefined,
     month: filters.showAll ? undefined : (filters.month || undefined),
     year: filters.showAll ? undefined : (filters.year || undefined),
+    day: filters.showAll ? undefined : (filters.day || undefined),
     page: page,
     page_size: pageSize,
   };
@@ -476,6 +478,14 @@ export function identifyItem(itemId, prefix) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ prefix }),
   });
+}
+
+export async function searchPieces(q = "") {
+  const params = new URLSearchParams();
+  const text = (q || "").trim();
+  if (text) params.set("q", text);
+  params.set("limit", text ? "50" : "10");
+  return apiFetch(`/units?${params.toString()}`);
 }
 
 export function getUnitImageUrl(unit) {

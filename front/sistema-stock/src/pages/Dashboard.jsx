@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench } from "lucide-react"
+import { Package, LayoutGrid, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 import { createTelegramLink, getTelegramBot } from "../api/auth"
 
@@ -103,6 +103,11 @@ const Dashboard = ({ title, children }) => {
                 Productos
               </button>
 
+              <button onClick={() => go("/piezas")} className={navLinkClass("/piezas")}>
+                <LayoutGrid className="me-1" size={18} />
+                Piezas
+              </button>
+
               <button onClick={() => go("/historial")} className={navLinkClass("/historial")}>
                 <History className="me-1" size={18} />
                 Historial
@@ -138,6 +143,11 @@ const Dashboard = ({ title, children }) => {
                     <li>
                       <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/obras")}>
                         <MapPin className="me-2" size={16} /> Obras
+                      </button>
+                    </li>
+                    <li>
+                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/empleados")}>
+                        <UserRound className="me-2" size={16} /> Empleados
                       </button>
                     </li>
                     <li>

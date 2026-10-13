@@ -149,6 +149,14 @@ class Obra(Base):
     stage = Column(String, nullable=False, default="trabajando")
 
 
+class Empleado(Base):
+    __tablename__ = "empleados"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False, index=True)
+    active = Column(Boolean, default=True, nullable=False)
+
+
 class Category(Base):
     __tablename__ = "categories"
 

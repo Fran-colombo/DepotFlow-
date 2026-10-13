@@ -143,6 +143,7 @@ def read_history(
     shedId: Optional[int] = None,
     month: Optional[int] = None,
     year: Optional[int] = None,
+    day: Optional[int] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, le=MAX_PAGE_SIZE)
 ):
@@ -214,6 +215,10 @@ def read_history(
                 func.strftime('%m', models.History.date) == f"{month:02d}",
                 func.strftime('%Y', models.History.date) == str(year)
             )
+            if day and 1 <= day <= 31:
+                query = query.filter(
+                    func.strftime('%d', models.History.date) == f"{day:02d}"
+                )
 
         total_records = query.count()
         total_pages = ceil(total_records / page_size)
@@ -901,33 +906,108 @@ def generate_remito(
     except Exception:
         pass
 
-    def draw_page(histories, label):
-        y = height - 2 * cm
-        if logo:
-            p.drawInlineImage(logo, width - 5*cm, height - 6*cm, width=3.5*cm, preserveAspectRatio=True)
+    def joined(values):
+        seen = []
+        for value in values:
+            text = (value or "").strip()
+            if text and text not in seen:
+                seen.append(text)
+        return " · ".join(seen) if seen else "—"
 
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(2*cm, y, f"Remito de Entrega de Materiales - {label}")
-        y -= 2 * cm
+    def clip(text, font, size, max_width):
+        raw = str(text or "")
+        if p.stringWidth(raw, font, size) <= max_width:
+            return raw
+        trimmed = raw
+        while trimmed and p.stringWidth(trimmed + "…", font, size) > max_width:
+            trimmed = trimmed[:-1]
+        return (trimmed + "…") if trimmed else ""
 
+    def draw_document(rows, label):
+        left = 1.6 * cm
+        right = width - 1.6 * cm
+        table_w = right - left
+        row_h = 0.75 * cm
+        columns = [1.3 * cm, 3.6 * cm, table_w - 7.4 * cm, 2.5 * cm]
+        headers = ["Nº", "Código", "Descripción", "Cantidad"]
+
+        def header_block():
+            y = height - 1.6 * cm
+            if logo:
+                p.drawInlineImage(logo, right - 2.4 * cm, height - 2.6 * cm, width=2.2 * cm, height=1.6 * cm, preserveAspectRatio=True, anchor="c")
+            p.setFillColorRGB(0, 0, 0)
+            p.setFont("Helvetica-Bold", 18)
+            p.drawString(left, y, "REMITO")
+            p.setFont("Helvetica", 10)
+            p.drawRightString(right - (2.8 * cm if logo else 0), y, label)
+            y -= 0.9 * cm
+            dates = []
+            for row in rows:
+                if row["date"]:
+                    dates.append(row["date"].strftime("%d/%m/%Y"))
+            dates = sorted(set(dates))
+            if len(dates) <= 1:
+                when = dates[0] if dates else "—"
+            else:
+                when = f"{dates[0]} al {dates[-1]}"
+            p.setFont("Helvetica", 10)
+            p.drawString(left, y, f"Fecha: {when}")
+            y -= 0.55 * cm
+            p.drawString(left, y, f"Origen: {joined(row['shedName'] for row in rows)}")
+            y -= 0.55 * cm
+            p.drawString(left, y, f"Destino: {joined(row['place'] for row in rows)}")
+            y -= 0.55 * cm
+            p.drawString(left, y, f"Retira: {joined(row['personWhoTook'] for row in rows)}")
+            y -= 0.8 * cm
+            return y
+
+        def draw_header_row(y):
+            p.setFillColorRGB(0.93, 0.94, 0.95)
+            p.rect(left, y - row_h, table_w, row_h, fill=1, stroke=0)
+            p.setFillColorRGB(0, 0, 0)
+            p.setFont("Helvetica-Bold", 9)
+            x = left
+            for index, title in enumerate(headers):
+                p.drawString(x + 0.15 * cm, y - 0.48 * cm, title)
+                x += columns[index]
+            p.setStrokeColorRGB(0.75, 0.75, 0.75)
+            p.rect(left, y - row_h, table_w, row_h, fill=0, stroke=1)
+            return y - row_h
+
+        y = header_block()
+        y = draw_header_row(y)
+        p.setFont("Helvetica", 9)
+        for index, row in enumerate(rows, start=1):
+            if y - row_h < 3.2 * cm:
+                p.showPage()
+                y = header_block()
+                y = draw_header_row(y)
+                p.setFont("Helvetica", 9)
+            values = [
+                str(index),
+                clip(row["code"], "Helvetica", 9, columns[1] - 0.3 * cm),
+                clip(row["description"], "Helvetica", 9, columns[2] - 0.3 * cm),
+                clip(str(row["amountRetired"] if row["amountRetired"] is not None else ""), "Helvetica", 9, columns[3] - 0.3 * cm),
+            ]
+            x = left
+            for col, value in enumerate(values):
+                p.drawString(x + 0.15 * cm, y - 0.48 * cm, value)
+                x += columns[col]
+            p.rect(left, y - row_h, table_w, row_h, fill=0, stroke=1)
+            y -= row_h
+
+        if y < 4.2 * cm:
+            p.showPage()
+            y = header_block()
+        y -= 1.2 * cm
         p.setFont("Helvetica", 10)
-        for history in histories:
-            p.drawString(2*cm, y, f"Ítem: {history['itemName']}")
-            y -= 0.5 * cm
-            p.drawString(2*cm, y, f"Entregado por: {history['personWhoTook']}")
-            y -= 0.5 * cm
-            p.drawString(2*cm, y, f"Cantidad: {history['amountRetired']}")
-            y -= 0.5 * cm
-            p.drawString(2*cm, y, f"Lugar: {history['place']}")
-            y -= 0.5 * cm
-            p.drawString(2*cm, y, f"Depósito: {history['shedName']}")
-            y -= 0.5 * cm
-            p.drawString(2*cm, y, f"Fecha: {history['date'].strftime('%d/%m/%Y %H:%M')}")
-            y -= 1 * cm
+        p.drawString(left, y, "Recibí conforme")
+        y -= 1.3 * cm
+        p.line(left, y, left + 7 * cm, y)
+        p.setFont("Helvetica", 8)
+        p.drawString(left, y - 0.45 * cm, "Firma y aclaración")
+        p.showPage()
 
-        p.drawString(2*cm, y, "Firma y Aclaración: ________________________________")
-
-    # Obtener datos de los historiales
     histories = []
     for history_id in history_ids:
         record = (
@@ -949,17 +1029,23 @@ def generate_remito(
                 .filter(models.HistoryUnit.history_id == history.id)
                 .all()
             )
+            code = ""
+            description = item_name
             if len(link) == 1:
                 history_link, unit = link[0]
-                item_name = _piece_label(unit.code, unit.name)
+                code = unit.code or ""
+                description = unit.name or item_name
                 if history_link.amount is not None:
                     amount = history_link.amount
                 else:
                     amount = piece_amount(db, history, history_link)
             else:
                 amount = history.amountRetired
+                if link:
+                    code = ", ".join(unit.code for _, unit in link if unit.code)
             histories.append({
-                "itemName": item_name,
+                "code": code,
+                "description": description,
                 "personWhoTook": history.personWhoTook,
                 "amountRetired": amount,
                 "place": history.place,
@@ -967,9 +1053,8 @@ def generate_remito(
                 "date": history.date,
             })
 
-    draw_page(histories, "ORIGINAL")
-    p.showPage()
-    draw_page(histories, "COPIA")
+    draw_document(histories, "ORIGINAL")
+    draw_document(histories, "COPIA")
     p.save()
     buffer.seek(0)
 

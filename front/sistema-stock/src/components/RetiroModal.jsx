@@ -132,6 +132,7 @@ import { useEffect, useState } from "react";
 import { getItemById, getItemUnits, retirarItem } from "../api/items";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
+import PersonPicker from "./PersonPicker";
 import FeedbackModal from "./FeedbackModal";
 
 const RetirarItemModal = ({ 
@@ -371,12 +372,10 @@ const RetirarItemModal = ({
                 )}
 
                 <div className="mb-3">
-                  <label className="form-label">Persona que retira (si sos vos no pongas nada)</label>
-                  <input
-                    type="text"
-                    className="form-control"
+                  <label className="form-label">Quién lo retira</label>
+                  <PersonPicker
                     value={form.personWhoTook}
-                    onChange={(e) => setForm({ ...form, personWhoTook: e.target.value })}
+                    onChange={(personWhoTook) => setForm({ ...form, personWhoTook })}
                   />
                 </div>
                 {error && (

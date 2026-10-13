@@ -7,11 +7,13 @@ import Login from "./pages/Login";
 import SignUp from "./pages/Signup";
 import AuthProvider from "./context/AuthProvider";
 import Items from "./pages/Items";
+import Piezas from "./pages/Piezas";
 import DeletedItemsPage from "./pages/DeletedItem";
 import UsersPage from "./pages/Users";
 import WarehouseManagement from "./pages/WarehouseManagement";
 import CategoriesPage from "./pages/Categories";
 import ObrasPage from "./pages/Obras";
+import EmpleadosPage from "./pages/Empleados";
 import SysadminPage from "./pages/Sysadmin";
 
 
@@ -28,6 +30,12 @@ function App() {
           <Route path="/" element={
             <PrivateRoute>
               <Items/>
+            </PrivateRoute>
+          } />
+
+          <Route path="/piezas" element={
+            <PrivateRoute>
+              <Piezas />
             </PrivateRoute>
           } />
 
@@ -48,6 +56,7 @@ function App() {
           <Route path="/admin/warehouses" element={<WarehouseManagement />} />
           <Route path="/admin/categories" element={<CategoriesPage />} />
           <Route path="/admin/obras" element={<ObrasPage />} />
+          <Route path="/admin/empleados" element={<EmpleadosPage />} />
           <Route path="/admin/zones" element={<Navigate to="/admin/warehouses" replace />} />
           <Route path="/deleted-items" element={<DeletedItemsPage />} />
 

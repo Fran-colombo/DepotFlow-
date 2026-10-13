@@ -175,6 +175,17 @@ def ensure_inventory_schema():
             "CREATE INDEX IF NOT EXISTS ix_obras_name ON obras (name)"
         ))
         conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS empleados (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT 1,
+                CONSTRAINT uq_empleados_name UNIQUE (name)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_empleados_name ON empleados (name)"
+        ))
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS item_units (
                 id INTEGER NOT NULL PRIMARY KEY,
                 item_id INTEGER NOT NULL,

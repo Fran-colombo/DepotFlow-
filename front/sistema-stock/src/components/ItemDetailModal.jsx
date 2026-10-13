@@ -17,6 +17,7 @@ import {
 import { getObras } from "../api/obras";
 import FeedbackModal from "./FeedbackModal";
 import ObraPicker from "./ObraPicker";
+import PersonPicker from "./PersonPicker";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
 import { isMetro, measureMark, measureNoun } from "../measure";
@@ -630,7 +631,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     return () => {
       cancelled = true;
     };
-  }, [isOpen, item, focusCode]);
+  }, [isOpen, item?.id, focusCode]);
 
   const knownPrefixes = useMemo(() => {
     const list = [];
@@ -1302,6 +1303,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 onClick={() => setActionUnit(null)}
               ></button>
             </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (busy) return;
+                if (actionUnit.kind === "retire") handleRetiro();
+                else handleReturn();
+              }}
+            >
             <div className="modal-body">
               {actionUnit.kind === "retire" ? (
                 <>
@@ -1400,11 +1409,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 <label className="form-label">
                   {actionUnit.kind === "retire" ? "Quién lo retira" : "Quién lo devuelve"}
                 </label>
-                <input
-                  className="form-control"
-                  value={popupPerson}
-                  onChange={(e) => setPopupPerson(e.target.value)}
-                />
+                <PersonPicker value={popupPerson} onChange={setPopupPerson} disabled={busy} />
               </div>
               {popupError && <div className="alert alert-danger py-2">{popupError}</div>}
             </div>
@@ -1418,10 +1423,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 Cancelar
               </button>
               <button
-                type="button"
+                type="submit"
                 className={`btn ${actionUnit.kind === "retire" ? "btn-danger" : "btn-success"}`}
                 disabled={busy}
-                onClick={actionUnit.kind === "retire" ? handleRetiro : handleReturn}
               >
                 {actionUnit.kind === "retire"
                   ? retireRepair
@@ -1434,6 +1438,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     : "Devolver"}
               </button>
             </div>
+            </form>
           </div>
         </div>
       </div>

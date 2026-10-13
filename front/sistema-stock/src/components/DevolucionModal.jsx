@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
 import FeedbackModal from "./FeedbackModal";
+import PersonPicker from "./PersonPicker";
 
 const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
@@ -180,13 +181,10 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
 
               <div className="mb-3">
                 <label className="form-label">Quién lo devuelve</label>
-                <input
-                  type="text"
-                  className="form-control"
+                <PersonPicker
                   value={form.personWhoReturned}
-                  onChange={(e) => setForm({ ...form, personWhoReturned: e.target.value })}
-                  required
                   disabled={noPending}
+                  onChange={(personWhoReturned) => setForm({ ...form, personWhoReturned })}
                 />
               </div>
               {error && (

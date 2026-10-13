@@ -11,6 +11,7 @@ import logging
 import threading
 import os
 import admin
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload, contains_eager
 from typing import Annotated, Optional
 from datetime import datetime
@@ -38,6 +39,7 @@ from telegram.bot import router as telegram_router, start_telegram_bot
 from item_images import router as item_images_router, delete_stored_image
 import categories
 import obras
+import empleados
 import sysadmin
 from item_categories import category_is_consumable, category_units_by_name, normalize_lookup, seed_categories
 from pydantic import BaseModel
@@ -94,6 +96,7 @@ app.include_router(telegram_router)
 app.include_router(item_images_router)
 app.include_router(categories.router)
 app.include_router(obras.router)
+app.include_router(empleados.router)
 app.include_router(sysadmin.router)
 
 models.Base.metadata.create_all(bind=engine)
@@ -565,6 +568,57 @@ def get_item_details(
             detail="Error interno al obtener detalles del ítem"
         )
 
+
+
+def _piece_place(db: Session, unit: models.ItemUnit, item: models.Item | None) -> str:
+    if unit.status == "consumida":
+        return "Usada"
+    if unit.status == "fuera_de_servicio":
+        return "Fuera de servicio"
+    if unit.status == "en_stock":
+        zone = item.zone.name if item and item.zone else None
+        return zone or "En depósito"
+    places = [row["place"] for row in unit_out_places(db, unit) if row.get("place")]
+    return " · ".join(places) if places else "En obra"
+
+
+@app.get("/units")
+def list_pieces(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    q: str = "",
+    limit: int = Query(10, ge=1, le=50),
+):
+    text = (q or "").strip()
+    cap = 10 if not text else min(limit, 50)
+    query = (
+        db.query(models.ItemUnit, models.Item)
+        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
+        .filter(models.Item.status == 1)
+    )
+    if text:
+        needle = f"%{text.lower()}%"
+        query = query.filter(or_(
+            func.lower(models.ItemUnit.code).like(needle),
+            func.lower(func.coalesce(models.ItemUnit.name, "")).like(needle),
+            func.lower(models.Item.name).like(needle),
+        ))
+    rows = query.order_by(models.ItemUnit.id.desc()).limit(cap).all()
+    data = []
+    for unit, item in rows:
+        data.append({
+            "id": unit.id,
+            "code": unit.code,
+            "name": unit.name or "",
+            "status": unit.status,
+            "place": _piece_place(db, unit, item),
+            "has_image": bool(unit.image_filename),
+            "image_filename": unit.image_filename,
+            "item_id": item.id,
+            "item_name": item.name,
+            "category": item.category,
+        })
+    return {"data": data}
 
 
 @app.get("/units/suggest-prefix")
