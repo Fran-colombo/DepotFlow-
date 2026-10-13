@@ -37,7 +37,7 @@ def _bucket():
     return {}
 
 
-def _add(rows, key, code, description, quantity, person="", zone=""):
+def _add(rows, key, code, description, quantity, person="", zone="", item_id=None, zone_id=None, shed_id=None):
     amount = int(quantity or 0)
     if amount <= 0:
         return
@@ -49,6 +49,9 @@ def _add(rows, key, code, description, quantity, person="", zone=""):
             "quantity": 0,
             "people": [],
             "zone": zone or "",
+            "itemId": item_id,
+            "zoneId": zone_id,
+            "shedId": shed_id,
         }
         rows[key] = row
     row["quantity"] += amount
@@ -119,21 +122,30 @@ def stock_at_obra(db: Session, obra: models.Obra):
                     _unit_label(unit, item),
                     remaining,
                     person,
+                    item_id=item.id if item is not None else history.itemId,
                 )
             else:
-                _add(rows, ("item", history.itemId), "", label, remaining, person)
+                _add(rows, ("item", history.itemId), "", label, remaining, person, item_id=history.itemId)
             continue
         still_out = [unit for _link, unit in links if unit.status == STATUS_RETIRADA]
         if not still_out:
-            _add(rows, ("item", history.itemId), "", label, remaining, person)
+            _add(rows, ("item", history.itemId), "", label, remaining, person, item_id=history.itemId)
             continue
         chosen = still_out
         if len(still_out) > remaining:
             chosen = sorted(still_out, key=lambda unit: unit.code or "")[:remaining]
         for unit in chosen:
-            _add(rows, ("unit", unit.id), unit.code, _unit_label(unit, item), 1, person)
+            _add(
+                rows,
+                ("unit", unit.id),
+                unit.code,
+                _unit_label(unit, item),
+                1,
+                person,
+                item_id=item.id if item is not None else history.itemId,
+            )
         if remaining > len(chosen):
-            _add(rows, ("item", history.itemId), "", label, remaining - len(chosen), person)
+            _add(rows, ("item", history.itemId), "", label, remaining - len(chosen), person, item_id=history.itemId)
     return _sorted_rows(rows)
 
 
@@ -165,6 +177,9 @@ def stock_at_deposito(db: Session, shed: models.Shed):
             _unit_label(unit, item),
             amount,
             zone=zone_name,
+            item_id=item.id,
+            zone_id=zone.id if zone is not None else item.zone_id,
+            shed_id=shed.id,
         )
     bulk = (
         db.query(models.Item, models.Zone)
@@ -185,6 +200,9 @@ def stock_at_deposito(db: Session, shed: models.Shed):
             _item_label(item),
             int(item.actualAmount or 0),
             zone=zone.name if zone is not None else "",
+            item_id=item.id,
+            zone_id=zone.id if zone is not None else item.zone_id,
+            shed_id=shed.id,
         )
     return _sorted_rows(rows)
 
@@ -214,6 +232,9 @@ def _payload(kind: str, place: str, rows):
                 "quantity": row["quantity"],
                 "people": row["people"],
                 "zone": row["zone"],
+                "itemId": row["itemId"],
+                "zoneId": row["zoneId"],
+                "shedId": row["shedId"],
             }
             for row in rows
         ],

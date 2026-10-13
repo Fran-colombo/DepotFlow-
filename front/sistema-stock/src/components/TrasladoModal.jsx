@@ -6,6 +6,7 @@ import {
 } from "../api/items";
 import { getObras } from "../api/obras";
 import FeedbackModal from "./FeedbackModal";
+import PersonPicker from "./PersonPicker";
 
 const TrasladoModal = ({
   itemId,
@@ -268,14 +269,9 @@ const TrasladoModal = ({
 
               <div className="mb-3">
                 <label className="form-label">Quién lo mueve</label>
-                <input
-                  type="text"
-                  className="form-control"
+                <PersonPicker
                   value={form.personWhoMoved}
-                  onChange={(e) =>
-                    setForm({ ...form, personWhoMoved: e.target.value })
-                  }
-                  required
+                  onChange={(personWhoMoved) => setForm({ ...form, personWhoMoved })}
                   disabled={noPending}
                 />
               </div>

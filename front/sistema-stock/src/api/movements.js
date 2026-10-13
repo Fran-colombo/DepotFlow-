@@ -57,7 +57,8 @@ export const moveItem = async (movementData) => {
       from_zone_id: movementData.from_zone_id ?? null,
       to_zone_id: movementData.to_zone_id,
       quantity: movementData.quantity,
-      username: movementData.username
+      username: movementData.username,
+      ...(movementData.codes ? { codes: movementData.codes } : {}),
     };
 
     console.log('Enviando datos:', payload);
