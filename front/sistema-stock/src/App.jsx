@@ -8,6 +8,7 @@ import SignUp from "./pages/Signup";
 import AuthProvider from "./context/AuthProvider";
 import Items from "./pages/Items";
 import Piezas from "./pages/Piezas";
+import Existencias from "./pages/Existencias";
 import DeletedItemsPage from "./pages/DeletedItem";
 import UsersPage from "./pages/Users";
 import WarehouseManagement from "./pages/WarehouseManagement";
@@ -36,6 +37,12 @@ function App() {
           <Route path="/piezas" element={
             <PrivateRoute>
               <Piezas />
+            </PrivateRoute>
+          } />
+
+          <Route path="/existencias" element={
+            <PrivateRoute>
+              <Existencias />
             </PrivateRoute>
           } />
 

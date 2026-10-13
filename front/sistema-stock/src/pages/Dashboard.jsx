@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, LayoutGrid, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound } from "lucide-react"
+import { Package, LayoutGrid, ClipboardList, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 import { createTelegramLink, getTelegramBot } from "../api/auth"
 
@@ -106,6 +106,11 @@ const Dashboard = ({ title, children }) => {
               <button onClick={() => go("/piezas")} className={navLinkClass("/piezas")}>
                 <LayoutGrid className="me-1" size={18} />
                 Piezas
+              </button>
+
+              <button onClick={() => go("/existencias")} className={navLinkClass("/existencias")}>
+                <ClipboardList className="me-1" size={18} />
+                Existencias
               </button>
 
               <button onClick={() => go("/historial")} className={navLinkClass("/historial")}>

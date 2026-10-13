@@ -40,6 +40,7 @@ from item_images import router as item_images_router, delete_stored_image
 import categories
 import obras
 import empleados
+import existencias
 import sysadmin
 from item_categories import category_is_consumable, category_units_by_name, normalize_lookup, seed_categories
 from pydantic import BaseModel
@@ -97,6 +98,7 @@ app.include_router(item_images_router)
 app.include_router(categories.router)
 app.include_router(obras.router)
 app.include_router(empleados.router)
+app.include_router(existencias.router)
 app.include_router(sysadmin.router)
 
 models.Base.metadata.create_all(bind=engine)
