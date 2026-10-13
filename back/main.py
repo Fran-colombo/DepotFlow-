@@ -584,6 +584,30 @@ def _piece_place(db: Session, unit: models.ItemUnit, item: models.Item | None) -
     return " · ".join(places) if places else "En obra"
 
 
+def _fold_text(value):
+    folded = value or ""
+    for source, target in (
+        ("á", "a"), ("Á", "a"), ("é", "e"), ("É", "e"),
+        ("í", "i"), ("Í", "i"), ("ó", "o"), ("Ó", "o"),
+        ("ú", "u"), ("Ú", "u"), ("ü", "u"), ("Ü", "u"),
+        ("ñ", "n"), ("Ñ", "n"),
+    ):
+        folded = folded.replace(source, target)
+    return folded.lower()
+
+
+def _fold_column(column):
+    folded = column
+    for source, target in (
+        ("á", "a"), ("Á", "a"), ("é", "e"), ("É", "e"),
+        ("í", "i"), ("Í", "i"), ("ó", "o"), ("Ó", "o"),
+        ("ú", "u"), ("Ú", "u"), ("ü", "u"), ("Ü", "u"),
+        ("ñ", "n"), ("Ñ", "n"),
+    ):
+        folded = func.replace(folded, source, target)
+    return func.lower(folded)
+
+
 @app.get("/units")
 def list_pieces(
     db: item_dependency,
@@ -599,11 +623,11 @@ def list_pieces(
         .filter(models.Item.status == 1)
     )
     if text:
-        needle = f"%{text.lower()}%"
+        needle = f"%{_fold_text(text)}%"
         query = query.filter(or_(
-            func.lower(models.ItemUnit.code).like(needle),
-            func.lower(func.coalesce(models.ItemUnit.name, "")).like(needle),
-            func.lower(models.Item.name).like(needle),
+            _fold_column(models.ItemUnit.code).like(needle),
+            _fold_column(func.coalesce(models.ItemUnit.name, "")).like(needle),
+            _fold_column(models.Item.name).like(needle),
         ))
     rows = query.order_by(models.ItemUnit.id.desc()).limit(cap).all()
     data = []

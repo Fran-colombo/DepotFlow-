@@ -9,6 +9,11 @@ import Dashboard from "./Dashboard";
 
 const rowKey = (row) => `${row.itemId}:${row.code || ""}:${row.description || ""}`;
 
+const fold = (value) => (value || "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase();
+
 const Existencias = () => {
   const { email } = useAuth();
   const [lugares, setLugares] = useState({ obras: [], depositos: [] });
@@ -25,6 +30,7 @@ const Existencias = () => {
   const [person, setPerson] = useState("");
   const [zones, setZones] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [amounts, setAmounts] = useState({});
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -97,13 +103,10 @@ const Existencias = () => {
 
   const rows = useMemo(() => {
     const source = Array.isArray(stock?.rows) ? stock.rows : [];
-    const term = filter.trim().toLowerCase();
+    const term = fold(filter.trim());
     if (!term) return source;
     return source.filter((row) =>
-      [row.code, row.description, row.people, row.zone]
-        .join(" ")
-        .toLowerCase()
-        .includes(term)
+      fold([row.code, row.description, row.people, row.zone].join(" ")).includes(term)
     );
   }, [stock, filter]);
 
@@ -123,7 +126,14 @@ const Existencias = () => {
     });
   };
 
+  const asksQuantity = (row, nextAction) => row.quantity > 1 && !(nextAction === "zona" && row.code);
+
   const openAction = (next) => {
+    const initial = {};
+    selectedRows.forEach((row) => {
+      if (asksQuantity(row, next)) initial[rowKey(row)] = String(row.quantity);
+    });
+    setAmounts(initial);
     setDestination("");
     setPerson("");
     setError("");
@@ -157,16 +167,30 @@ const Existencias = () => {
     }
     const shedId = Number(selection.split(":")[1]);
     const ordered = [...selectedRows].sort((a, b) => (a.code ? 0 : 1) - (b.code ? 0 : 1));
+    const chosen = new Map();
+    for (const row of ordered) {
+      if (!asksQuantity(row, action)) {
+        chosen.set(rowKey(row), action === "zona" && row.code ? 1 : row.quantity);
+        continue;
+      }
+      const typed = parseInt(amounts[rowKey(row)], 10);
+      if (Number.isNaN(typed) || typed < 1 || typed > row.quantity) {
+        setError(`La cantidad de ${row.code || row.description} tiene que estar entre 1 y ${row.quantity}`);
+        return;
+      }
+      chosen.set(rowKey(row), typed);
+    }
     setSaving(true);
     setError("");
     const failed = [];
     for (const row of ordered) {
       const label = row.code || row.description || "una pieza";
+      const amount = chosen.get(rowKey(row));
       try {
         if (action === "trasladar") {
           await trasladarItem({
             itemId: row.itemId,
-            amount: row.quantity,
+            amount,
             fromPlace: stock.place,
             toPlace: destination,
             personWhoMoved: who,
@@ -175,7 +199,7 @@ const Existencias = () => {
         } else if (action === "devolver") {
           await devolverItem({
             itemId: row.itemId,
-            amount: row.quantity,
+            amount,
             place: stock.place,
             personWhoReturned: who,
             ...(row.code ? { codes: [row.code] } : {}),
@@ -183,7 +207,7 @@ const Existencias = () => {
         } else if (action === "retirar") {
           await retirarItem({
             itemId: row.itemId,
-            amount: row.quantity,
+            amount,
             place: destination,
             personWhoTook: who,
             ...(row.code ? { codes: [row.code] } : {}),
@@ -195,7 +219,7 @@ const Existencias = () => {
             to_shed_id: row.shedId || shedId,
             from_zone_id: row.zoneId || null,
             to_zone_id: Number(destination),
-            quantity: row.code ? 1 : row.quantity,
+            quantity: amount,
             username: email || "usuario",
             ...(row.code ? { codes: [row.code] } : {}),
           });
@@ -379,7 +403,7 @@ const Existencias = () => {
           style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1070 }}
           onClick={() => { if (!saving) setAction(null); }}
         >
-          <div className="modal-dialog modal-dialog-centered" onClick={(event) => event.stopPropagation()}>
+          <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable" onClick={(event) => event.stopPropagation()}>
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">
@@ -392,6 +416,26 @@ const Existencias = () => {
               </div>
               <div className="modal-body">
                 <p className="text-secondary">{selectedRows.length} piezas.</p>
+                {selectedRows.some((row) => asksQuantity(row, action)) && (
+                  <div className="mb-3">
+                    <label className="form-label">Cantidad</label>
+                    {selectedRows.filter((row) => asksQuantity(row, action)).map((row) => (
+                      <div className="d-flex align-items-center gap-2 mb-2" key={rowKey(row)}>
+                        <span className="flex-grow-1">{row.code || row.description}</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max={row.quantity}
+                          className="form-control"
+                          style={{ width: 90 }}
+                          value={amounts[rowKey(row)] ?? ""}
+                          onChange={(event) => setAmounts((prev) => ({ ...prev, [rowKey(row)]: event.target.value }))}
+                        />
+                        <span className="text-secondary small">de {row.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {(action === "trasladar" || action === "retirar") && (
                   <div className="mb-3">
                     <label className="form-label">Obra</label>
