@@ -23,8 +23,8 @@ def now():
 
 
 @router.get("/", response_model=list[dtos.ObservationResponseDTO])
-def get_all_observations(db: db_dependency):
-    return db.query(models.Observation).all()
+def get_all_observations():
+    return []
 
 @router.get("/item/{item_id}", response_model=list[dtos.ObservationResponseDTO])
 def get_observations_by_item(item_id: int, db: db_dependency):

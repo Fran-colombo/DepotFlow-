@@ -3,7 +3,7 @@ import unicodedata
 from datetime import datetime
 
 import pytz
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 import models
@@ -242,6 +242,35 @@ def unit_out_quantity(db: Session, unit: models.ItemUnit) -> int:
         .scalar()
     )
     return int(total or 0)
+
+
+def pending_places_by_unit(db: Session, unit_ids) -> dict:
+    ids = [unit_id for unit_id in (unit_ids or []) if unit_id is not None]
+    if not ids:
+        return {}
+    rows = (
+        db.query(
+            models.HistoryUnit.unit_id,
+            models.History.place,
+            func.coalesce(func.sum(models.History.amountNotReturned), 0),
+        )
+        .join(models.History, models.History.id == models.HistoryUnit.history_id)
+        .filter(
+            models.HistoryUnit.unit_id.in_(ids),
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.amountNotReturned > 0,
+        )
+        .group_by(models.HistoryUnit.unit_id, models.History.place)
+        .all()
+    )
+    grouped = {}
+    for unit_id, place, quantity in rows:
+        amount = int(quantity or 0)
+        if amount <= 0:
+            continue
+        grouped.setdefault(unit_id, []).append({"place": place or "", "quantity": amount})
+    return grouped
 
 
 def unit_out_places(db: Session, unit: models.ItemUnit) -> list:
@@ -737,6 +766,45 @@ def unit_history(db: Session, unit: models.ItemUnit) -> list:
             }
         )
     return rows
+
+
+def histories_by_unit(db: Session, unit_ids) -> dict:
+    ids = [unit_id for unit_id in (unit_ids or []) if unit_id is not None]
+    grouped = {unit_id: [] for unit_id in ids}
+    if not ids:
+        return grouped
+    rows = (
+        db.query(models.HistoryUnit, models.History)
+        .join(models.History, models.History.id == models.HistoryUnit.history_id)
+        .filter(
+            models.HistoryUnit.unit_id.in_(ids),
+            or_(
+                models.History.hideFromHistorial.is_(False),
+                models.History.hideFromHistorial.is_(None),
+            ),
+        )
+        .order_by(models.HistoryUnit.id.asc())
+        .all()
+    )
+    shares_by_history = {}
+    for link, history in rows:
+        if link.amount is not None:
+            amount = int(link.amount)
+        else:
+            if history.id not in shares_by_history:
+                shares_by_history[history.id] = return_shares(db, history)
+            shares = shares_by_history[history.id]
+            amount = shares[link.unit_id] if link.unit_id in shares else history.amountRetired
+        grouped.setdefault(link.unit_id, []).append(
+            {
+                "action": history.action.value if history.action else None,
+                "place": history.place,
+                "person": history.personWhoTook,
+                "date": history.date.isoformat() if history.date else None,
+                "amount": amount,
+            }
+        )
+    return grouped
 
 
 def last_unit_movement(db: Session, unit: models.ItemUnit):

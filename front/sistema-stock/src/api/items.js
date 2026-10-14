@@ -168,6 +168,7 @@ export const getFilteredHistorial = async (filters = {}, page = 1, pageSize = 10
   const params = {
     item_name: filters.itemName || undefined,
     item_id: filters.itemId || undefined,
+    item_ids: filters.itemIds?.length ? filters.itemIds : undefined,
     user_name: filters.userName || undefined,
     place: filters.place || undefined,
     person_who_took: filters.personWhoTook || undefined,
@@ -480,11 +481,14 @@ export function identifyItem(itemId, prefix) {
   });
 }
 
-export async function searchPieces(q = "") {
+export async function searchPieces(q = "", options = {}) {
   const params = new URLSearchParams();
   const text = (q || "").trim();
   if (text) params.set("q", text);
-  params.set("limit", text ? "50" : "10");
+  if (options.broken) params.set("broken", "true");
+  if (options.withoutImage) params.set("without_image", "true");
+  const broad = Boolean(text || options.broken || options.withoutImage);
+  params.set("limit", broad ? "500" : "10");
   return apiFetch(`/units?${params.toString()}`);
 }
 

@@ -1255,6 +1255,37 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 onClick={() => setQtyUnit(null)}
               ></button>
             </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (busy) return;
+                if (qtyValue.trim() === "") {
+                  setQtyError("Indicá la cantidad");
+                  return;
+                }
+                const next = parseInt(qtyValue, 10);
+                if (Number.isNaN(next) || next < 0) {
+                  setQtyError("La cantidad no puede ser negativa");
+                  return;
+                }
+                setBusy(true);
+                setQtyError("");
+                try {
+                  await updateItem(item.id, {
+                    quantity: 0,
+                    action: "add",
+                    contents: [{ id: qtyUnit.id, quantity: next }],
+                  });
+                  setQtyUnit(null);
+                  await reload();
+                  onChanged?.();
+                } catch (err) {
+                  setQtyError(err.message || "No se pudo actualizar la cantidad");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
             <div className="modal-body">
               <label className="form-label">{isMetro(measureUnit) ? "Cuántos metros quedan en este código" : "Cuántos quedan en este código"}</label>
               <input
@@ -1272,40 +1303,14 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 Cancelar
               </button>
               <button
-                type="button"
+                type="submit"
                 className="btn btn-primary"
                 disabled={busy}
-                onClick={async () => {
-                  if (qtyValue.trim() === "") {
-                    setQtyError("Indicá la cantidad");
-                    return;
-                  }
-                  const next = parseInt(qtyValue, 10);
-                  if (Number.isNaN(next) || next < 0) {
-                    setQtyError("La cantidad no puede ser negativa");
-                    return;
-                  }
-                  setBusy(true);
-                  setQtyError("");
-                  try {
-                    await updateItem(item.id, {
-                      quantity: 0,
-                      action: "add",
-                      contents: [{ id: qtyUnit.id, quantity: next }],
-                    });
-                    setQtyUnit(null);
-                    await reload();
-                    onChanged?.();
-                  } catch (err) {
-                    setQtyError(err.message || "No se pudo actualizar la cantidad");
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
               >
                 Guardar
               </button>
             </div>
+            </form>
           </div>
         </div>
       </div>

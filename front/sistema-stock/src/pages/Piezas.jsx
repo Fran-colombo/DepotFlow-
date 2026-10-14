@@ -5,6 +5,8 @@ import ItemDetailModal from "../components/ItemDetailModal";
 
 const Piezas = () => {
   const [query, setQuery] = useState("");
+  const [broken, setBroken] = useState(false);
+  const [withoutImage, setWithoutImage] = useState(false);
   const [revision, setRevision] = useState(0);
   const [pieces, setPieces] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -15,7 +17,7 @@ const Piezas = () => {
     let cancelled = false;
     const timer = setTimeout(() => {
       setLoading(true);
-      searchPieces(query)
+      searchPieces(query, { broken, withoutImage })
         .then((res) => {
           if (!cancelled) setPieces(Array.isArray(res?.data) ? res.data : []);
         })
@@ -33,7 +35,7 @@ const Piezas = () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, revision]);
+  }, [query, broken, withoutImage, revision]);
 
   const openPiece = async (piece) => {
     setError("");
@@ -59,6 +61,34 @@ const Piezas = () => {
             setQuery(e.target.value);
           }}
         />
+        <div className="d-flex flex-wrap gap-3 mt-3">
+          <div className="form-check mb-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              id="pieces-broken"
+              checked={broken}
+              onChange={(e) => {
+                setError("");
+                setBroken(e.target.checked);
+              }}
+            />
+            <label className="form-check-label" htmlFor="pieces-broken">Rotas</label>
+          </div>
+          <div className="form-check mb-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              id="pieces-no-photo"
+              checked={withoutImage}
+              onChange={(e) => {
+                setError("");
+                setWithoutImage(e.target.checked);
+              }}
+            />
+            <label className="form-check-label" htmlFor="pieces-no-photo">Sin foto</label>
+          </div>
+        </div>
       </div>
 
       {error && <div className="alert alert-danger">{error}</div>}
@@ -67,7 +97,7 @@ const Piezas = () => {
         <p className="app-muted mb-0">Cargando…</p>
       ) : pieces.length === 0 ? (
         <p className="app-muted mb-0">
-          {query.trim() ? "No hay piezas con eso." : "No hay piezas."}
+          {query.trim() || broken || withoutImage ? "No hay piezas con eso." : "No hay piezas."}
         </p>
       ) : (
         <div className="row g-3">
@@ -97,6 +127,7 @@ const Piezas = () => {
                   <div className="card-body">
                     <div className="fw-bold">{piece.code}</div>
                     {piece.name && <div>{piece.name}</div>}
+                    {piece.is_broken && <div className="small text-danger">Rota</div>}
                     <div className="app-muted small">{piece.place}</div>
                     {piece.item_name && (
                       <div className="app-muted small">{piece.item_name}</div>

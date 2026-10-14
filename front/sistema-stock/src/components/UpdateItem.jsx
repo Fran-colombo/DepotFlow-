@@ -1408,7 +1408,7 @@ const UpdateItemModal = ({
                     <div className="mb-3">
                       <label className="form-label fw-bold">Piezas nuevas</label>
                       {newPieces.map((piece, index) => (
-                        <div className="row g-2 mb-2" key={`${piece.code}-${index}`}>
+                        <div className="row g-2 mb-2" key={index}>
                           <div className="col-4">
                             <input
                               className="form-control"

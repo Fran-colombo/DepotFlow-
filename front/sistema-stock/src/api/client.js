@@ -8,6 +8,12 @@ export async function apiFetch(endpoint, options = {}) {
   if (options.params) {
     const params = new URLSearchParams();
     Object.entries(options.params).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => {
+          if (item !== undefined && item !== null && item !== "") params.append(key, item);
+        });
+        return;
+      }
       if (value !== undefined && value !== "") {
         params.append(key, value);
       }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
-import { getFilteredHistorial } from "../api/items"
+import { getAllItems, getFilteredHistorial } from "../api/items"
 import PackingSlipModal from "../components/CrearRemito";
 import {getSheds} from "../api/sheds"
 const Historial = () => {
@@ -8,6 +8,7 @@ const Historial = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sheds, setSheds] = useState([]);
+  const [products, setProducts] = useState([]);
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 10,
@@ -24,6 +25,8 @@ const Historial = () => {
     action: "",
     month: new Date().getMonth() + 1,
     year: new Date().getFullYear(),
+    day: "",
+    itemIds: [],
     showAll: false
   });
 
@@ -40,6 +43,14 @@ useEffect(() => {
   };
   
   loadSheds();
+  getAllItems()
+    .then((rows) => {
+      const list = (Array.isArray(rows) ? rows : [])
+        .map((item) => ({ id: item.id, name: item.name || "" }))
+        .sort((a, b) => a.name.localeCompare(b.name, "es"));
+      setProducts(list);
+    })
+    .catch(() => setProducts([]));
 }, []);
 
   useEffect(() => {
@@ -128,8 +139,15 @@ useEffect(() => {
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
-    setFilters(prev => ({ ...prev, [name]: value }));
+    const next = name === "day" ? value.replace(/\D/g, "").slice(0, 2) : value;
+    setFilters(prev => ({ ...prev, [name]: next }));
     setPagination(prev => ({ ...prev, page: 1 })); 
+  };
+
+  const handleProductsChange = (e) => {
+    const itemIds = Array.from(e.target.selectedOptions).map((option) => Number(option.value));
+    setFilters(prev => ({ ...prev, itemIds }));
+    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const clearFilters = () => {
@@ -142,6 +160,8 @@ useEffect(() => {
       action: "",
       month: new Date().getMonth() + 1,
       year: new Date().getFullYear(),
+      day: "",
+      itemIds: [],
       showAll: false
     });
     setPagination(prev => ({ ...prev, page: 1 }));
@@ -253,6 +273,24 @@ useEffect(() => {
               </select>
             </div>
 
+            <div className="col-md-6">
+              <label className="form-label">Subcategorías</label>
+              <select
+                multiple
+                className="form-select"
+                size={6}
+                value={filters.itemIds.map(String)}
+                onChange={handleProductsChange}
+              >
+                {products.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.name}
+                  </option>
+                ))}
+              </select>
+              <div className="form-text">Sin elección se ven todas. Mantené Ctrl para elegir varias.</div>
+            </div>
+
             <div className="col-md-3">
               <label className="form-label">Mes</label>
               <select
@@ -268,6 +306,20 @@ useEffect(() => {
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div className="col-md-2">
+              <label className="form-label">Día</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                name="day"
+                value={filters.day}
+                onChange={handleFilterChange}
+                className="form-control"
+                placeholder="Todo el mes"
+                disabled={filters.showAll}
+              />
             </div>
 
             <div className="col-md-3">

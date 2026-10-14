@@ -127,7 +127,7 @@ const Items = () => {
       try {
         const itemsData = await getItems(filters, 1, pagination.pageSize);
         const query = (filters.name || "").trim();
-        if (query) {
+        if (/^[A-Za-z0-9][A-Za-z0-9-]*-\d{2}-\d+$/.test(query)) {
           try {
             setCodeHit(await getUnitByCode(query));
           } catch {
@@ -166,9 +166,7 @@ const Items = () => {
     setFilters({ name: "", category: "", shed: "", zone: "" });
   };
 
-  const filteredItems = items.filter((item) =>
-    item.name.toLowerCase().includes(filters.name.toLowerCase())
-  );
+  const filteredItems = items;
 
   const movableOnPage = filteredItems.filter((item) => (item.actualAmount || 0) > 0);
   const selectedItems = useMemo(() => Object.values(selectedById), [selectedById]);

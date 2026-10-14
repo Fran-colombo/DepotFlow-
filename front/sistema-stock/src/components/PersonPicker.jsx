@@ -5,6 +5,7 @@ const OTHER = "__otros__";
 
 const PersonPicker = ({ value, onChange, disabled = false }) => {
   const [people, setPeople] = useState([]);
+  const [ready, setReady] = useState(false);
   const [otherMode, setOtherMode] = useState(false);
 
   useEffect(() => {
@@ -15,6 +16,9 @@ const PersonPicker = ({ value, onChange, disabled = false }) => {
       })
       .catch(() => {
         if (!cancelled) setPeople([]);
+      })
+      .finally(() => {
+        if (!cancelled) setReady(true);
       });
     return () => {
       cancelled = true;
@@ -24,6 +28,14 @@ const PersonPicker = ({ value, onChange, disabled = false }) => {
   const names = people.filter((person) => person.active !== false).map((person) => person.name);
   const known = names.includes(value);
   const showOther = otherMode || Boolean(value && !known);
+
+  if (!ready) {
+    return (
+      <select className="form-select" disabled>
+        <option>Cargando…</option>
+      </select>
+    );
+  }
 
   if (names.length === 0) {
     return (

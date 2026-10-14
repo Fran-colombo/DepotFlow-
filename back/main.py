@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException, Query, status, Depends, File, UploadFile
-from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from io import BytesIO
@@ -12,7 +11,7 @@ import threading
 import os
 import admin
 from sqlalchemy import func, or_
-from sqlalchemy.orm import Session, joinedload, contains_eager
+from sqlalchemy.orm import Session, contains_eager
 from typing import Annotated, Optional
 from datetime import datetime
 from math import ceil
@@ -51,12 +50,11 @@ from unit_service import (
     find_unit_by_code,
     change_item_counting,
     identify_current_stock,
+    histories_by_unit,
     last_unit_movement,
     peek_codes,
+    pending_places_by_unit,
     suggest_prefix,
-    unit_history,
-    unit_out_places,
-    unit_out_quantity,
 )
 from dotenv import load_dotenv
 
@@ -169,7 +167,22 @@ def read_items(
         )
 
         if name:
-            query = query.filter(models.Item.name.ilike(f"%{name}%"))
+            needle = f"%{_fold_text(name)}%"
+            piece_match = (
+                db.query(models.ItemUnit.id)
+                .filter(
+                    models.ItemUnit.item_id == models.Item.id,
+                    or_(
+                        _fold_column(models.ItemUnit.code).like(needle),
+                        _fold_column(func.coalesce(models.ItemUnit.name, "")).like(needle),
+                    ),
+                )
+                .exists()
+            )
+            query = query.filter(or_(
+                _fold_column(func.coalesce(models.Item.name, "")).like(needle),
+                piece_match,
+            ))
         if category:
             query = query.filter(models.Item.category.ilike(f"%{category}%"))
         if shed_id:
@@ -226,13 +239,16 @@ def read_items(
 
 @app.get("/search")
 def searchItems(name: str, db: item_dependency):
-    items = db.query(models.Item).filter(models.Item.name.ilike(f"%{name}%")).all()
-    if not items:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No items found with that name"
+    needle = f"%{_fold_text(name)}%"
+    rows = (
+        db.query(models.Item.id, models.Item.name, models.Item.category)
+        .filter(
+            models.Item.status == 1,
+            _fold_column(func.coalesce(models.Item.name, "")).like(needle),
         )
-    return items
+        .all()
+    )
+    return [{"id": row.id, "name": row.name, "category": row.category} for row in rows]
 
 
 def getItemById(item_id: int, db: item_dependency):
@@ -508,13 +524,7 @@ def get_item_details(
 
     try:
 
-        item = db.query(models.Item)\
-            .options(
-                joinedload(models.Item.observations),
-                joinedload(models.Item.movements)
-            )\
-            .filter(models.Item.id == item_id)\
-            .first()
+        item = db.query(models.Item).filter(models.Item.id == item_id).first()
 
         if not item:
             raise HTTPException(
@@ -531,13 +541,25 @@ def get_item_details(
                 .order_by(models.DeletedItem.deleted_at.desc())\
                 .first()
 
-        item_data = jsonable_encoder(item)
-        item_data["is_consumable"] = normalize_lookup(item.category) in {
-            normalize_lookup(category.name)
-            for category in db.query(models.Category).filter(models.Category.is_consumable == True).all()
+        item_data = {
+            "id": item.id,
+            "name": item.name,
+            "category": item.category,
+            "description": item.description,
+            "totalAmount": item.totalAmount,
+            "actualAmount": item.actualAmount,
+            "is_available": item.is_available,
+            "shed_id": item.shed_id,
+            "zone_id": item.zone_id,
+            "status": item.status,
+            "image_filename": item.image_filename,
+            "has_image": bool(item.image_filename),
+            "track_units": bool(item.track_units),
+            "inner_quantity": bool(item.inner_quantity),
+            "code_prefix": item.code_prefix,
         }
+        item_data["is_consumable"] = category_is_consumable(db, item.category)
         item_data["unit"] = category_units_by_name(db).get(normalize_lookup(item.category), "unidad")
-        item_data["track_units"] = bool(item.track_units)
 
         response_data = {
             "item": item_data,
@@ -553,9 +575,9 @@ def get_item_details(
                 }
             },
             "relations": {
-                "observations_count": len(item.observations),
-                "movements_count": len(item.movements),
-                "last_movement": max([mov.date for mov in item.movements]) if item.movements else None
+                "observations_count": db.query(func.count(models.Observation.id)).filter(models.Observation.item_id == item.id).scalar() or 0,
+                "movements_count": db.query(func.count(models.Movement.id)).filter(models.Movement.item_id == item.id).scalar() or 0,
+                "last_movement": db.query(func.max(models.Movement.date)).filter(models.Movement.item_id == item.id).scalar(),
             }
         }
 
@@ -572,7 +594,7 @@ def get_item_details(
 
 
 
-def _piece_place(db: Session, unit: models.ItemUnit, item: models.Item | None) -> str:
+def _piece_place(unit: models.ItemUnit, item: models.Item | None, places) -> str:
     if unit.status == "consumida":
         return "Usada"
     if unit.status == "fuera_de_servicio":
@@ -580,8 +602,8 @@ def _piece_place(db: Session, unit: models.ItemUnit, item: models.Item | None) -
     if unit.status == "en_stock":
         zone = item.zone.name if item and item.zone else None
         return zone or "En depósito"
-    places = [row["place"] for row in unit_out_places(db, unit) if row.get("place")]
-    return " · ".join(places) if places else "En obra"
+    names = [row["place"] for row in (places or []) if row.get("place")]
+    return " · ".join(names) if names else "En obra"
 
 
 def _fold_text(value):
@@ -613,13 +635,18 @@ def list_pieces(
     db: item_dependency,
     current_user: Annotated[dict, Depends(get_current_user)],
     q: str = "",
-    limit: int = Query(10, ge=1, le=50),
+    broken: bool = False,
+    without_image: bool = False,
+    limit: int = Query(10, ge=1, le=500),
 ):
     text = (q or "").strip()
-    cap = 10 if not text else min(limit, 50)
+    broad = bool(text or broken or without_image)
+    cap = 10 if not broad else min(limit, 500)
     query = (
         db.query(models.ItemUnit, models.Item)
         .join(models.Item, models.Item.id == models.ItemUnit.item_id)
+        .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
+        .options(contains_eager(models.Item.zone))
         .filter(models.Item.status == 1)
     )
     if text:
@@ -629,7 +656,20 @@ def list_pieces(
             _fold_column(func.coalesce(models.ItemUnit.name, "")).like(needle),
             _fold_column(models.Item.name).like(needle),
         ))
-    rows = query.order_by(models.ItemUnit.id.desc()).limit(cap).all()
+    if broken:
+        query = query.filter(models.ItemUnit.is_broken.is_(True))
+    if without_image:
+        query = query.filter(or_(
+            models.ItemUnit.image_filename.is_(None),
+            models.ItemUnit.image_filename == "",
+        ))
+    rows = query.order_by(models.ItemUnit.code.asc()).limit(cap).all()
+    away_ids = [
+        unit.id
+        for unit, _item in rows
+        if unit.status not in ("consumida", "fuera_de_servicio", "en_stock")
+    ]
+    places_by_unit = pending_places_by_unit(db, away_ids)
     data = []
     for unit, item in rows:
         data.append({
@@ -637,7 +677,8 @@ def list_pieces(
             "code": unit.code,
             "name": unit.name or "",
             "status": unit.status,
-            "place": _piece_place(db, unit, item),
+            "place": _piece_place(unit, item, places_by_unit.get(unit.id)),
+            "is_broken": bool(unit.is_broken),
             "has_image": bool(unit.image_filename),
             "image_filename": unit.image_filename,
             "item_id": item.id,
@@ -734,40 +775,44 @@ def list_item_units(
         query = query.filter(models.ItemUnit.status == status_filter)
     elif not status_filter:
         query = query.filter(models.ItemUnit.status == "en_stock")
-    units = query.order_by(models.ItemUnit.id.asc()).all()
+    units = query.order_by(models.ItemUnit.code.asc()).all()
+    unit_ids = [unit.id for unit in units]
+    places_by_unit = pending_places_by_unit(db, unit_ids)
+    history_by_unit = histories_by_unit(db, unit_ids)
     labels = {
         "en_stock": "En depósito",
         "retirada": "En obra",
         "consumida": "Usada",
         "fuera_de_servicio": "Fuera de servicio",
     }
+    payload = []
+    for unit in units:
+        places = places_by_unit.get(unit.id, [])
+        payload.append({
+            "id": unit.id,
+            "code": unit.code,
+            "status": unit.status,
+            "status_label": labels.get(unit.status, unit.status),
+            "quantity": int(unit.quantity or 0),
+            "out_quantity": sum(row["quantity"] for row in places) if item.inner_quantity else 0,
+            "out_places": places,
+            "name": unit.name,
+            "description": unit.description,
+            "is_broken": bool(unit.is_broken),
+            "damage_note": unit.damage_note,
+            "repair_note": unit.repair_note,
+            "has_image": bool(unit.image_filename),
+            "image_filename": unit.image_filename,
+            "created_at": unit.created_at.isoformat() if unit.created_at else None,
+            "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
+            "history": history_by_unit.get(unit.id, []),
+        })
     return {
         "track_units": bool(item.track_units),
         "inner_quantity": bool(item.inner_quantity),
         "is_consumable": category_is_consumable(db, item.category),
         "unit": category_units_by_name(db).get(normalize_lookup(item.category), "unidad"),
-        "units": [
-            {
-                "id": unit.id,
-                "code": unit.code,
-                "status": unit.status,
-                "status_label": labels.get(unit.status, unit.status),
-                "quantity": int(unit.quantity or 0),
-                "out_quantity": unit_out_quantity(db, unit) if item.inner_quantity else 0,
-                "out_places": unit_out_places(db, unit),
-                "name": unit.name,
-                "description": unit.description,
-                "is_broken": bool(unit.is_broken),
-                "damage_note": unit.damage_note,
-                "repair_note": unit.repair_note,
-                "has_image": bool(unit.image_filename),
-                "image_filename": unit.image_filename,
-                "created_at": unit.created_at.isoformat() if unit.created_at else None,
-                "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
-                "history": unit_history(db, unit),
-            }
-            for unit in units
-        ],
+        "units": payload,
     }
 
 

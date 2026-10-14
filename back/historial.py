@@ -2,7 +2,7 @@ from datetime import datetime
 from fastapi import Depends, HTTPException, status, APIRouter
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
-from typing import Annotated, Optional
+from typing import Annotated, List, Optional
 from dtos.historialDTO import HistoryResponseDTO
 import models
 from database import get_db
@@ -136,6 +136,7 @@ def read_history(
     db: db_dependency,
     item_name: Optional[str] = None,
     item_id: Optional[int] = None,
+    item_ids: Optional[List[int]] = Query(None),
     user_name: Optional[str] = None,
     person_who_took: Optional[str] = None,
     place: Optional[str] = None,
@@ -192,7 +193,9 @@ def read_history(
                     piece_match,
                 )
             )
-        if item_id is not None:
+        if item_ids:
+            query = query.filter(models.History.itemId.in_(item_ids))
+        elif item_id is not None:
             query = query.filter(models.History.itemId == item_id)
         if user_name:
             query = query.filter(models.History.userName.ilike(f"%{user_name}%"))
