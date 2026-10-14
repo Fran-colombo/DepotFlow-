@@ -250,6 +250,22 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
                   placeholder="Quién retiró"
                 />
               </div>
+              <div className="col-md-4">
+                <label className="form-label">Acción</label>
+                <select
+                  name="action"
+                  value={filters.action}
+                  onChange={handleFilterChange}
+                  className="form-select"
+                >
+                  <option value="">Todas</option>
+                  <option value="retiro">Retiros</option>
+                  <option value="devolucion">Devoluciones</option>
+                  <option value="traslado">Traslados</option>
+                  <option value="carga">Cargas</option>
+                  <option value="descarte">Tirado</option>
+                </select>
+              </div>
               <div className="col-md-5">
                 <label className="form-label">Obra</label>
                 <select

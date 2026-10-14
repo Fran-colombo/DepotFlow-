@@ -275,6 +275,7 @@ useEffect(() => {
                 <option value="devolucion">Devoluciones</option>
                 <option value="traslado">Traslados</option>
                 <option value="carga">Cargas</option>
+                <option value="descarte">Tirado</option>
               </select>
             </div>
 

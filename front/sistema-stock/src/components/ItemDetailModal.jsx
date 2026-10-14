@@ -110,6 +110,7 @@ const PieceCard = ({
   const [draftFix, setDraftFix] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [breaksOpen, setBreaksOpen] = useState(false);
   const [zoneRows, setZoneRows] = useState([]);
   const [zoneError, setZoneError] = useState("");
   const [savingZones, setSavingZones] = useState(false);
@@ -519,28 +520,13 @@ const PieceCard = ({
             </div>
           )}
           {Array.isArray(unit.breaks) && unit.breaks.length > 0 && (
-            <div className="small mt-2">
-              <div className="fw-semibold">Roturas</div>
-              <ul className="list-unstyled mb-0">
-                {unit.breaks.map((row) => (
-                  <li key={row.id} className="mb-2">
-                    <div>
-                      {row.fixed_at ? "Arreglada" : "Abierta"}
-                      {row.broken_at
-                        ? ` · ${new Date(row.broken_at).toLocaleDateString("es-AR", {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}`
-                        : ""}
-                    </div>
-                    {row.damage_note && <div>Qué le pasó: {row.damage_note}</div>}
-                    {row.repair_note && <div>Qué habría que hacer: {row.repair_note}</div>}
-                    {row.fix_note && <div>Qué se le hizo: {row.fix_note}</div>}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-secondary mt-2"
+              onClick={() => setBreaksOpen(true)}
+            >
+              Roturas
+            </button>
           )}
           {orderedNotes.length > 0 && (
             <div className="small mt-2">
@@ -709,6 +695,59 @@ const PieceCard = ({
           {localError && <div className="text-danger small mt-1">{localError}</div>}
         </div>
       </div>
+      {breaksOpen && Array.isArray(unit.breaks) && (
+        <div
+          className="modal show d-block"
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1080 }}
+          onClick={() => setBreaksOpen(false)}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered modal-dialog-scrollable"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title mb-0">
+                  Roturas: {unit.code}
+                  {unit.name ? ` ${unit.name}` : ""}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  aria-label="Cerrar"
+                  onClick={() => setBreaksOpen(false)}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <ul className="list-unstyled mb-0">
+                  {unit.breaks.map((row) => (
+                    <li key={row.id} className="mb-3">
+                      <div className="fw-semibold">
+                        {row.fixed_at ? "Arreglada" : "Abierta"}
+                        {row.broken_at
+                          ? ` · ${new Date(row.broken_at).toLocaleDateString("es-AR", {
+                              year: "numeric",
+                              month: "short",
+                              day: "numeric",
+                            })}`
+                          : ""}
+                      </div>
+                      {row.damage_note && <div>Qué le pasó: {row.damage_note}</div>}
+                      {row.repair_note && <div>Qué habría que hacer: {row.repair_note}</div>}
+                      {row.fix_note && <div>Qué se le hizo: {row.fix_note}</div>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-outline-primary" onClick={() => setBreaksOpen(false)}>
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {photoOpen && imageUrl && (
         <div
           className="modal show d-block"

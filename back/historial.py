@@ -987,9 +987,21 @@ def generate_remito(
             y -= 0.55 * cm
             p.drawString(left, y, f"Origen: {joined(row['shedName'] for row in rows)}")
             y -= 0.55 * cm
-            p.drawString(left, y, f"Destino: {joined(row['place'] for row in rows)}")
-            y -= 0.55 * cm
-            p.drawString(left, y, f"Retira: {joined(row['personWhoTook'] for row in rows)}")
+            discarded = bool(rows) and all(row.get("action") == "descarte" for row in rows)
+            if discarded:
+                def authorized(place):
+                    text = (place or "").strip()
+                    prefix = "Autorizado por "
+                    if text.lower().startswith(prefix.lower()):
+                        return text[len(prefix):].strip() or text
+                    return text
+                p.drawString(left, y, f"Tiró: {joined(row['personWhoTook'] for row in rows)}")
+                y -= 0.55 * cm
+                p.drawString(left, y, f"Autorizó: {joined(authorized(row['place']) for row in rows)}")
+            else:
+                p.drawString(left, y, f"Destino: {joined(row['place'] for row in rows)}")
+                y -= 0.55 * cm
+                p.drawString(left, y, f"Retira: {joined(row['personWhoTook'] for row in rows)}")
             y -= 0.8 * cm
             return y
 
@@ -1096,6 +1108,7 @@ def generate_remito(
                 "place": history.place,
                 "shedName": shed_name,
                 "date": history.date,
+                "action": history.action.value if history.action else None,
             })
 
     draw_document(histories, "ORIGINAL")
