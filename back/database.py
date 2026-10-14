@@ -96,6 +96,10 @@ def ensure_zone_schema():
                 "ALTER TABLE observations ADD COLUMN observed_by VARCHAR"
             ))
 
+    if _column_exists("historal", "id") and not _column_exists("historal", "note"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE historal ADD COLUMN note VARCHAR"))
+
     if not _column_exists("historal", "hideFromHistorial"):
         with engine.begin() as conn:
             conn.execute(text(
@@ -234,6 +238,21 @@ def ensure_inventory_schema():
         """))
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_unit_depot_zones_unit_id ON unit_depot_zones (unit_id)"
+        ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS roturas (
+                id INTEGER NOT NULL PRIMARY KEY,
+                unit_id INTEGER NOT NULL,
+                damage_note VARCHAR,
+                repair_note VARCHAR,
+                fix_note VARCHAR,
+                broken_at DATETIME NOT NULL,
+                fixed_at DATETIME,
+                FOREIGN KEY(unit_id) REFERENCES item_units (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_roturas_unit_id ON roturas (unit_id)"
         ))
 
     if _column_exists("history_units", "id") and not _column_exists("history_units", "amount"):

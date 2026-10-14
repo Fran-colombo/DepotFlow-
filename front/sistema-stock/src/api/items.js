@@ -497,6 +497,31 @@ export function identifyItem(itemId, prefix) {
   });
 }
 
+export async function exportPieces(q = "", options = {}) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const params = new URLSearchParams();
+  const text = (q || "").trim();
+  if (text) params.set("q", text);
+  if (options.broken) params.set("broken", "true");
+  if (options.withoutImage) params.set("without_image", "true");
+  const response = await fetch(`${base}/units/export?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  });
+  await downloadExcelBlob(response, "piezas.xlsx");
+}
+
+export function discardUnit(unitId, data) {
+  return apiFetch(`/units/${unitId}/discard`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function searchPieces(q = "", options = {}) {
   const params = new URLSearchParams();
   const text = (q || "").trim();

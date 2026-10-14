@@ -9,6 +9,7 @@ class ActionEnum(str, Enum):
     devolucion = "devolucion"
     carga = "carga"
     traslado = "traslado"
+    descarte = "descarte"
 
 
 class HistoryCreateDTO(BaseModel):
@@ -35,6 +36,7 @@ class HistoryResponseDTO(BaseModel):
     amountNotReturned: Optional[int] = None
     date: datetime
     place: str
+    note: Optional[str] = None
     turnback: bool
     turnbackDate: Optional[datetime] = None
 

@@ -10,6 +10,7 @@ class ActionEnum(enum.Enum):
     devolucion = "devolucion"
     carga = "carga"
     traslado = "traslado"
+    descarte = "descarte"
 
 class RoleEnum(enum.Enum):
      admin = "admin"
@@ -82,6 +83,7 @@ class History(Base):
     amountNotReturned = Column(Integer, index=True)
     date = Column(DateTime, nullable=False)
     place = Column(String, index=True)
+    note = Column(String, nullable=True)
     turnback = Column(Boolean, default=False)
     turnbackDate = Column(DateTime, nullable=True)
     lastNotification = Column(DateTime, nullable=True)
@@ -187,6 +189,18 @@ class ItemUnit(Base):
     is_broken = Column(Boolean, default=False, nullable=False)
     damage_note = Column(String, nullable=True)
     repair_note = Column(String, nullable=True)
+
+
+class Rotura(Base):
+    __tablename__ = "roturas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unit_id = Column(Integer, ForeignKey("item_units.id"), nullable=False, index=True)
+    damage_note = Column(String, nullable=True)
+    repair_note = Column(String, nullable=True)
+    fix_note = Column(String, nullable=True)
+    broken_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    fixed_at = Column(DateTime, nullable=True)
 
 
 class UnitDepotZone(Base):

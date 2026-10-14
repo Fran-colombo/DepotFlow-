@@ -93,6 +93,7 @@ def split_grouped_returns(db):
                 amountNotReturned=history.amountNotReturned,
                 date=history.date,
                 place=history.place,
+                note=history.note,
                 turnback=history.turnback,
                 turnbackDate=history.turnbackDate,
                 lastNotification=history.lastNotification,
@@ -298,6 +299,7 @@ def read_history(
                         amountNotReturned=history.amountNotReturned,
                         date=history.date,
                         place=history.place,
+                        note=history.note,
                         turnback=history.turnback,
                         turnbackDate=history.turnbackDate,
                         itemCategory=category,
@@ -546,6 +548,7 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
             amountNotReturned=None ,
             date=now(),
             place=dto.place,
+            note=(dto.note or "").strip() or None,
             turnback=True,
             lastNotification=None
         )
@@ -571,6 +574,7 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     amountNotReturned=dto.amount,  
     date=now(),
     place=dto.place,
+    note=(dto.note or "").strip() or None,
     turnback=False,
     lastNotification=None
     )
@@ -760,6 +764,7 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             turnback=True,
             turnbackDate=moment,
             place=dto.place,
+            note=(dto.note or "").strip() or None,
             personWhoTook=quien_devuelve,
             lastNotification=None
         )

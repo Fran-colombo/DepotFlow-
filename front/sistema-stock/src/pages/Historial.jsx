@@ -105,6 +105,7 @@ useEffect(() => {
       case 'devolucion': return 'bg-success text-white';
       case 'traslado': return 'bg-info text-white';
       case 'carga': return 'bg-primary text-white';
+      case 'descarte': return 'bg-dark text-white';
       default: return 'bg-secondary text-white';
     }
   };
@@ -114,6 +115,7 @@ useEffect(() => {
     if (action === 'traslado') return 'Traslado';
     if (action === 'carga') return 'Carga';
     if (action === 'devolucion') return 'Devolución';
+    if (action === 'descarte') return 'Tirado';
     return action || '—';
   };
 
@@ -130,6 +132,9 @@ useEffect(() => {
     }
     if (registro.action === 'devolucion') {
       return { className: 'bg-success text-white', label: 'Devuelto' };
+    }
+    if (registro.action === 'descarte') {
+      return { className: 'bg-dark text-white', label: 'Tirado' };
     }
     if (registro.turnback) {
       return { className: 'bg-success text-white', label: 'Devuelto' };
@@ -425,7 +430,12 @@ useEffect(() => {
                         </span>
                       </td>
                       <td>{registro.amountRetired || registro.amountNotReturned || '0'}</td>
-                      <td>{registro.place || 'N/A'}</td>
+                      <td>
+                        <div>{registro.place || 'N/A'}</div>
+                        {registro.note && (
+                          <div className="small text-secondary fw-normal">{registro.note}</div>
+                        )}
+                      </td>
                       <td>{registro.shed_name || 'N/A'}</td>
                       <td>{formatDate(registro.date)}</td>
                       <td>

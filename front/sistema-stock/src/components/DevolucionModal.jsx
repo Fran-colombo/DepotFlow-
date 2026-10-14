@@ -6,7 +6,7 @@ import PersonPicker from "./PersonPicker";
 const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
   const [pendingPlaces, setPendingPlaces] = useState([]);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '', codesText: '' });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '', codesText: '', note: '' });
   const [loading, setLoading] = useState(false);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [error, setError] = useState("");
@@ -15,7 +15,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
   useEffect(() => {
     if (!isOpen || !itemId) return;
 
-    setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '', codesText: '' });
+    setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '', codesText: '', note: '' });
     setError("");
     setFeedback(null);
     setPendingPlaces([]);
@@ -86,6 +86,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
         place: form.place,
         personWhoReturned: form.personWhoReturned.trim(),
         ...(codes.length ? { codes } : {}),
+        ...(form.note.trim() ? { note: form.note.trim() } : {}),
       });
       onSuccess?.();
       setFeedback({ type: "success", message: "Se devolvió al depósito." });
@@ -185,6 +186,17 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
                   value={form.personWhoReturned}
                   disabled={noPending}
                   onChange={(personWhoReturned) => setForm({ ...form, personWhoReturned })}
+                />
+              </div>
+              <div className="mb-3">
+                <label className="form-label">Nota</label>
+                <textarea
+                  className="form-control"
+                  rows="2"
+                  placeholder="Opcional"
+                  value={form.note}
+                  disabled={noPending}
+                  onChange={(e) => setForm({ ...form, note: e.target.value })}
                 />
               </div>
               {error && (

@@ -7,3 +7,4 @@ class DevolucionDTO(BaseModel):
     personWhoReturned: Optional[str] = None  
     place: str
     codes: Optional[List[str]] = None
+    note: Optional[str] = None

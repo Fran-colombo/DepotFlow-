@@ -17,6 +17,7 @@ STATUS_EN_STOCK = "en_stock"
 STATUS_RETIRADA = "retirada"
 STATUS_CONSUMIDA = "consumida"
 STATUS_FUERA_DE_SERVICIO = "fuera_de_servicio"
+STATUS_TIRADA = "tirada"
 REPAIR_PLACE = "Reparación"
 
 
@@ -140,10 +141,11 @@ def peek_codes(db: Session, count: int, prefix: str = "K") -> list:
     prefix = normalize_prefix(prefix)
     year = _code_year()
     pattern = re.compile(rf"^{re.escape(prefix)}-{year}-(\d+)$")
+    discarded = re.compile(rf"^TIRADO-{re.escape(prefix)}-{year}-(\d+)$")
     existing = _existing_codes(db)
     serial = 0
     for code in existing:
-        match = pattern.fullmatch(code or "")
+        match = pattern.fullmatch(code or "") or discarded.fullmatch(code or "")
         if match:
             serial = max(serial, int(match.group(1)))
     codes = []
@@ -178,6 +180,65 @@ def select_relocatable_units(db: Session, item: models.Item, codes):
             raise ItemServiceError(f"El código {code} no se puede mover")
         units.append(unit)
     return units
+
+
+def _open_break(db: Session, unit: models.ItemUnit):
+    return (
+        db.query(models.Rotura)
+        .filter(models.Rotura.unit_id == unit.id, models.Rotura.fixed_at.is_(None))
+        .order_by(models.Rotura.id.desc())
+        .first()
+    )
+
+
+def sync_breakage(db: Session, unit: models.ItemUnit, was_broken: bool, previous_damage: str = None, previous_repair: str = None, fix_note: str = None):
+    if unit.is_broken:
+        row = _open_break(db, unit)
+        if row is None:
+            row = models.Rotura(unit_id=unit.id, broken_at=datetime.now(TIMEZONE))
+            db.add(row)
+        row.damage_note = unit.damage_note
+        row.repair_note = unit.repair_note
+        return
+    if not was_broken:
+        return
+    done = (fix_note or "").strip()
+    if not done:
+        raise ItemServiceError("Contá qué se le hizo")
+    row = _open_break(db, unit)
+    if row is None:
+        row = models.Rotura(
+            unit_id=unit.id,
+            damage_note=(previous_damage or "").strip() or None,
+            repair_note=(previous_repair or "").strip() or None,
+            broken_at=datetime.now(TIMEZONE),
+        )
+        db.add(row)
+    row.fix_note = done
+    row.fixed_at = datetime.now(TIMEZONE)
+
+
+def breaks_by_unit(db: Session, unit_ids) -> dict:
+    ids = [unit_id for unit_id in (unit_ids or []) if unit_id is not None]
+    grouped = {unit_id: [] for unit_id in ids}
+    if not ids:
+        return grouped
+    rows = (
+        db.query(models.Rotura)
+        .filter(models.Rotura.unit_id.in_(ids))
+        .order_by(models.Rotura.broken_at.desc(), models.Rotura.id.desc())
+        .all()
+    )
+    for row in rows:
+        grouped.setdefault(row.unit_id, []).append({
+            "id": row.id,
+            "damage_note": row.damage_note or "",
+            "repair_note": row.repair_note or "",
+            "fix_note": row.fix_note or "",
+            "broken_at": row.broken_at.isoformat() if row.broken_at else None,
+            "fixed_at": row.fixed_at.isoformat() if row.fixed_at else None,
+        })
+    return grouped
 
 
 def apply_piece_profile(unit, name: str, is_broken: bool, damage_note: str = None, repair_note: str = None, description: str = None):
@@ -622,7 +683,7 @@ def _piece_amounts(db: Session, item: models.Item, unit: models.ItemUnit):
     if item.inner_quantity:
         depot = int(unit.quantity or 0)
         return depot, depot + unit_out_quantity(db, unit)
-    if unit.status == STATUS_CONSUMIDA:
+    if unit.status in (STATUS_CONSUMIDA, STATUS_TIRADA):
         return 0, 0
     depot = 1 if unit.status == STATUS_EN_STOCK else 0
     return depot, 1
@@ -688,6 +749,111 @@ def reassign_unit_subcategory(db: Session, source: models.Item, unit: models.Ite
                 {models.History.itemId: target.id},
                 synchronize_session=False,
             )
+    return unit
+
+
+def _discarded_code(db: Session, code: str) -> str:
+    base = f"TIRADO-{(code or '').strip().upper()}"
+    candidate = base
+    number = 2
+    while db.query(models.ItemUnit.id).filter(models.ItemUnit.code == candidate).first():
+        candidate = f"{base}-{number}"
+        number += 1
+        if number > 50:
+            raise ItemServiceError("No se pudo liberar el código")
+    if not CODE_PATTERN.fullmatch(candidate):
+        raise ItemServiceError("El código queda demasiado largo para marcarlo como tirado")
+    return candidate
+
+
+def discard_unit(db: Session, item: models.Item, unit: models.ItemUnit, person: str, authorized_by: str, user_id: int, user_name: str):
+    if unit.item_id != item.id:
+        raise ItemServiceError("La pieza no pertenece a esta subcategoría")
+    if unit.status == STATUS_TIRADA:
+        raise ItemServiceError("Esta pieza ya fue tirada")
+    if not unit.is_broken and unit.status != STATUS_FUERA_DE_SERVICIO:
+        raise ItemServiceError("Solo se puede tirar si está rota o fuera de servicio")
+    who = (person or "").strip()
+    authorized = (authorized_by or "").strip()
+    if not who or not authorized:
+        raise ItemServiceError("Indicá quién la tira y quién autoriza")
+
+    depot, total = _piece_amounts(db, item, unit)
+    if (item.actualAmount or 0) < depot or (item.totalAmount or 0) < total:
+        raise ItemServiceError("No hay suficiente stock para tirar la pieza")
+    item.actualAmount = (item.actualAmount or 0) - depot
+    item.totalAmount = (item.totalAmount or 0) - total
+
+    moment = datetime.now(TIMEZONE)
+    history_ids = [
+        history_id
+        for (history_id,) in db.query(models.HistoryUnit.history_id)
+        .filter(models.HistoryUnit.unit_id == unit.id)
+        .all()
+    ]
+    if history_ids:
+        pending = (
+            db.query(models.History)
+            .filter(
+                models.History.id.in_(history_ids),
+                models.History.action == models.ActionEnum.retiro,
+                models.History.turnback == False,
+                models.History.amountNotReturned > 0,
+            )
+            .all()
+        )
+        for history in pending:
+            others = (
+                db.query(models.HistoryUnit.id)
+                .filter(
+                    models.HistoryUnit.history_id == history.id,
+                    models.HistoryUnit.unit_id != unit.id,
+                )
+                .count()
+            )
+            if others == 0:
+                history.turnback = True
+                history.turnbackDate = moment
+                history.amountNotReturned = 0
+                continue
+            link = (
+                db.query(models.HistoryUnit)
+                .filter(
+                    models.HistoryUnit.history_id == history.id,
+                    models.HistoryUnit.unit_id == unit.id,
+                )
+                .first()
+            )
+            share = int(link.amount) if link and link.amount is not None else 1
+            history.amountNotReturned = max(0, int(history.amountNotReturned or 0) - share)
+            if history.amountNotReturned == 0:
+                history.turnback = True
+                history.turnbackDate = moment
+
+    unit.code = _discarded_code(db, unit.code)
+    unit.status = STATUS_TIRADA
+    unit.consumed_at = moment
+    if item.inner_quantity:
+        unit.quantity = 0
+        align_depot_zones(db, unit, item)
+
+    thrown = models.History(
+        itemId=item.id,
+        userId=user_id,
+        userName=user_name or who,
+        personWhoTook=who,
+        action=models.ActionEnum.descarte,
+        amountRetired=total or 1,
+        amountNotReturned=0,
+        date=moment,
+        place=f"Autorizado por {authorized}",
+        turnback=True,
+        turnbackDate=moment,
+        hideFromHistorial=False,
+    )
+    db.add(thrown)
+    db.flush()
+    link_history_units(db, thrown.id, [unit], {unit.id: total or 1})
     return unit
 
 
@@ -933,6 +1099,7 @@ def unit_history(db: Session, unit: models.ItemUnit) -> list:
                 "person": history.personWhoTook,
                 "date": history.date.isoformat() if history.date else None,
                 "amount": piece_amount(db, history, link),
+                "note": history.note or "",
             }
         )
     return rows
@@ -972,6 +1139,7 @@ def histories_by_unit(db: Session, unit_ids) -> dict:
                 "person": history.personWhoTook,
                 "date": history.date.isoformat() if history.date else None,
                 "amount": amount,
+                "note": history.note or "",
             }
         )
     return grouped

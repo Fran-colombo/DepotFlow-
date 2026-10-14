@@ -3,6 +3,7 @@ import {
   addObservation,
   deleteUnitImage,
   devolverItem,
+  discardUnit,
   getAllItems,
   getItemUnits,
   getUnitImageUrl,
@@ -32,6 +33,7 @@ const ACTION_LABEL = {
   devolucion: "Devolución",
   carga: "Carga",
   traslado: "Traslado",
+  descarte: "Tirado",
 };
 
 const REPAIR_PLACE = "Reparación";
@@ -82,6 +84,7 @@ const PieceCard = ({
   onTransfer,
   onShowHistory,
   onChangeCategory,
+  onDiscard,
   onEditQuantity,
   zones = [],
   homeZoneId = null,
@@ -104,6 +107,7 @@ const PieceCard = ({
   const [draftBroken, setDraftBroken] = useState(Boolean(unit.is_broken));
   const [draftDamage, setDraftDamage] = useState(unit.damage_note || "");
   const [draftRepair, setDraftRepair] = useState(unit.repair_note || "");
+  const [draftFix, setDraftFix] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [zoneRows, setZoneRows] = useState([]);
@@ -137,6 +141,7 @@ const PieceCard = ({
     setDraftBroken(Boolean(unit.is_broken));
     setDraftDamage(unit.damage_note || "");
     setDraftRepair(unit.repair_note || "");
+    setDraftFix("");
   }, [unit.id, unit.name, unit.description, unit.is_broken, unit.damage_note, unit.repair_note]);
 
   const countsInside = Boolean(item.inner_quantity);
@@ -190,6 +195,11 @@ const PieceCard = ({
       setLocalError("El nombre de la pieza es obligatorio");
       return;
     }
+    const closing = Boolean(unit.is_broken) && !draftBroken;
+    if (closing && !draftFix.trim()) {
+      setLocalError("Contá qué se le hizo");
+      return;
+    }
     setSavingProfile(true);
     setLocalError("");
     try {
@@ -199,9 +209,13 @@ const PieceCard = ({
         is_broken: draftBroken,
         damage_note: draftBroken ? draftDamage.trim() : "",
         repair_note: draftBroken ? draftRepair.trim() : "",
+        ...(closing ? { fix_note: draftFix.trim() } : {}),
       });
       onReload?.();
-      onFeedback?.({ type: "success", message: "Se guardó la pieza." });
+      onFeedback?.({
+        type: "success",
+        message: closing ? "Se arregló." : "Se guardó la pieza.",
+      });
     } catch (err) {
       const message = err.message || "No se pudo guardar la pieza";
       setLocalError(message);
@@ -294,6 +308,7 @@ const PieceCard = ({
   });
   const visibleNotes = orderedNotes.slice(0, shownNotes);
   const canEditQty = isAdmin && inner && unit.status !== "consumida" && (place === "depot" || (unit.quantity || 0) === 0);
+  const canDiscard = Boolean(unit.is_broken) || unit.status === "fuera_de_servicio" || place === "repair";
 
   return (
     <div className="border rounded p-3 mb-2 bg-white">
@@ -373,6 +388,16 @@ const PieceCard = ({
               >
                 Cambiar de categoría
               </button>
+              {canDiscard && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
+                  disabled={returning}
+                  onClick={() => onDiscard?.(unit)}
+                >
+                  Tirar
+                </button>
+              )}
               {canEditQty && (
                 <button
                   type="button"
@@ -493,6 +518,30 @@ const PieceCard = ({
               {unit.repair_note && <div>Qué habría que hacer: {unit.repair_note}</div>}
             </div>
           )}
+          {Array.isArray(unit.breaks) && unit.breaks.length > 0 && (
+            <div className="small mt-2">
+              <div className="fw-semibold">Roturas</div>
+              <ul className="list-unstyled mb-0">
+                {unit.breaks.map((row) => (
+                  <li key={row.id} className="mb-2">
+                    <div>
+                      {row.fixed_at ? "Arreglada" : "Abierta"}
+                      {row.broken_at
+                        ? ` · ${new Date(row.broken_at).toLocaleDateString("es-AR", {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          })}`
+                        : ""}
+                    </div>
+                    {row.damage_note && <div>Qué le pasó: {row.damage_note}</div>}
+                    {row.repair_note && <div>Qué habría que hacer: {row.repair_note}</div>}
+                    {row.fix_note && <div>Qué se le hizo: {row.fix_note}</div>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {orderedNotes.length > 0 && (
             <div className="small mt-2">
               <ul className="list-unstyled mb-1">
@@ -609,13 +658,22 @@ const PieceCard = ({
                 />
               </>
             )}
+            {unit.is_broken && !draftBroken && (
+              <textarea
+                className="form-control form-control-sm mb-2"
+                rows="2"
+                placeholder="Qué se le hizo"
+                value={draftFix}
+                onChange={(e) => setDraftFix(e.target.value)}
+              />
+            )}
             <button
               type="button"
               className="btn btn-sm btn-outline-primary"
               disabled={savingProfile}
               onClick={saveProfile}
             >
-              Guardar pieza
+              {unit.is_broken && !draftBroken ? "Se arregló" : "Guardar pieza"}
             </button>
           </div>
           <div className="d-flex flex-column gap-2 mt-2">
@@ -694,6 +752,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [actionUnit, setActionUnit] = useState(null);
   const [popupPlace, setPopupPlace] = useState("");
   const [popupPerson, setPopupPerson] = useState("");
+  const [popupNote, setPopupNote] = useState("");
   const [popupError, setPopupError] = useState("");
   const [popupAmount, setPopupAmount] = useState(1);
   const [retireScope, setRetireScope] = useState("parcial");
@@ -729,6 +788,10 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [moveCode, setMoveCode] = useState("");
   const [moveSuggestion, setMoveSuggestion] = useState("");
   const [moveError, setMoveError] = useState("");
+  const [discardPiece, setDiscardPiece] = useState(null);
+  const [discardPerson, setDiscardPerson] = useState("");
+  const [discardAuthorized, setDiscardAuthorized] = useState("");
+  const [discardError, setDiscardError] = useState("");
   const [addingMore, setAddingMore] = useState(false);
   const [offerAnother, setOfferAnother] = useState(false);
 
@@ -791,6 +854,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setActionUnit(null);
     setQtyUnit(null);
     setMoveUnit(null);
+    setDiscardPiece(null);
     getObras()
       .then((data) => setObras(Array.isArray(data) ? data : []))
       .catch(() => setObras([]));
@@ -946,6 +1010,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const openRetire = (unit) => {
     setPopupPlace("");
     setPopupPerson("");
+    setPopupNote("");
     setPopupError("");
     setPopupAmount("");
     setRetireScope("parcial");
@@ -958,6 +1023,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setReturnFromRepair(fromRepair);
     setPopupPlace(fromRepair ? REPAIR_PLACE : (obra?.place || lastRetiroPlace(unit)));
     setPopupPerson("");
+    setPopupNote("");
     setPopupError("");
     setPopupAmount(1);
     setActionUnit({ unit, kind: "return" });
@@ -995,6 +1061,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         codes: [unit.code],
         noReturn: retireRepair ? false : consumable,
         repair: retireRepair,
+        ...(popupNote.trim() ? { note: popupNote.trim() } : {}),
       });
       setActionUnit(null);
       setFeedback({
@@ -1038,6 +1105,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         place: popupPlace.trim(),
         personWhoReturned: popupPerson.trim(),
         codes: [unit.code],
+        ...(popupNote.trim() ? { note: popupNote.trim() } : {}),
       });
       setActionUnit(null);
       setFeedback({ type: "success", message: "Se devolvió al depósito." });
@@ -1052,6 +1120,41 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
 
   const printCodes = (codes) => {
     printLabels(item.name, codes, item.category || "");
+  };
+
+  const openDiscard = (unit) => {
+    setDiscardPiece(unit);
+    setDiscardPerson("");
+    setDiscardAuthorized("");
+    setDiscardError("");
+  };
+
+  const saveDiscard = async (event) => {
+    event.preventDefault();
+    if (!discardPiece || busy) return;
+    if (!discardPerson.trim() || !discardAuthorized.trim()) {
+      setDiscardError("Indicá quién la tira y quién autoriza");
+      return;
+    }
+    setBusy(true);
+    setDiscardError("");
+    try {
+      const result = await discardUnit(discardPiece.id, {
+        person: discardPerson.trim(),
+        authorized_by: discardAuthorized.trim(),
+      });
+      setDiscardPiece(null);
+      setFeedback({
+        type: "success",
+        message: `Se tiró. El código quedó ${result?.code || "marcado como tirado"}.`,
+      });
+      await reload();
+      onChanged?.();
+    } catch (err) {
+      setDiscardError(err.message || "No se pudo tirar");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const openCategoryMove = (unit) => {
@@ -1209,6 +1312,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     onTransfer={place === "obra" && !consumable ? openTransfer : undefined}
                     onShowHistory={setHistoryUnit}
                     onChangeCategory={openCategoryMove}
+                    onDiscard={openDiscard}
                     zones={shedZones}
                     homeZoneId={item?.zone_id}
                     isAdmin={isAdmin}
@@ -1477,6 +1581,40 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         </div>
       </div>
     </div>
+    {discardPiece && (
+      <div
+        className="modal show d-block fade"
+        tabIndex="-1"
+        style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }}
+        onClick={() => !busy && setDiscardPiece(null)}
+      >
+        <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+          <form className="modal-content rounded shadow-lg" onSubmit={saveDiscard}>
+            <div className="modal-header">
+              <h5 className="modal-title mb-0">Tirar {discardPiece.code}</h5>
+              <button type="button" className="btn-close" aria-label="Cerrar" disabled={busy} onClick={() => setDiscardPiece(null)}></button>
+            </div>
+            <div className="modal-body">
+              <p className="mb-3">Deja de verse en el stock. El código pasa a empezar con TIRADO- y el anterior queda libre.</p>
+              <label className="form-label">Quién la tira</label>
+              <PersonPicker value={discardPerson} onChange={setDiscardPerson} disabled={busy} />
+              <label className="form-label mt-3">Autorizado por</label>
+              <PersonPicker value={discardAuthorized} onChange={setDiscardAuthorized} disabled={busy} />
+              <div className="form-text mt-3">Fecha: {new Date().toLocaleDateString("es-AR")}</div>
+              {discardError && <div className="alert alert-danger py-2 mt-3 mb-0">{discardError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => setDiscardPiece(null)}>
+                Cancelar
+              </button>
+              <button type="submit" className="btn btn-danger" disabled={busy}>
+                Tirar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
     {moveUnit && (
       <div
         className="modal show d-block fade"
@@ -1767,6 +1905,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 </label>
                 <PersonPicker value={popupPerson} onChange={setPopupPerson} disabled={busy} />
               </div>
+              <div className="mb-3">
+                <label className="form-label">Nota</label>
+                <textarea
+                  className="form-control"
+                  rows="2"
+                  placeholder="Opcional"
+                  value={popupNote}
+                  onChange={(e) => setPopupNote(e.target.value)}
+                />
+              </div>
               {popupError && <div className="alert alert-danger py-2">{popupError}</div>}
             </div>
             <div className="modal-footer">
@@ -1835,6 +1983,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                         <th>Acción</th>
                         <th>Lugar</th>
                         <th>Persona</th>
+                        <th>Nota</th>
                         {innerQuantity && <th>Cantidad</th>}
                       </tr>
                     </thead>
@@ -1857,6 +2006,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                           </td>
                           <td>{row.place || "—"}</td>
                           <td>{row.person || "—"}</td>
+                          <td>{row.note || "—"}</td>
                           {innerQuantity && <td className="text-center">{row.amount ?? "—"}</td>}
                         </tr>
                       ))}

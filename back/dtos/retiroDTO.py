@@ -9,3 +9,4 @@ class RetiroDTO(BaseModel):
     codes: Optional[List[str]] = None
     noReturn: bool = False
     repair: bool = False
+    note: Optional[str] = None

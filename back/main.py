@@ -2,6 +2,9 @@ from fastapi import FastAPI, HTTPException, Query, status, Depends, File, Upload
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 import models
 import observations
 import shed
@@ -21,7 +24,7 @@ from dtos.itemResponseDTO import ItemResponseDTO
 from dtos.deleteItemDTO import DeleteItemDTO, ResponseFakeDeleteDTO
 import dtos.itemToCreateDTO as itemDTO
 from historial import router
-from auth import get_current_user, has_admin_access, router as auth_router
+from auth import get_current_user, get_user_name_by_id, has_admin_access, router as auth_router
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
 from seed_admin import seed_admin_from_env
@@ -46,7 +49,10 @@ from pydantic import BaseModel
 from observations import add_unit_observation
 from unit_service import (
     apply_piece_profile,
+    breaks_by_unit,
+    sync_breakage,
     create_units_for_item,
+    discard_unit,
     find_unit_by_code,
     change_item_counting,
     identify_current_stock,
@@ -650,7 +656,7 @@ def list_pieces(
         .join(models.Item, models.Item.id == models.ItemUnit.item_id)
         .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
         .options(contains_eager(models.Item.zone))
-        .filter(models.Item.status == 1)
+        .filter(models.Item.status == 1, models.ItemUnit.status != "tirada")
     )
     if text:
         needle = f"%{_fold_text(text)}%"
@@ -689,6 +695,111 @@ def list_pieces(
             "category": item.category,
         })
     return {"data": data}
+
+
+def _pieces_export(rows, places_by_unit) -> BytesIO:
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = "Piezas"
+    headers = [
+        "Código",
+        "Nombre",
+        "Subcategoría",
+        "Estado",
+        "Dónde está",
+        "Cantidad",
+        "Qué le pasó",
+        "Diagnóstico",
+        "En reparación",
+    ]
+    labels = {
+        "en_stock": "En depósito",
+        "retirada": "En obra",
+        "consumida": "Usada",
+        "fuera_de_servicio": "Fuera de servicio",
+    }
+    header_fill = PatternFill("solid", fgColor="228BE6")
+    header_font = Font(bold=True, color="FFFFFF")
+    for col, header in enumerate(headers, start=1):
+        cell = sheet.cell(1, col, header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for row_index, (unit, item) in enumerate(rows, start=2):
+        places = places_by_unit.get(unit.id) or []
+        if item.inner_quantity:
+            quantity = int(unit.quantity or 0)
+            if quantity <= 0:
+                quantity = sum(int(place.get("quantity") or 0) for place in places)
+        else:
+            quantity = 1
+        values = [
+            unit.code or "",
+            unit.name or "",
+            item.name or "",
+            labels.get(unit.status, unit.status or ""),
+            _piece_place(unit, item, places),
+            quantity,
+            unit.damage_note or "",
+            unit.repair_note or "",
+            "Sí" if unit.status == "fuera_de_servicio" else "No",
+        ]
+        for col, value in enumerate(values, start=1):
+            sheet.cell(row_index, col, value)
+    widths = [22, 36, 36, 22, 32, 12, 40, 40, 16]
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+@app.get("/units/export")
+def export_pieces(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    q: str = "",
+    broken: bool = False,
+    without_image: bool = False,
+):
+    text = (q or "").strip()
+    if not text and not broken and not without_image:
+        raise HTTPException(status_code=400, detail="Elegí rotas, sin foto o un texto para exportar")
+    query = (
+        db.query(models.ItemUnit, models.Item)
+        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
+        .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
+        .options(contains_eager(models.Item.zone))
+        .filter(models.Item.status == 1, models.ItemUnit.status != "tirada")
+    )
+    if text:
+        needle = f"%{_fold_text(text)}%"
+        query = query.filter(or_(
+            _fold_column(models.ItemUnit.code).like(needle),
+            _fold_column(func.coalesce(models.ItemUnit.name, "")).like(needle),
+            _fold_column(models.Item.name).like(needle),
+        ))
+    if broken:
+        query = query.filter(models.ItemUnit.is_broken.is_(True))
+    if without_image:
+        query = query.filter(or_(
+            models.ItemUnit.image_filename.is_(None),
+            models.ItemUnit.image_filename == "",
+        ))
+    rows = query.order_by(models.ItemUnit.code.asc()).all()
+    away_ids = [
+        unit.id
+        for unit, _item in rows
+        if unit.status not in ("consumida", "fuera_de_servicio", "en_stock")
+    ]
+    places_by_unit = pending_places_by_unit(db, away_ids)
+    buffer = _pieces_export(rows, places_by_unit)
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="piezas.xlsx"'},
+    )
 
 
 @app.get("/units/suggest-prefix")
@@ -773,7 +884,10 @@ def list_item_units(
     item = db.query(models.Item).filter(models.Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
-    query = db.query(models.ItemUnit).filter(models.ItemUnit.item_id == item_id)
+    query = db.query(models.ItemUnit).filter(
+        models.ItemUnit.item_id == item_id,
+        models.ItemUnit.status != "tirada",
+    )
     if status_filter and status_filter != "all":
         query = query.filter(models.ItemUnit.status == status_filter)
     elif not status_filter:
@@ -783,6 +897,7 @@ def list_item_units(
     places_by_unit = pending_places_by_unit(db, unit_ids)
     history_by_unit = histories_by_unit(db, unit_ids)
     depot_by_unit = depot_zones_by_unit(db, unit_ids)
+    breaks = breaks_by_unit(db, unit_ids)
     labels = {
         "en_stock": "En depósito",
         "retirada": "En obra",
@@ -811,6 +926,7 @@ def list_item_units(
             "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
             "history": history_by_unit.get(unit.id, []),
             "depot_zones": depot_by_unit.get(unit.id, []),
+            "breaks": breaks.get(unit.id, []),
         })
     return {
         "track_units": bool(item.track_units),
@@ -846,12 +962,18 @@ class UnitZonesBody(BaseModel):
     places: list[ZonePlaceBody]
 
 
+class DiscardBody(BaseModel):
+    person: str
+    authorized_by: str
+
+
 class PieceUpdateBody(BaseModel):
     name: str
     description: Optional[str] = None
     is_broken: bool = False
     damage_note: Optional[str] = None
     repair_note: Optional[str] = None
+    fix_note: Optional[str] = None
 
 
 def _piece_response(unit) -> dict:
@@ -889,6 +1011,7 @@ def create_piece(
         )
         unit = units[0]
         apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note, body.description)
+        sync_breakage(db, unit, False)
         content = 1
         if item.inner_quantity:
             if body.quantity is None or body.quantity < 1:
@@ -938,6 +1061,37 @@ def move_piece_subcategory(
     }
 
 
+@app.post("/units/{unit_id}/discard")
+def discard_piece(
+    unit_id: int,
+    body: DiscardBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Pieza no encontrada")
+    item = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    try:
+        discard_unit(
+            db,
+            item,
+            unit,
+            body.person,
+            body.authorized_by,
+            current_user["user_id"],
+            get_user_name_by_id(db, current_user["user_id"]),
+        )
+        db.commit()
+        db.refresh(unit)
+    except ItemServiceError as e:
+        db.rollback()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return {"code": unit.code}
+
+
 @app.put("/units/{unit_id}/zones")
 def update_piece_zones(
     unit_id: int,
@@ -971,7 +1125,11 @@ def update_piece(
     if not unit:
         raise HTTPException(status_code=404, detail="Pieza no encontrada")
     try:
+        was_broken = bool(unit.is_broken)
+        previous_damage = unit.damage_note
+        previous_repair = unit.repair_note
         apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note, body.description)
+        sync_breakage(db, unit, was_broken, previous_damage, previous_repair, body.fix_note)
         db.commit()
         db.refresh(unit)
     except ItemServiceError as e:

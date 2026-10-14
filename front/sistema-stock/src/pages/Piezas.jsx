@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
-import { getItemById, getUnitImageUrl, searchPieces } from "../api/items";
+import { exportPieces, getItemById, getUnitImageUrl, searchPieces } from "../api/items";
 import ItemDetailModal from "../components/ItemDetailModal";
 
 const Piezas = () => {
@@ -12,6 +12,21 @@ const Piezas = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [detail, setDetail] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const canExport = Boolean(query.trim() || broken || withoutImage);
+
+  const download = async () => {
+    if (!canExport || exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      await exportPieces(query, { broken, withoutImage });
+    } catch (err) {
+      setError(err.message || "No se pudo exportar");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +103,18 @@ const Piezas = () => {
             />
             <label className="form-check-label" htmlFor="pieces-no-photo">Sin foto</label>
           </div>
+          <button
+            type="button"
+            className="btn btn-outline-primary btn-sm"
+            disabled={!canExport || exporting}
+            onClick={download}
+          >
+            {exporting ? "Exportando…" : "Exportar"}
+          </button>
         </div>
+        {!canExport && (
+          <div className="form-text">Para exportar, buscá o marcá Rotas o Sin foto.</div>
+        )}
       </div>
 
       {error && <div className="alert alert-danger">{error}</div>}

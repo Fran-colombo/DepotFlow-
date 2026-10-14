@@ -145,7 +145,7 @@ const RetirarItemModal = ({
   const [item, setItem] = useState(null);
   const [stockUnits, setStockUnits] = useState([]);
   const [innerQuantity, setInnerQuantity] = useState(false);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '' });
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -158,7 +158,7 @@ const RetirarItemModal = ({
 
   useEffect(() => {
     if (isOpen && itemId) {
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '' });
       setRetiredCodes([]);
       setStockUnits([]);
       setInnerQuantity(false);
@@ -215,6 +215,7 @@ const RetirarItemModal = ({
         ...(form.personWhoTook && { personWhoTook: form.personWhoTook }),
         ...(codes ? { codes } : {}),
         noReturn: Boolean(item?.is_consumable) || form.noReturn,
+        ...(form.note.trim() ? { note: form.note.trim() } : {}),
       });
       setRetiredCodes(result?.unit_codes || []);
       setRemitoDraft({
@@ -223,7 +224,7 @@ const RetirarItemModal = ({
         place: form.place,
         personWhoTook: form.personWhoTook || "Usuario actual",
       });
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '' });
       onSuccess?.();
       setFeedback({ type: "success", message: "Se retiró." });
     } catch (error) {
@@ -376,6 +377,16 @@ const RetirarItemModal = ({
                   <PersonPicker
                     value={form.personWhoTook}
                     onChange={(personWhoTook) => setForm({ ...form, personWhoTook })}
+                  />
+                </div>
+                <div className="mb-3">
+                  <label className="form-label">Nota</label>
+                  <textarea
+                    className="form-control"
+                    rows="2"
+                    placeholder="Opcional"
+                    value={form.note}
+                    onChange={(e) => setForm({ ...form, note: e.target.value })}
                   />
                 </div>
                 {error && (
