@@ -457,6 +457,22 @@ export function addPiece(itemId, data) {
   });
 }
 
+export function moveUnitSubcategory(itemId, unitId, data) {
+  return apiFetch(`/items/${itemId}/units/${unitId}/subcategory`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function setUnitDepotZones(unitId, places) {
+  return apiFetch(`/units/${unitId}/zones`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ places }),
+  });
+}
+
 export function updateUnitProfile(unitId, data) {
   return apiFetch(`/units/${unitId}`, {
     method: "PUT",

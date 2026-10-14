@@ -53,7 +53,10 @@ from unit_service import (
     histories_by_unit,
     last_unit_movement,
     peek_codes,
+    depot_zones_by_unit,
     pending_places_by_unit,
+    reassign_unit_subcategory,
+    set_unit_depot_zones,
     suggest_prefix,
 )
 from dotenv import load_dotenv
@@ -779,6 +782,7 @@ def list_item_units(
     unit_ids = [unit.id for unit in units]
     places_by_unit = pending_places_by_unit(db, unit_ids)
     history_by_unit = histories_by_unit(db, unit_ids)
+    depot_by_unit = depot_zones_by_unit(db, unit_ids)
     labels = {
         "en_stock": "En depósito",
         "retirada": "En obra",
@@ -806,6 +810,7 @@ def list_item_units(
             "created_at": unit.created_at.isoformat() if unit.created_at else None,
             "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
             "history": history_by_unit.get(unit.id, []),
+            "depot_zones": depot_by_unit.get(unit.id, []),
         })
     return {
         "track_units": bool(item.track_units),
@@ -825,6 +830,20 @@ class PieceCreateBody(BaseModel):
     damage_note: Optional[str] = None
     repair_note: Optional[str] = None
     quantity: Optional[int] = None
+
+
+class MoveSubcategoryBody(BaseModel):
+    target_item_id: int
+    code: Optional[str] = None
+
+
+class ZonePlaceBody(BaseModel):
+    zone_id: int
+    quantity: int
+
+
+class UnitZonesBody(BaseModel):
+    places: list[ZonePlaceBody]
 
 
 class PieceUpdateBody(BaseModel):
@@ -885,6 +904,60 @@ def create_piece(
         db.rollback()
         raise HTTPException(status_code=e.status_code, detail=e.message)
     return _piece_response(unit)
+
+
+@app.post("/items/{item_id}/units/{unit_id}/subcategory")
+def move_piece_subcategory(
+    item_id: int,
+    unit_id: int,
+    body: MoveSubcategoryBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    source = db.query(models.Item).filter(models.Item.id == item_id).first()
+    if not source:
+        raise HTTPException(status_code=404, detail="Item not found")
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit or unit.item_id != source.id:
+        raise HTTPException(status_code=404, detail="Pieza no encontrada")
+    target = db.query(models.Item).filter(models.Item.id == body.target_item_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="La subcategoría destino no existe")
+    try:
+        reassign_unit_subcategory(db, source, unit, target, body.code)
+        db.commit()
+        db.refresh(unit)
+    except ItemServiceError as e:
+        db.rollback()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    remaining = db.query(models.ItemUnit).filter(models.ItemUnit.item_id == source.id).count()
+    return {
+        "unit": _piece_response(unit),
+        "target_name": target.name,
+        "source_empty": remaining == 0,
+    }
+
+
+@app.put("/units/{unit_id}/zones")
+def update_piece_zones(
+    unit_id: int,
+    body: UnitZonesBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Pieza no encontrada")
+    item = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    try:
+        places = set_unit_depot_zones(db, item, unit, body.places)
+        db.commit()
+    except ItemServiceError as e:
+        db.rollback()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return {"depot_zones": places}
 
 
 @app.put("/units/{unit_id}")

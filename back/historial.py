@@ -35,6 +35,7 @@ from unit_service import (
     piece_amount,
     restore_units,
     return_shares,
+    align_depot_zones,
     take_inner_quantity,
     take_units_out,
     units_for_pending_place,
@@ -517,6 +518,7 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
             if not unit or unit.item_id != item.id:
                 raise ItemServiceError("El código no pertenece a este artículo")
             units = [take_inner_quantity(unit, dto.amount, consume=no_return)]
+            align_depot_zones(db, units[0], item)
         except ItemServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
     elif item.track_units:
@@ -644,6 +646,7 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             for unit_id, taken in taken_by_unit.items():
                 unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
                 apply_inner_return(unit, taken)
+                align_depot_zones(db, unit, item)
                 units.append(unit)
         except ItemServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)

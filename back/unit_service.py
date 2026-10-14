@@ -298,6 +298,102 @@ def unit_out_places(db: Session, unit: models.ItemUnit) -> list:
     return places
 
 
+def depot_zones_by_unit(db: Session, unit_ids) -> dict:
+    ids = [unit_id for unit_id in (unit_ids or []) if unit_id is not None]
+    grouped = {unit_id: [] for unit_id in ids}
+    if not ids:
+        return grouped
+    rows = (
+        db.query(models.UnitDepotZone, models.Zone.name)
+        .join(models.Zone, models.Zone.id == models.UnitDepotZone.zone_id)
+        .filter(models.UnitDepotZone.unit_id.in_(ids), models.UnitDepotZone.quantity > 0)
+        .order_by(models.Zone.name.asc())
+        .all()
+    )
+    for place, zone_name in rows:
+        grouped.setdefault(place.unit_id, []).append({
+            "zone_id": place.zone_id,
+            "zone_name": zone_name or "",
+            "quantity": int(place.quantity or 0),
+        })
+    return grouped
+
+
+def align_depot_zones(db: Session, unit: models.ItemUnit, item: models.Item) -> None:
+    if not item or not item.inner_quantity:
+        return
+    expected = int(unit.quantity or 0)
+    rows = (
+        db.query(models.UnitDepotZone)
+        .filter(models.UnitDepotZone.unit_id == unit.id)
+        .order_by(models.UnitDepotZone.id.asc())
+        .all()
+    )
+    if not rows:
+        return
+    current = sum(int(row.quantity or 0) for row in rows)
+    if expected > current:
+        extra = expected - current
+        home = next((row for row in rows if row.zone_id == item.zone_id), None)
+        if home:
+            home.quantity = int(home.quantity or 0) + extra
+        elif item.zone_id:
+            db.add(models.UnitDepotZone(unit_id=unit.id, zone_id=item.zone_id, quantity=extra))
+        else:
+            rows[0].quantity = int(rows[0].quantity or 0) + extra
+        return
+    if expected == current:
+        return
+    left = current - expected
+    ordered = sorted(rows, key=lambda row: (0 if row.zone_id == item.zone_id else 1, row.id))
+    for row in ordered:
+        if left <= 0:
+            break
+        qty = int(row.quantity or 0)
+        take = min(qty, left)
+        row.quantity = qty - take
+        left -= take
+        if row.quantity <= 0:
+            db.delete(row)
+
+
+def set_unit_depot_zones(db: Session, item: models.Item, unit: models.ItemUnit, places) -> list:
+    if unit.item_id != item.id:
+        raise ItemServiceError("La pieza no pertenece a esta subcategoría")
+    expected = int(unit.quantity or 0) if item.inner_quantity else (1 if unit.status == STATUS_EN_STOCK else 0)
+    if expected <= 0:
+        raise ItemServiceError("Esta pieza no está en el galpón")
+    cleaned = []
+    seen = set()
+    for place in places or []:
+        zone_id = int(place.zone_id)
+        quantity = int(place.quantity)
+        if quantity <= 0:
+            continue
+        if zone_id in seen:
+            raise ItemServiceError("Hay una zona repetida")
+        seen.add(zone_id)
+        zone = db.query(models.Zone).filter(models.Zone.id == zone_id).first()
+        if not zone or zone.shed_id != item.shed_id:
+            raise ItemServiceError("La zona no es de este depósito")
+        cleaned.append((zone, quantity))
+    if sum(quantity for _zone, quantity in cleaned) != expected:
+        raise ItemServiceError(f"Las zonas tienen que sumar {expected}")
+    db.query(models.UnitDepotZone).filter(models.UnitDepotZone.unit_id == unit.id).delete(
+        synchronize_session=False,
+    )
+    home_only = (
+        len(cleaned) == 1
+        and item.zone_id
+        and cleaned[0][0].id == item.zone_id
+    )
+    if not home_only:
+        for zone, quantity in cleaned:
+            db.add(models.UnitDepotZone(unit_id=unit.id, zone_id=zone.id, quantity=quantity))
+    db.flush()
+    return depot_zones_by_unit(db, [unit.id]).get(unit.id, [])
+
+
 def take_inner_quantity(unit: models.ItemUnit, amount: int, consume: bool):
     available = int(unit.quantity or 0)
     if amount <= 0:
@@ -355,6 +451,7 @@ def set_inner_contents(db: Session, item: models.Item, contents) -> None:
         elif unit.quantity > 0 and unit.status == STATUS_RETIRADA:
             unit.status = STATUS_EN_STOCK
             unit.consumed_at = None
+        align_depot_zones(db, unit, item)
 
 
 def add_inner_boxes(db: Session, item: models.Item, pieces) -> list:
@@ -519,6 +616,79 @@ def restore_units(db: Session, item: models.Item, amount: int, codes, place: str
     if missing > 0:
         units.extend(create_units_for_item(db, item, missing))
     return units
+
+
+def _piece_amounts(db: Session, item: models.Item, unit: models.ItemUnit):
+    if item.inner_quantity:
+        depot = int(unit.quantity or 0)
+        return depot, depot + unit_out_quantity(db, unit)
+    if unit.status == STATUS_CONSUMIDA:
+        return 0, 0
+    depot = 1 if unit.status == STATUS_EN_STOCK else 0
+    return depot, 1
+
+
+def reassign_unit_subcategory(db: Session, source: models.Item, unit: models.ItemUnit, target: models.Item, new_code: str = None):
+    if unit.item_id != source.id:
+        raise ItemServiceError("La pieza no pertenece a esta subcategoría")
+    if target.id == source.id:
+        raise ItemServiceError("Elegí otra subcategoría")
+    if target.status != 1:
+        raise ItemServiceError("La subcategoría destino no está activa")
+    if not target.track_units:
+        raise ItemServiceError("La subcategoría destino tiene que contar por código")
+    if bool(target.inner_quantity) != bool(source.inner_quantity):
+        raise ItemServiceError("La subcategoría destino tiene que contar de la misma forma")
+
+    if new_code and str(new_code).strip():
+        normalized = normalize_code(new_code)
+        if normalized != (unit.code or ""):
+            taken = db.query(models.ItemUnit).filter(models.ItemUnit.code == normalized).first()
+            if taken:
+                raise ItemServiceError("Ese código ya existe")
+            unit.code = normalized
+
+    depot, total = _piece_amounts(db, source, unit)
+    if (source.actualAmount or 0) < depot or (source.totalAmount or 0) < total:
+        raise ItemServiceError("No hay suficiente stock para pasar la pieza")
+    source.actualAmount = (source.actualAmount or 0) - depot
+    source.totalAmount = (source.totalAmount or 0) - total
+    target.actualAmount = (target.actualAmount or 0) + depot
+    target.totalAmount = (target.totalAmount or 0) + total
+    unit.item_id = target.id
+    if target.shed_id != source.shed_id:
+        db.query(models.UnitDepotZone).filter(models.UnitDepotZone.unit_id == unit.id).delete(
+            synchronize_session=False,
+        )
+
+    db.query(models.Observation).filter(models.Observation.unit_id == unit.id).update(
+        {models.Observation.item_id: target.id},
+        synchronize_session=False,
+    )
+
+    history_ids = [
+        history_id
+        for (history_id,) in db.query(models.HistoryUnit.history_id)
+        .filter(models.HistoryUnit.unit_id == unit.id)
+        .all()
+    ]
+    if history_ids:
+        shared_ids = {
+            history_id
+            for (history_id,) in db.query(models.HistoryUnit.history_id)
+            .filter(
+                models.HistoryUnit.history_id.in_(history_ids),
+                models.HistoryUnit.unit_id != unit.id,
+            )
+            .all()
+        }
+        own_ids = [history_id for history_id in history_ids if history_id not in shared_ids]
+        if own_ids:
+            db.query(models.History).filter(models.History.id.in_(own_ids)).update(
+                {models.History.itemId: target.id},
+                synchronize_session=False,
+            )
+    return unit
 
 
 def move_stock_units(db: Session, source: models.Item, target: models.Item, quantity: int, codes=None):

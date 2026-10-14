@@ -3,10 +3,13 @@ import {
   addObservation,
   deleteUnitImage,
   devolverItem,
+  getAllItems,
   getItemUnits,
   getUnitImageUrl,
   addPiece,
   getNextCodes,
+  moveUnitSubcategory,
+  setUnitDepotZones,
   getUnitObservations,
   updateObservation,
   retirarItem,
@@ -15,6 +18,7 @@ import {
   uploadUnitImage,
 } from "../api/items";
 import { getObras } from "../api/obras";
+import { getZones } from "../api/zones";
 import FeedbackModal from "./FeedbackModal";
 import ObraPicker from "./ObraPicker";
 import PersonPicker from "./PersonPicker";
@@ -77,7 +81,10 @@ const PieceCard = ({
   onDevolver,
   onTransfer,
   onShowHistory,
+  onChangeCategory,
   onEditQuantity,
+  zones = [],
+  homeZoneId = null,
   returning,
   place = "depot",
   isAdmin = false,
@@ -99,6 +106,9 @@ const PieceCard = ({
   const [draftRepair, setDraftRepair] = useState(unit.repair_note || "");
   const [savingProfile, setSavingProfile] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [zoneRows, setZoneRows] = useState([]);
+  const [zoneError, setZoneError] = useState("");
+  const [savingZones, setSavingZones] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +138,52 @@ const PieceCard = ({
     setDraftDamage(unit.damage_note || "");
     setDraftRepair(unit.repair_note || "");
   }, [unit.id, unit.name, unit.description, unit.is_broken, unit.damage_note, unit.repair_note]);
+
+  const countsInside = Boolean(item.inner_quantity);
+  const depotHere = countsInside ? Math.max(0, Number(unit.quantity) || 0) : (place === "depot" ? 1 : 0);
+  const homeZoneName = zones.find((zone) => String(zone.id) === String(homeZoneId))?.name || "";
+
+  useEffect(() => {
+    const saved = Array.isArray(unit.depot_zones) ? unit.depot_zones : [];
+    if (saved.length > 0) {
+      setZoneRows(saved.map((row) => ({
+        zone_id: String(row.zone_id),
+        quantity: String(row.quantity),
+      })));
+    } else if (depotHere > 0) {
+      setZoneRows([{ zone_id: homeZoneId ? String(homeZoneId) : "", quantity: String(depotHere) }]);
+    } else {
+      setZoneRows([]);
+    }
+    setZoneError("");
+  }, [unit.id, unit.quantity, unit.depot_zones, depotHere, homeZoneId, place]);
+
+  const saveZones = async () => {
+    const places = zoneRows.map((row) => ({
+      zone_id: Number(row.zone_id),
+      quantity: depotHere === 1 ? 1 : parseInt(row.quantity, 10),
+    }));
+    if (places.some((row) => !row.zone_id || Number.isNaN(row.quantity) || row.quantity < 1)) {
+      setZoneError("Completá la zona y la cantidad");
+      return;
+    }
+    const total = places.reduce((sum, row) => sum + row.quantity, 0);
+    if (total !== depotHere) {
+      setZoneError(`Las zonas tienen que sumar ${depotHere}`);
+      return;
+    }
+    setSavingZones(true);
+    setZoneError("");
+    try {
+      await setUnitDepotZones(unit.id, places);
+      onReload?.();
+      onFeedback?.({ type: "success", message: "Se guardó dónde está en el galpón." });
+    } catch (err) {
+      setZoneError(err.message || "No se pudieron guardar las zonas");
+    } finally {
+      setSavingZones(false);
+    }
+  };
 
   const saveProfile = async () => {
     if (!draftName.trim()) {
@@ -287,6 +343,9 @@ const PieceCard = ({
                 {place === "obra" && obraLine ? ` · ${obraLine}` : ""}
                 {place === "repair" && inner && repairAmount > 0 ? ` · ${repairAmount}` : ""}
                 {unit.is_broken ? " · Rota" : ""}
+                {Array.isArray(unit.depot_zones) && unit.depot_zones.length > 0
+                  ? ` · ${unit.depot_zones.map((row) => `${row.zone_name} ${row.quantity}`).join(" · ")}`
+                  : ""}
               </div>
             </div>
             <div className="d-flex flex-wrap gap-1 justify-content-end">
@@ -305,6 +364,14 @@ const PieceCard = ({
                 onClick={() => onShowHistory(unit)}
               >
                 Historial
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-secondary"
+                disabled={returning}
+                onClick={() => onChangeCategory?.(unit)}
+              >
+                Cambiar de categoría
               </button>
               {canEditQty && (
                 <button
@@ -348,6 +415,77 @@ const PieceCard = ({
               )}
             </div>
           </div>
+          {depotHere > 0 && zones.length > 0 && (
+            <div className="mt-3">
+              <div className="form-label mb-1">En el galpón</div>
+              {zoneRows.map((row, index) => (
+                <div className="row g-2 mb-2" key={index}>
+                  <div className={depotHere > 1 ? "col-7" : "col-12"}>
+                    <select
+                      className="form-select"
+                      value={row.zone_id}
+                      onChange={(e) => setZoneRows((prev) => prev.map((entry, entryIndex) => (
+                        entryIndex === index ? { ...entry, zone_id: e.target.value } : entry
+                      )))}
+                    >
+                      <option value="">Elegir zona</option>
+                      {zones.map((zone) => (
+                        <option key={zone.id} value={zone.id}>{zone.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {depotHere > 1 && (
+                    <div className="col-3">
+                      <input
+                        type="number"
+                        min="1"
+                        className="form-control"
+                        value={row.quantity}
+                        aria-label="Cantidad en la zona"
+                        onChange={(e) => setZoneRows((prev) => prev.map((entry, entryIndex) => (
+                          entryIndex === index ? { ...entry, quantity: e.target.value } : entry
+                        )))}
+                      />
+                    </div>
+                  )}
+                  {depotHere > 1 && zoneRows.length > 1 && (
+                    <div className="col-2">
+                      <button
+                        type="button"
+                        className="btn btn-outline-secondary w-100"
+                        onClick={() => setZoneRows((prev) => prev.filter((_, entryIndex) => entryIndex !== index))}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {depotHere > 1 && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary me-2"
+                  onClick={() => setZoneRows((prev) => [...prev, { zone_id: "", quantity: "" }])}
+                >
+                  Agregar zona
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-primary"
+                disabled={savingZones}
+                onClick={saveZones}
+              >
+                Guardar zonas
+              </button>
+              <div className="form-text">
+                {homeZoneName
+                  ? `La subcategoría está en ${homeZoneName}. Si una parte está en otra zona, indicála acá.`
+                  : "Si una parte está en otra zona del depósito, indicála acá."}
+              </div>
+              {zoneError && <div className="text-danger small mt-1">{zoneError}</div>}
+            </div>
+          )}
           {unit.is_broken && (
             <div className="alert alert-warning py-2 small mt-2 mb-0">
               <div className="fw-semibold">Rota</div>
@@ -582,8 +720,58 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [piecePrefixChoice, setPiecePrefixChoice] = useState(item?.code_prefix || "");
   const [customPrefix, setCustomPrefix] = useState("");
   const [openGroups, setOpenGroups] = useState({});
+  const [shedZones, setShedZones] = useState([]);
+  const [moveUnit, setMoveUnit] = useState(null);
+  const [moveTargets, setMoveTargets] = useState([]);
+  const [moveTargetId, setMoveTargetId] = useState("");
+  const [moveQuery, setMoveQuery] = useState("");
+  const [moveWantsCode, setMoveWantsCode] = useState(false);
+  const [moveCode, setMoveCode] = useState("");
+  const [moveSuggestion, setMoveSuggestion] = useState("");
+  const [moveError, setMoveError] = useState("");
   const [addingMore, setAddingMore] = useState(false);
   const [offerAnother, setOfferAnother] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !item?.shed_id) {
+      setShedZones([]);
+      return;
+    }
+    let cancelled = false;
+    getZones(item.shed_id)
+      .then((data) => {
+        if (!cancelled) setShedZones(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setShedZones([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, item?.shed_id]);
+
+  useEffect(() => {
+    if (!moveUnit || !moveWantsCode || !moveTargetId) {
+      setMoveSuggestion("");
+      return;
+    }
+    const target = moveTargets.find((row) => String(row.id) === String(moveTargetId));
+    if (!target?.code_prefix) {
+      setMoveSuggestion("");
+      return;
+    }
+    let cancelled = false;
+    getNextCodes(1, target.code_prefix)
+      .then((data) => {
+        if (!cancelled) setMoveSuggestion((data.codes || [])[0] || "");
+      })
+      .catch(() => {
+        if (!cancelled) setMoveSuggestion("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [moveUnit, moveWantsCode, moveTargetId, moveTargets]);
 
   const reload = () => {
     if (!item?.id) return Promise.resolve();
@@ -602,6 +790,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setError("");
     setActionUnit(null);
     setQtyUnit(null);
+    setMoveUnit(null);
     getObras()
       .then((data) => setObras(Array.isArray(data) ? data : []))
       .catch(() => setObras([]));
@@ -865,6 +1054,58 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     printLabels(item.name, codes, item.category || "");
   };
 
+  const openCategoryMove = (unit) => {
+    setMoveUnit(unit);
+    setMoveTargetId("");
+    setMoveQuery("");
+    setMoveWantsCode(false);
+    setMoveCode("");
+    setMoveSuggestion("");
+    setMoveError("");
+    getAllItems()
+      .then((rows) => {
+        const list = (Array.isArray(rows) ? rows : [])
+          .filter((row) => row.track_units && row.id !== item.id && Boolean(row.inner_quantity) === Boolean(innerQuantity))
+          .map((row) => ({ id: row.id, name: row.name || "", code_prefix: row.code_prefix || "" }))
+          .sort((a, b) => a.name.localeCompare(b.name, "es"));
+        setMoveTargets(list);
+      })
+      .catch(() => setMoveTargets([]));
+  };
+
+  const saveCategoryMove = async (event) => {
+    event.preventDefault();
+    if (!moveUnit || busy) return;
+    if (!moveTargetId) {
+      setMoveError("Elegí la subcategoría");
+      return;
+    }
+    if (moveWantsCode && moveCode.trim() === "") {
+      setMoveError("Escribí el código");
+      return;
+    }
+    setBusy(true);
+    setMoveError("");
+    try {
+      const result = await moveUnitSubcategory(item.id, moveUnit.id, {
+        target_item_id: Number(moveTargetId),
+        ...(moveWantsCode ? { code: moveCode.trim() } : {}),
+      });
+      const targetName = result?.target_name || "la otra subcategoría";
+      const emptyNote = result?.source_empty
+        ? " Esta subcategoría quedó vacía. La podés eliminar desde Inventario."
+        : "";
+      setMoveUnit(null);
+      setFeedback({ type: "success", message: `Quedó en ${targetName}.${emptyNote}` });
+      await reload();
+      onChanged?.();
+    } catch (err) {
+      setMoveError(err.message || "No se pudo cambiar de categoría");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openTransfer = (unit) => {
     let places = (unit.out_places || [])
       .filter((row) => row.place && row.place !== REPAIR_PLACE && row.quantity > 0)
@@ -967,6 +1208,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     onDevolver={place === "repair" ? (unit) => openReturn(unit, true) : (unit) => openReturn(unit, false)}
                     onTransfer={place === "obra" && !consumable ? openTransfer : undefined}
                     onShowHistory={setHistoryUnit}
+                    onChangeCategory={openCategoryMove}
+                    zones={shedZones}
+                    homeZoneId={item?.zone_id}
                     isAdmin={isAdmin}
                     onEditQuantity={(next) => {
                       setQtyValue(next.quantity == null ? "" : String(next.quantity));
@@ -1233,6 +1477,81 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         </div>
       </div>
     </div>
+    {moveUnit && (
+      <div
+        className="modal show d-block fade"
+        tabIndex="-1"
+        style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }}
+        onClick={() => !busy && setMoveUnit(null)}
+      >
+        <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+          <form className="modal-content rounded shadow-lg" onSubmit={saveCategoryMove}>
+            <div className="modal-header">
+              <h5 className="modal-title mb-0">Cambiar de categoría {moveUnit.code}</h5>
+              <button type="button" className="btn-close" aria-label="Cerrar" disabled={busy} onClick={() => setMoveUnit(null)}></button>
+            </div>
+            <div className="modal-body">
+              <label className="form-label">Subcategoría</label>
+              <input
+                className="form-control mb-2"
+                placeholder="Buscar"
+                value={moveQuery}
+                onChange={(e) => setMoveQuery(e.target.value)}
+              />
+              <select
+                className="form-select"
+                size={6}
+                value={moveTargetId}
+                onChange={(e) => setMoveTargetId(e.target.value)}
+              >
+                {moveTargets
+                  .filter((row) => row.name.toLowerCase().includes(moveQuery.trim().toLowerCase()))
+                  .map((row) => (
+                    <option key={row.id} value={row.id}>{row.name}</option>
+                  ))}
+              </select>
+              <div className="form-check mt-3">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="move-wants-code"
+                  checked={moveWantsCode}
+                  onChange={(e) => {
+                    setMoveWantsCode(e.target.checked);
+                    if (!e.target.checked) setMoveCode("");
+                  }}
+                />
+                <label className="form-check-label" htmlFor="move-wants-code">Actualizar el código</label>
+              </div>
+              {moveWantsCode && (
+                <>
+                  <label className="form-label mt-3">Código nuevo</label>
+                  <input
+                    className="form-control"
+                    value={moveCode}
+                    onChange={(e) => setMoveCode(e.target.value)}
+                  />
+                  <div className="form-text">
+                    {moveSuggestion
+                      ? `Sugerencia: ${moveSuggestion}. No se cambia hasta que lo escribas.`
+                      : "Escribí el código. No se cambia solo."}
+                  </div>
+                </>
+              )}
+              {moveError && <div className="alert alert-danger py-2 mt-3 mb-0">{moveError}</div>}
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn btn-outline-secondary" disabled={busy} onClick={() => setMoveUnit(null)}>
+                Cancelar
+              </button>
+              <button type="submit" className="btn btn-primary" disabled={busy}>
+                Pasar
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )}
     {qtyUnit && (
       <div
         className="modal show d-block fade"

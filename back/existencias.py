@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user
 from database import get_db
-from unit_service import REPAIR_PLACE, STATUS_RETIRADA
+from unit_service import REPAIR_PLACE, STATUS_RETIRADA, depot_zones_by_unit
 
 router = APIRouter(tags=["existencias"])
 TIMEZONE = pytz.timezone("America/Argentina/Buenos_Aires")
@@ -162,6 +162,7 @@ def stock_at_deposito(db: Session, shed: models.Shed):
         )
         .all()
     )
+    places_by_unit = depot_zones_by_unit(db, [unit.id for unit, _item, _zone in units])
     for unit, item, zone in units:
         if item.inner_quantity:
             amount = int(unit.quantity or 0)
@@ -169,18 +170,39 @@ def stock_at_deposito(db: Session, shed: models.Shed):
                 continue
         else:
             amount = 1
-        zone_name = zone.name if zone is not None else ""
-        _add(
-            rows,
-            ("unit", unit.id),
-            unit.code,
-            _unit_label(unit, item),
-            amount,
-            zone=zone_name,
-            item_id=item.id,
-            zone_id=zone.id if zone is not None else item.zone_id,
-            shed_id=shed.id,
-        )
+        home_id = zone.id if zone is not None else item.zone_id
+        home_name = zone.name if zone is not None else ""
+        places = places_by_unit.get(unit.id) or []
+        placed = 0
+        for place in places:
+            part = int(place["quantity"] or 0)
+            if part <= 0 or placed >= amount:
+                continue
+            part = min(part, amount - placed)
+            placed += part
+            _add(
+                rows,
+                ("unit", unit.id, place["zone_id"]),
+                unit.code,
+                _unit_label(unit, item),
+                part,
+                zone=place["zone_name"],
+                item_id=item.id,
+                zone_id=place["zone_id"],
+                shed_id=shed.id,
+            )
+        if placed < amount:
+            _add(
+                rows,
+                ("unit", unit.id, home_id),
+                unit.code,
+                _unit_label(unit, item),
+                amount - placed,
+                zone=home_name,
+                item_id=item.id,
+                zone_id=home_id,
+                shed_id=shed.id,
+            )
     bulk = (
         db.query(models.Item, models.Zone)
         .outerjoin(models.Zone, models.Zone.id == models.Item.zone_id)

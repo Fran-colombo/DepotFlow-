@@ -189,6 +189,15 @@ class ItemUnit(Base):
     repair_note = Column(String, nullable=True)
 
 
+class UnitDepotZone(Base):
+    __tablename__ = "unit_depot_zones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unit_id = Column(Integer, ForeignKey("item_units.id"), nullable=False, index=True)
+    zone_id = Column(Integer, ForeignKey("zones.id"), nullable=False, index=True)
+    quantity = Column(Integer, nullable=False, default=0)
+
+
 class HistoryUnit(Base):
     __tablename__ = "history_units"
 
