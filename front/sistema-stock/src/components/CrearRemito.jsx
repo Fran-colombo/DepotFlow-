@@ -14,6 +14,7 @@ export default function PackingSlipModal({onClose}) {
   totalPages: 1,
 });
 const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [withImage, setWithImage] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [obras, setObras] = useState([]);
@@ -63,7 +64,7 @@ async function confirmarGenerarRemito() {
     const token = localStorage.getItem("authToken");
     const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
-    const response = await fetch(base + "/historical/remito", {
+    const response = await fetch(base + "/historical/remito" + (withImage ? "?with_image=true" : ""), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -95,6 +96,7 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
 
   function generarRemito() {
   if (selectedIds.length === 0) return alert("Seleccioná al menos un historial");
+  setWithImage(false);
   setShowConfirmModal(true);
 }
 
@@ -436,6 +438,30 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
         </div>
         <div className="modal-body">
           <p>¿Querés generar un remito con los siguientes ítems?</p>
+          <div className="mb-3">
+            <div className="form-check">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="remitoImage"
+                id="remitoSinImagen"
+                checked={!withImage}
+                onChange={() => setWithImage(false)}
+              />
+              <label className="form-check-label" htmlFor="remitoSinImagen">Sin imagen</label>
+            </div>
+            <div className="form-check">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="remitoImage"
+                id="remitoConImagen"
+                checked={withImage}
+                onChange={() => setWithImage(true)}
+              />
+              <label className="form-check-label" htmlFor="remitoConImagen">Con imagen</label>
+            </div>
+          </div>
           <ul>
             {selectedItems.map(item => (
               <li key={item.id}>

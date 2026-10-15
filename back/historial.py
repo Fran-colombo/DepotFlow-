@@ -10,7 +10,7 @@ from auth import get_current_user, get_user_name_by_id
 import dtos.retiroDTO as retiroDTO
 import dtos.turnBackDTO as devolucionDTO
 import dtos.trasladoDTO as trasladoDTO
-from dtos.historialDTO import HistoryResponseWithDetailsDTO
+from dtos.historialDTO import HistoryImageDTO, HistoryResponseWithDetailsDTO
 from sqlalchemy import case, func, or_
 from fastapi import Query
 from math import ceil
@@ -24,6 +24,7 @@ from reportlab.lib.units import cm
 
 import pytz
 from item_categories import category_is_consumable
+from item_images import stored_image_path
 from obras import require_active_obra
 from item_service import ItemServiceError
 from unit_service import (
@@ -47,6 +48,35 @@ def _piece_label(code, name):
     if name:
         return f"{code} · {name}"
     return code or ""
+
+
+def _existing_image(filename):
+    if not filename:
+        return None
+    path = stored_image_path(filename)
+    if path.is_file():
+        return str(path)
+    return None
+
+
+def _history_image(item_id, item_name, item_description, item_filename, piece):
+    if piece is not None and piece.get("image_filename") and _existing_image(piece["image_filename"]):
+        return HistoryImageDTO(
+            kind="unit",
+            id=piece["unit_id"],
+            image_filename=piece["image_filename"],
+            name=(piece.get("name") or "").strip() or item_name,
+            description=(piece.get("description") or "").strip() or None,
+        )
+    if item_filename and _existing_image(item_filename):
+        return HistoryImageDTO(
+            kind="item",
+            id=item_id,
+            image_filename=item_filename,
+            name=item_name,
+            description=(item_description or "").strip() or None,
+        )
+    return None
 
 
 def split_grouped_returns(db):
@@ -165,7 +195,9 @@ def read_history(
                 original_name,
                 models.Item.category.label("category"),
                 models.Item.shed_id.label("shed_id"),
-                models.Shed.name.label("shedName")
+                models.Shed.name.label("shedName"),
+                models.Item.description.label("itemDescription"),
+                models.Item.image_filename.label("itemImage"),
             )
             .join(models.Item, models.History.itemId == models.Item.id)
             .join(models.Shed, models.Item.shed_id == models.Shed.id)
@@ -239,14 +271,21 @@ def read_history(
         pieces_by_history = {}
         if history_ids:
             links = (
-                db.query(models.HistoryUnit, models.ItemUnit.code, models.ItemUnit.name)
+                db.query(
+                    models.HistoryUnit,
+                    models.ItemUnit.id,
+                    models.ItemUnit.code,
+                    models.ItemUnit.name,
+                    models.ItemUnit.image_filename,
+                    models.ItemUnit.description,
+                )
                 .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
                 .filter(models.HistoryUnit.history_id.in_(history_ids))
                 .order_by(models.ItemUnit.code.asc())
                 .all()
             )
             shares_by_history = {}
-            for link, code, piece_name in links:
+            for link, unit_id, code, piece_name, image_filename, piece_description in links:
                 history = history_by_id.get(link.history_id)
                 if history is None:
                     continue
@@ -254,8 +293,11 @@ def read_history(
                     shares_by_history[link.history_id] = return_shares(db, history)
                 pieces_by_history.setdefault(link.history_id, []).append(
                     {
+                        "unit_id": unit_id,
                         "code": code,
                         "name": piece_name,
+                        "image_filename": image_filename,
+                        "description": piece_description,
                         "amount": piece_amount(
                             db,
                             history,
@@ -266,7 +308,7 @@ def read_history(
                 )
 
         data = []
-        for history, item_name_db, category, shed_id, shed_name in records:
+        for history, item_name_db, category, shed_id, shed_name, item_description, item_image in records:
             pieces = pieces_by_history.get(history.id) or []
             amounts = [piece.get("amount") for piece in pieces]
             total = int(history.amountRetired or 0)
@@ -286,6 +328,13 @@ def read_history(
                     if piece.get("amount") is not None:
                         amount = piece["amount"]
                     row_pieces = [piece]
+                image = _history_image(
+                    history.itemId,
+                    item_name_db,
+                    item_description,
+                    item_image,
+                    piece,
+                )
                 data.append(
                     HistoryResponseWithDetailsDTO(
                         id=history.id,
@@ -305,7 +354,15 @@ def read_history(
                         itemCategory=category,
                         shedId=shed_id,
                         shed_name=shed_name,
-                        pieces=row_pieces,
+                        pieces=[
+                            {
+                                "code": row["code"],
+                                "name": row["name"],
+                                "amount": row.get("amount"),
+                            }
+                            for row in row_pieces
+                        ],
+                        image=image,
                     )
                 )
 
@@ -922,7 +979,8 @@ def trasladar_item(
 @router.post("/remito", response_class=StreamingResponse)
 def generate_remito(
     history_ids: list[int],
-    db: db_dependency
+    db: db_dependency,
+    with_image: bool = Query(False),
 ):
     split_grouped_returns(db)
     buffer = BytesIO()
@@ -959,7 +1017,9 @@ def generate_remito(
         right = width - 1.6 * cm
         table_w = right - left
         head_h = 0.75 * cm
-        row_h = 1.55 * cm
+        thumb = 1.2 * cm
+        photo_slot = (thumb + 0.15 * cm) if with_image else 0
+        row_h = 1.7 * cm if with_image else 1.55 * cm
         columns = [1.1 * cm, 3.2 * cm, table_w - 12.1 * cm, 2.0 * cm, 5.8 * cm]
         headers = ["Nº", "Código", "Descripción", "Cantidad", "Quién, fecha y obra"]
 
@@ -1031,16 +1091,35 @@ def generate_remito(
                 when,
                 (row["place"] or "").strip() or "—",
             ]
+            desc_width = columns[2] - 0.24 * cm - photo_slot
             values = [
                 str(index),
                 clip(row["code"], "Helvetica", 9, columns[1] - 0.24 * cm),
-                clip(row["description"], "Helvetica", 9, columns[2] - 0.24 * cm),
+                clip(row["description"], "Helvetica", 9, desc_width),
                 clip(str(row["amountRetired"] if row["amountRetired"] is not None else ""), "Helvetica", 9, columns[3] - 0.24 * cm),
             ]
             p.setFont("Helvetica", 9)
             x = left
             for col, value in enumerate(values):
-                p.drawString(x + 0.12 * cm, y - 0.48 * cm, value)
+                text_x = x + 0.12 * cm
+                if col == 2 and with_image:
+                    image_path = row.get("image_path")
+                    if image_path:
+                        try:
+                            p.drawImage(
+                                image_path,
+                                text_x,
+                                y - row_h + (row_h - thumb) / 2,
+                                width=thumb,
+                                height=thumb,
+                                preserveAspectRatio=True,
+                                anchor="c",
+                                mask="auto",
+                            )
+                        except Exception:
+                            pass
+                    text_x += photo_slot
+                p.drawString(text_x, y - 0.48 * cm, value)
                 x += columns[col]
             p.setFont("Helvetica", 8)
             for line, text in enumerate(detail):
@@ -1071,7 +1150,8 @@ def generate_remito(
             db.query(
                 models.History,
                 models.Item.name.label("itemName"),
-                models.Shed.name.label("shedName")
+                models.Shed.name.label("shedName"),
+                models.Item.image_filename,
             )
             .join(models.Item, models.History.itemId == models.Item.id)
             .join(models.Shed, models.Item.shed_id == models.Shed.id)
@@ -1079,7 +1159,7 @@ def generate_remito(
             .first()
         )
         if record:
-            history, item_name, shed_name = record
+            history, item_name, shed_name, item_image = record
             link = (
                 db.query(models.HistoryUnit, models.ItemUnit)
                 .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
@@ -1100,6 +1180,12 @@ def generate_remito(
                 amount = history.amountRetired
                 if link:
                     code = ", ".join(unit.code for _, unit in link if unit.code)
+            image_path = None
+            if with_image:
+                if len(link) == 1:
+                    image_path = _existing_image(link[0][1].image_filename) or _existing_image(item_image)
+                else:
+                    image_path = _existing_image(item_image)
             histories.append({
                 "code": code,
                 "description": description,
@@ -1109,6 +1195,7 @@ def generate_remito(
                 "shedName": shed_name,
                 "date": history.date,
                 "action": history.action.value if history.action else None,
+                "image_path": image_path,
             })
 
     draw_document(histories, "ORIGINAL")

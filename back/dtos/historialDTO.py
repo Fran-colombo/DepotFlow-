@@ -47,11 +47,20 @@ class HistoryPieceDTO(BaseModel):
     amount: Optional[int] = None
 
 
+class HistoryImageDTO(BaseModel):
+    kind: str
+    id: int
+    image_filename: str
+    name: str
+    description: Optional[str] = None
+
+
 class HistoryResponseWithDetailsDTO(HistoryResponseDTO):
     itemCategory: Optional[str] = None
     shedId: Optional[int] = None
     shed_name: Optional[str] = None
     pieces: Optional[list[HistoryPieceDTO]] = None
+    image: Optional[HistoryImageDTO] = None
 
     class Config:
         from_attributes = True

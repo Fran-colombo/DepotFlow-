@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
-import { getAllItems, getFilteredHistorial } from "../api/items"
+import { getAllItems, getFilteredHistorial, getItemImageUrl, getUnitImageUrl } from "../api/items"
 import PackingSlipModal from "../components/CrearRemito";
 import {getSheds} from "../api/sheds"
 const Historial = () => {
@@ -16,6 +16,7 @@ const Historial = () => {
     totalPages: 1
   });
   const [showRemitoModal, setShowRemitoModal] = useState(false);
+  const [photo, setPhoto] = useState(null);
   const [filters, setFilters] = useState({
     itemName: "",
     userName: "",
@@ -414,6 +415,11 @@ useEffect(() => {
                     <tr key={`${registro.id}-${registro.itemName}`} className="text-center">
                       <td className="fw-medium">
                         <div>{registro.itemName}</div>
+                        {registro.image && (
+                          <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setPhoto(registro.image)}>
+                            Ver imagen
+                          </button>
+                        )}
                         {registro.pieces?.length > 1 && (
                           <div className="small text-secondary fw-normal">
                             {registro.pieces.map((piece) => (
@@ -521,6 +527,29 @@ useEffect(() => {
             </div>
           )}
         </>
+      )}
+
+      {photo && (
+        <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1080 }} onClick={() => setPhoto(null)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title mb-0">{photo.name}</h5>
+                <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setPhoto(null)}></button>
+              </div>
+              <div className="modal-body text-center">
+                <img
+                  src={photo.kind === "unit"
+                    ? getUnitImageUrl({ id: photo.id, has_image: true, image_filename: photo.image_filename })
+                    : getItemImageUrl({ id: photo.id, has_image: true, image_filename: photo.image_filename })}
+                  alt={photo.name}
+                  style={{ maxWidth: "100%", maxHeight: "60vh", objectFit: "contain" }}
+                />
+                <p className="mt-3 mb-0">{photo.description || "Sin descripción"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {showRemitoModal && (
