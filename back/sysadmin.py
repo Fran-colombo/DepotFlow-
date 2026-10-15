@@ -29,6 +29,10 @@ TABLES = (
     ("categories", "Categorías", models.Category),
     ("users", "Usuarios", models.User),
     ("deleted_items", "Eliminados", models.DeletedItem),
+    ("transportes", "Autos y carros", models.Transport),
+    ("transporte_usos", "Usos de autos", models.TransportUse),
+    ("transporte_multas", "Multas", models.TransportFine),
+    ("transporte_notas", "Notas de autos", models.TransportNote),
 )
 
 COLUMN_LABELS = {
@@ -93,6 +97,23 @@ COLUMN_LABELS = {
     "seed_key": "Clave interna",
     "deletion_reason": "Motivo",
     "deleted_at": "Borrado",
+    "kind": "Tipo",
+    "plate": "Patente",
+    "last_service_at": "Último service",
+    "last_service_km": "Km del service",
+    "next_service_km": "Km del próximo service",
+    "current_km": "Km actuales",
+    "in_repair": "Lo llevaron a arreglar",
+    "transport_id": "Auto o carro",
+    "cart_id": "Carro",
+    "person": "Quién",
+    "left_at": "Salió",
+    "returned_at": "Volvió",
+    "km": "Kilómetros",
+    "external_vehicle": "Auto de afuera",
+    "occurred_at": "Fecha de la multa",
+    "paid": "Pagada",
+    "use_id": "Uso",
 }
 
 SUMMARY_KEYS = (

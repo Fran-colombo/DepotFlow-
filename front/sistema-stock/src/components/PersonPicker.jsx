@@ -37,17 +37,6 @@ const PersonPicker = ({ value, onChange, disabled = false }) => {
     );
   }
 
-  if (names.length === 0) {
-    return (
-      <input
-        className="form-control"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
-  }
-
   return (
     <>
       <select

@@ -44,6 +44,7 @@ import obras
 import empleados
 import existencias
 import sysadmin
+import transportes
 from item_categories import category_is_consumable, category_units_by_name, normalize_lookup, seed_categories
 from pydantic import BaseModel
 from observations import add_unit_observation
@@ -107,6 +108,7 @@ app.include_router(obras.router)
 app.include_router(empleados.router)
 app.include_router(existencias.router)
 app.include_router(sysadmin.router)
+app.include_router(transportes.router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()

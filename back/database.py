@@ -254,6 +254,73 @@ def ensure_inventory_schema():
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_roturas_unit_id ON roturas (unit_id)"
         ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS transportes (
+                id INTEGER NOT NULL PRIMARY KEY,
+                kind VARCHAR NOT NULL,
+                name VARCHAR NOT NULL,
+                plate VARCHAR,
+                image_filename VARCHAR,
+                last_service_at DATETIME,
+                last_service_km INTEGER,
+                next_service_km INTEGER,
+                current_km INTEGER,
+                is_broken BOOLEAN NOT NULL DEFAULT 0,
+                damage_note VARCHAR,
+                in_repair BOOLEAN NOT NULL DEFAULT 0
+            )
+        """))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_transportes_plate ON transportes (plate)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_transportes_kind ON transportes (kind)"
+        ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS transporte_usos (
+                id INTEGER NOT NULL PRIMARY KEY,
+                transport_id INTEGER NOT NULL,
+                cart_id INTEGER,
+                person VARCHAR NOT NULL,
+                left_at DATETIME NOT NULL,
+                returned_at DATETIME,
+                km INTEGER,
+                external_vehicle VARCHAR,
+                FOREIGN KEY(transport_id) REFERENCES transportes (id),
+                FOREIGN KEY(cart_id) REFERENCES transportes (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_transporte_usos_transport_id ON transporte_usos (transport_id)"
+        ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS transporte_multas (
+                id INTEGER NOT NULL PRIMARY KEY,
+                transport_id INTEGER NOT NULL,
+                occurred_at DATETIME NOT NULL,
+                person VARCHAR NOT NULL,
+                paid BOOLEAN NOT NULL DEFAULT 0,
+                use_id INTEGER,
+                FOREIGN KEY(transport_id) REFERENCES transportes (id),
+                FOREIGN KEY(use_id) REFERENCES transporte_usos (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_transporte_multas_transport_id ON transporte_multas (transport_id)"
+        ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS transporte_notas (
+                id INTEGER NOT NULL PRIMARY KEY,
+                transport_id INTEGER NOT NULL,
+                description VARCHAR NOT NULL,
+                observed_by VARCHAR,
+                created_at DATETIME NOT NULL,
+                FOREIGN KEY(transport_id) REFERENCES transportes (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_transporte_notas_transport_id ON transporte_notas (transport_id)"
+        ))
 
     if _column_exists("history_units", "id") and not _column_exists("history_units", "amount"):
         with engine.begin() as conn:

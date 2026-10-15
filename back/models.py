@@ -203,6 +203,57 @@ class Rotura(Base):
     fixed_at = Column(DateTime, nullable=True)
 
 
+class Transport(Base):
+    __tablename__ = "transportes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    plate = Column(String, nullable=True, unique=True, index=True)
+    image_filename = Column(String, nullable=True)
+    last_service_at = Column(DateTime, nullable=True)
+    last_service_km = Column(Integer, nullable=True)
+    next_service_km = Column(Integer, nullable=True)
+    current_km = Column(Integer, nullable=True)
+    is_broken = Column(Boolean, default=False, nullable=False)
+    damage_note = Column(String, nullable=True)
+    in_repair = Column(Boolean, default=False, nullable=False)
+
+
+class TransportUse(Base):
+    __tablename__ = "transporte_usos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transport_id = Column(Integer, ForeignKey("transportes.id"), nullable=False, index=True)
+    cart_id = Column(Integer, ForeignKey("transportes.id"), nullable=True, index=True)
+    person = Column(String, nullable=False)
+    left_at = Column(DateTime, nullable=False)
+    returned_at = Column(DateTime, nullable=True)
+    km = Column(Integer, nullable=True)
+    external_vehicle = Column(String, nullable=True)
+
+
+class TransportFine(Base):
+    __tablename__ = "transporte_multas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transport_id = Column(Integer, ForeignKey("transportes.id"), nullable=False, index=True)
+    occurred_at = Column(DateTime, nullable=False)
+    person = Column(String, nullable=False)
+    paid = Column(Boolean, default=False, nullable=False)
+    use_id = Column(Integer, ForeignKey("transporte_usos.id"), nullable=True)
+
+
+class TransportNote(Base):
+    __tablename__ = "transporte_notas"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transport_id = Column(Integer, ForeignKey("transportes.id"), nullable=False, index=True)
+    description = Column(String, nullable=False)
+    observed_by = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class UnitDepotZone(Base):
     __tablename__ = "unit_depot_zones"
 
