@@ -1012,6 +1012,37 @@ def generate_remito(
             trimmed = trimmed[:-1]
         return (trimmed + "…") if trimmed else ""
 
+    def wrap_lines(text, font, size, max_width):
+        raw = " ".join(str(text or "").split())
+        if not raw:
+            return [""]
+        if max_width <= 0 or p.stringWidth(raw, font, size) <= max_width:
+            return [raw]
+        lines = []
+        current = ""
+        for word in raw.split(" "):
+            while word and p.stringWidth(word, font, size) > max_width:
+                cut = len(word)
+                while cut > 1 and p.stringWidth(word[:cut], font, size) > max_width:
+                    cut -= 1
+                if current:
+                    lines.append(current)
+                    current = ""
+                lines.append(word[:cut])
+                word = word[cut:]
+            if not word:
+                continue
+            trial = word if not current else f"{current} {word}"
+            if p.stringWidth(trial, font, size) <= max_width:
+                current = trial
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines or [""]
+
     def draw_document(rows, label):
         left = 1.6 * cm
         right = width - 1.6 * cm
@@ -1080,11 +1111,8 @@ def generate_remito(
 
         y = header_block()
         y = draw_header_row(y)
+        line_step = 0.38 * cm
         for index, row in enumerate(rows, start=1):
-            if y - row_h < 3.2 * cm:
-                p.showPage()
-                y = header_block()
-                y = draw_header_row(y)
             when = row["date"].strftime("%d/%m/%Y") if row["date"] else "—"
             detail = [
                 (row["personWhoTook"] or "").strip() or "—",
@@ -1092,34 +1120,48 @@ def generate_remito(
                 (row["place"] or "").strip() or "—",
             ]
             desc_width = columns[2] - 0.24 * cm - photo_slot
+            desc_lines = wrap_lines(row["description"], "Helvetica", 9, desc_width)
+            text_height = 0.28 * cm + len(desc_lines) * line_step + 0.18 * cm
+            this_h = max(row_h, text_height)
+            if y - this_h < 3.2 * cm:
+                p.showPage()
+                y = header_block()
+                y = draw_header_row(y)
             values = [
                 str(index),
                 clip(row["code"], "Helvetica", 9, columns[1] - 0.24 * cm),
-                clip(row["description"], "Helvetica", 9, desc_width),
+                None,
                 clip(str(row["amountRetired"] if row["amountRetired"] is not None else ""), "Helvetica", 9, columns[3] - 0.24 * cm),
             ]
             p.setFont("Helvetica", 9)
             x = left
             for col, value in enumerate(values):
                 text_x = x + 0.12 * cm
-                if col == 2 and with_image:
-                    image_path = row.get("image_path")
-                    if image_path:
-                        try:
-                            p.drawImage(
-                                image_path,
-                                text_x,
-                                y - row_h + (row_h - thumb) / 2,
-                                width=thumb,
-                                height=thumb,
-                                preserveAspectRatio=True,
-                                anchor="c",
-                                mask="auto",
-                            )
-                        except Exception:
-                            pass
-                    text_x += photo_slot
-                p.drawString(text_x, y - 0.48 * cm, value)
+                if col == 2:
+                    if with_image:
+                        image_path = row.get("image_path")
+                        if image_path:
+                            image_y = y - 0.22 * cm - thumb
+                            if image_y < (y - this_h) + 0.12 * cm:
+                                image_y = (y - this_h) + 0.12 * cm
+                            try:
+                                p.drawImage(
+                                    image_path,
+                                    text_x,
+                                    image_y,
+                                    width=thumb,
+                                    height=thumb,
+                                    preserveAspectRatio=True,
+                                    anchor="c",
+                                    mask="auto",
+                                )
+                            except Exception:
+                                pass
+                        text_x += photo_slot
+                    for line_index, line in enumerate(desc_lines):
+                        p.drawString(text_x, y - 0.45 * cm - line_index * line_step, line)
+                elif value:
+                    p.drawString(text_x, y - 0.48 * cm, value)
                 x += columns[col]
             p.setFont("Helvetica", 8)
             for line, text in enumerate(detail):
@@ -1129,8 +1171,8 @@ def generate_remito(
                     clip(text, "Helvetica", 8, columns[4] - 0.24 * cm),
                 )
             p.setStrokeColorRGB(0.75, 0.75, 0.75)
-            p.rect(left, y - row_h, table_w, row_h, fill=0, stroke=1)
-            y -= row_h
+            p.rect(left, y - this_h, table_w, this_h, fill=0, stroke=1)
+            y -= this_h
 
         if y < 4.2 * cm:
             p.showPage()
