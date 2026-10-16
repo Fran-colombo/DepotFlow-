@@ -158,6 +158,22 @@ def peek_codes(db: Session, count: int, prefix: str = "K") -> list:
     return codes
 
 
+def piece_prefix(raw: str) -> str:
+    prefix = normalize_prefix(raw)
+    if re.search(r"-\d{2}-\d+$", prefix):
+        raise ItemServiceError("Escribí solo el tipo, por ejemplo AM-B. El año y el número se ponen solos")
+    return prefix
+
+
+def codes_for_prefixes(db: Session, prefixes) -> list:
+    wanted = [piece_prefix(prefix) for prefix in prefixes]
+    counts = {}
+    for prefix in wanted:
+        counts[prefix] = counts.get(prefix, 0) + 1
+    pools = {prefix: peek_codes(db, count, prefix) for prefix, count in counts.items()}
+    return [pools[prefix].pop(0) for prefix in wanted]
+
+
 def rename_unit(unit, name: str):
     cleaned = (name or "").strip()
     if not cleaned:
@@ -523,7 +539,10 @@ def add_inner_boxes(db: Session, item: models.Item, pieces) -> list:
         inside = int(piece.quantity) if piece.quantity is not None else 0
         if inside < 1:
             raise ItemServiceError("Indicá cuántos hay adentro")
-        created = create_units_for_item(db, item, 1, codes=[piece.code])
+        code = (piece.code or "").strip()
+        if not code:
+            code = codes_for_prefixes(db, [piece.prefix or infer_prefix(db, item)])[0]
+        created = create_units_for_item(db, item, 1, codes=[code])
         unit = created[0]
         rename_unit(unit, piece.name)
         unit.quantity = inside

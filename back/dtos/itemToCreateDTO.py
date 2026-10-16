@@ -22,7 +22,8 @@ class ItemCreateDTO(ItemBaseDTO):
     code_prefix: Optional[str] = None
 
 class PieceNameDTO(BaseModel):
-    code: str
+    code: Optional[str] = None
+    prefix: Optional[str] = None
     name: str
     quantity: Optional[int] = None
 

@@ -23,6 +23,8 @@ import { getZones } from "../api/zones";
 import FeedbackModal from "./FeedbackModal";
 import ObraPicker from "./ObraPicker";
 import PersonPicker from "./PersonPicker";
+import CodePreview from "./CodePreview";
+import { cleanPrefix, prefixProblem, useCodePreview } from "./pieceCodes";
 import TrasladoModal from "./TrasladoModal";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
@@ -805,7 +807,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [feedback, setFeedback] = useState(null);
   const [transferUnit, setTransferUnit] = useState(null);
   const [freshCodes, setFreshCodes] = useState([]);
-  const [pieceCode, setPieceCode] = useState("");
   const [pieceName, setPieceName] = useState("");
   const [pieceNote, setPieceNote] = useState("");
   const [pieceDescription, setPieceDescription] = useState("");
@@ -816,7 +817,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [innerQuantity, setInnerQuantity] = useState(false);
   const [measureUnit, setMeasureUnit] = useState(item?.unit || "unidad");
   const [piecePrefixChoice, setPiecePrefixChoice] = useState(item?.code_prefix || "");
-  const [customPrefix, setCustomPrefix] = useState("");
   const [openGroups, setOpenGroups] = useState({});
   const [shedZones, setShedZones] = useState([]);
   const [moveUnit, setMoveUnit] = useState(null);
@@ -898,7 +898,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       .then((data) => setObras(Array.isArray(data) ? data : []))
       .catch(() => setObras([]));
     setFreshCodes([]);
-    setPieceCode("");
     setPieceName("");
     setPieceNote("");
     setPieceDescription("");
@@ -914,7 +913,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setInnerQuantity(Boolean(item.inner_quantity));
     setMeasureUnit(item.unit || "unidad");
     setPiecePrefixChoice(item.code_prefix || "");
-    setCustomPrefix("");
     setOpenGroups({});
     let cancelled = false;
     setLoading(true);
@@ -949,30 +947,19 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     return list;
   }, [units, item?.code_prefix]);
 
-  useEffect(() => {
-    if (!isOpen || !trackUnits || offerAnother) return;
-    if (units.length > 0 && !addingMore) return;
-    const prefix = piecePrefixChoice === "__new__"
-      ? customPrefix.trim().toUpperCase()
-      : (piecePrefixChoice || item?.code_prefix || "");
-    if (!prefix) return;
-    let cancelled = false;
-    getNextCodes(1, prefix)
-      .then((data) => {
-        if (!cancelled) setPieceCode(data.codes?.[0] || "");
-      })
-      .catch(() => {
-        if (!cancelled) setPieceCode("");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, trackUnits, item?.code_prefix, units.length, addingMore, offerAnother, piecePrefixChoice, customPrefix]);
+  const showPieceForm = isOpen && trackUnits && !offerAnother && (units.length === 0 || addingMore);
+  const pieceCode = useCodePreview(showPieceForm ? [piecePrefixChoice] : [], units.length)[0] || "";
 
-  const addPiece = async () => {
-    const code = pieceCode.trim();
-    if (!item?.id || !code) {
-      setError("Falta el código de la pieza");
+  useEffect(() => {
+    if (piecePrefixChoice || !knownPrefixes.length) return;
+    setPiecePrefixChoice(knownPrefixes[0]);
+  }, [piecePrefixChoice, knownPrefixes]);
+
+  const savePiece = async () => {
+    if (!item?.id) return;
+    const problem = prefixProblem(piecePrefixChoice);
+    if (problem) {
+      setError(problem);
       return;
     }
     if (!pieceName.trim()) {
@@ -988,7 +975,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setError("");
     try {
       await addPiece(item.id, {
-        code,
+        prefix: cleanPrefix(piecePrefixChoice),
         name: pieceName.trim(),
         description: pieceDescription.trim(),
         observation: pieceNote.trim(),
@@ -1452,7 +1439,6 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                             onClick={() => {
                               setOfferAnother(false);
                               setAddingMore(true);
-                              setPieceCode("");
                               setPieceName("");
                               setPieceNote("");
     setPieceDescription("");
@@ -1480,41 +1466,28 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                       <>
                         <p className="mb-2">
                           <strong>{item.category}</strong> · {item.name}
-                          {units.length === 0 ? " está en 0." : ""} El próximo código usa {item.code_prefix}.
+                          {units.length === 0 ? " está en 0." : ""}
                         </p>
                         <div className="mb-2">
-                          <label className="form-label mb-1">Tipo</label>
-                          <select
-                            className="form-select mb-2"
-                            value={knownPrefixes.includes(piecePrefixChoice) ? piecePrefixChoice : (piecePrefixChoice === "__new__" ? "__new__" : (knownPrefixes[0] || ""))}
-                            onChange={(e) => {
-                              setPiecePrefixChoice(e.target.value);
-                              if (e.target.value !== "__new__") setCustomPrefix("");
-                            }}
-                          >
-                            {knownPrefixes.map((prefix) => (
-                              <option key={prefix} value={prefix}>{prefix}</option>
-                            ))}
-                            <option value="__new__">Nuevo tipo</option>
-                          </select>
-                          {piecePrefixChoice === "__new__" && (
-                            <input
-                              className="form-control"
-                              value={customPrefix}
-                              placeholder="M-INT"
-                              maxLength={12}
-                              onChange={(e) => setCustomPrefix(e.target.value.toUpperCase())}
-                            />
-                          )}
-                          <div className="form-text">El próximo código sigue ese prefijo. La subcategoría no cambia.</div>
-                        </div>
-                        <div className="mb-2">
-                          <label className="form-label mb-1">Código</label>
+                          <label className="form-label mb-1">Tipo de pieza</label>
                           <input
                             className="form-control"
-                            value={pieceCode}
-                            onChange={(e) => setPieceCode(e.target.value.toUpperCase())}
+                            style={{ maxWidth: 180 }}
+                            list="detail-piece-prefixes"
+                            value={piecePrefixChoice}
+                            placeholder="AM-B"
+                            maxLength={12}
+                            onChange={(e) => setPiecePrefixChoice(e.target.value.toUpperCase())}
                           />
+                          <datalist id="detail-piece-prefixes">
+                            {knownPrefixes.map((prefix) => (
+                              <option key={prefix} value={prefix} />
+                            ))}
+                          </datalist>
+                          <div className="form-text">
+                            Solo lo que distingue a la pieza, por ejemplo AM-B. El año y el número se ponen solos.
+                          </div>
+                          <CodePreview prefix={piecePrefixChoice} code={pieceCode} />
                         </div>
                         <div className="mb-2">
                           <label className="form-label mb-1">Nombre de la pieza</label>
@@ -1588,8 +1561,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                         <button
                           type="button"
                           className="btn btn-primary"
-                          disabled={busy || !pieceCode.trim() || !pieceName.trim() || (innerQuantity && !(parseInt(pieceInside, 10) >= 1))}
-                          onClick={addPiece}
+                          disabled={busy || Boolean(prefixProblem(piecePrefixChoice)) || !pieceName.trim() || (innerQuantity && !(parseInt(pieceInside, 10) >= 1))}
+                          onClick={savePiece}
                         >
                           Agregar
                         </button>

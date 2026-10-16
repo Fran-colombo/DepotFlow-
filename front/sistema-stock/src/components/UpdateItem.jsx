@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { addPiece, createItem, updateItem, updateItemCounting, getItems, getItemById, getItemUnits, getNextCodes, suggestPrefix, retirarItem } from "../api/items";
+import { addPiece, createItem, updateItem, updateItemCounting, getItems, getItemById, getItemUnits, suggestPrefix, retirarItem } from "../api/items";
 import { getCategories } from "../api/categories";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
@@ -8,6 +8,8 @@ import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
 import { printLabels } from "./printLabels";
 import FeedbackModal from "./FeedbackModal";
+import CodePreview from "./CodePreview";
+import { cleanPrefix, prefixProblem, useCodePreview } from "./pieceCodes";
 import useAuth from "../hooks/useAuth";
 
 const UpdateItemModal = ({
@@ -318,35 +320,33 @@ const UpdateItemModal = ({
   }, [isOpen, mode]);
 
   useEffect(() => {
+    setNewPieces([]);
+  }, [selectedUpdateItem?.id]);
+
+  useEffect(() => {
     if (!isOpen || mode !== "update" || !updateTracksUnits || (!updateInner && updateData.action !== "add")) {
       return;
     }
-    let cancelled = false;
     const typed = parseInt(updateData.quantity, 10);
     if (!updateInner && (!typed || typed < 1)) {
       return;
     }
     const count = updateInner ? 1 : typed;
-    getNextCodes(count, selectedUpdateItem?.code_prefix)
-      .then((data) => {
-        if (!cancelled) {
-          const codes = data.codes || [];
-          setNewPieces((prev) =>
-            codes.map((code, index) => ({
-              code,
-              name: prev.find((piece) => piece.code === code)?.name || prev[index]?.name || "",
-              quantity: prev.find((piece) => piece.code === code)?.quantity || prev[index]?.quantity || "",
-            }))
-          );
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setNewPieces([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, mode, updateTracksUnits, updateInner, updateData.action, updateData.quantity, selectedUpdateItem?.code_prefix]);
+    const base = selectedUpdateItem?.code_prefix || "";
+    setNewPieces((prev) =>
+      Array.from({ length: count }, (_, index) => ({
+        prefix: prev[index]?.prefix ?? base,
+        name: prev[index]?.name || "",
+        quantity: prev[index]?.quantity || "",
+      }))
+    );
+  }, [isOpen, mode, updateTracksUnits, updateInner, updateData.action, updateData.quantity, selectedUpdateItem?.id, selectedUpdateItem?.code_prefix]);
+
+  const newPieceCodes = useCodePreview(newPieces.map((piece) => piece.prefix));
+  const createPieceCode = useCodePreview(
+    mode === "create" && createStep === "piece" ? [pieceCode] : [],
+    addedCodes.length
+  )[0] || "";
 
   useEffect(() => {
     if (!isOpen || mode !== "update" || !updateTracksUnits || !selectedUpdateItem?.id) {
@@ -522,9 +522,9 @@ const UpdateItemModal = ({
     try {
       if (mode === "create") {
         if (createStep === "piece") {
-          const code = pieceCode.trim();
-          if (!createdSub?.id || !code) {
-            setError("Falta el código de la pieza");
+          const typeProblem = prefixProblem(pieceCode);
+          if (!createdSub?.id || typeProblem) {
+            setError(typeProblem || "Falta el tipo de la pieza");
             setIsLoading(false);
             return;
           }
@@ -540,7 +540,7 @@ const UpdateItemModal = ({
             return;
           }
           const updated = await addPiece(createdSub.id, {
-            code,
+            prefix: cleanPrefix(pieceCode),
             name: pieceName.trim(),
             description: pieceDescription.trim(),
             observation: pieceNote.trim(),
@@ -549,7 +549,7 @@ const UpdateItemModal = ({
             repair_note: pieceBroken ? pieceRepair.trim() : "",
             ...(createdSub?.inner_quantity ? { quantity: inside } : {}),
           });
-          const saved = updated?.code || code.toUpperCase();
+          const saved = updated?.code || createPieceCode;
           setAddedCodes((prev) => [...prev, saved]);
           setPieceName("");
           setPieceNote("");
@@ -629,8 +629,8 @@ const UpdateItemModal = ({
             return;
           }
           const inside = parseInt(boxRaw, 10);
-          if (wantsBox && (!box?.code?.trim() || !boxName || !inside || inside < 1)) {
-            setError("La caja nueva necesita código, nombre y cuántos hay adentro");
+          if (wantsBox && (prefixProblem(box?.prefix) || !boxName || !inside || inside < 1)) {
+            setError(prefixProblem(box?.prefix) || "La caja nueva necesita tipo, nombre y cuántos hay adentro");
             setIsLoading(false);
             return;
           }
@@ -638,7 +638,7 @@ const UpdateItemModal = ({
             quantity: wantsBox ? inside : 0,
             action: "add",
             ...(wantsBox ? { piece_names: [{
-              code: box.code.trim(),
+              prefix: cleanPrefix(box.prefix),
               name: boxName,
               quantity: inside,
             }] } : {}),
@@ -650,7 +650,7 @@ const UpdateItemModal = ({
           if (wantsBox) {
             setCreatedLabels({
               name: selectedUpdateItem?.name || "Artículo",
-              codes: updated?.codes?.length ? updated.codes : [box.code.trim()],
+              codes: updated?.codes?.length ? updated.codes : newPieceCodes.slice(0, 1),
               category: selectedUpdateItem?.category || "",
             });
             return;
@@ -671,8 +671,9 @@ const UpdateItemModal = ({
           return;
         }
         if (updateTracksUnits && action === "add") {
-          if (newPieces.length !== quantity || newPieces.some((piece) => !piece.name.trim() || !piece.code.trim())) {
-            setError("Cada pieza nueva necesita un código y un nombre");
+          const typeProblem = newPieces.map((piece) => prefixProblem(piece.prefix)).find(Boolean);
+          if (newPieces.length !== quantity || typeProblem || newPieces.some((piece) => !piece.name.trim())) {
+            setError(typeProblem || "Cada pieza nueva necesita un tipo y un nombre");
             setIsLoading(false);
             return;
           }
@@ -680,7 +681,7 @@ const UpdateItemModal = ({
             quantity,
             action,
             piece_names: newPieces.map((piece) => ({
-              code: piece.code.trim(),
+              prefix: cleanPrefix(piece.prefix),
               name: piece.name.trim(),
             })),
             ...(renames.length ? { renames } : {}),
@@ -688,7 +689,7 @@ const UpdateItemModal = ({
           refreshItems?.();
           setCreatedLabels({
             name: selectedUpdateItem?.name || "Artículo",
-            codes: updated?.codes?.length ? updated.codes : newPieces.map((piece) => piece.code.trim()),
+            codes: updated?.codes?.length ? updated.codes : newPieceCodes,
             category: selectedUpdateItem?.category || "",
           });
           return;
@@ -721,25 +722,17 @@ const UpdateItemModal = ({
     }
   };
 
-  const startPiece = async () => {
+  const startPiece = () => {
     if (!createdSub?.code_prefix) return;
     setError("");
-    setIsLoading(true);
-    try {
-      const data = await getNextCodes(1, createdSub.code_prefix);
-      setPieceCode(data.codes?.[0] || "");
-      setPieceName("");
-      setPieceNote("");
+    setPieceCode((prev) => prev || createdSub.code_prefix);
+    setPieceName("");
+    setPieceNote("");
     setPieceDescription("");
-      setPieceBroken(false);
-      setPieceDamage("");
-      setPieceRepair("");
-      setCreateStep("piece");
-    } catch (err) {
-      setError(err.message || "No se pudo proponer el código");
-    } finally {
-      setIsLoading(false);
-    }
+    setPieceBroken(false);
+    setPieceDamage("");
+    setPieceRepair("");
+    setCreateStep("piece");
   };
 
   const finishCreate = () => {
@@ -869,17 +862,21 @@ const UpdateItemModal = ({
                     <div className="form-control-plaintext px-0">{createdSub?.category || formData.category}</div>
                   </div>
                   <div className="mb-3">
-                    <label className="form-label fw-bold" htmlFor="piece-code">Código:</label>
+                    <label className="form-label fw-bold" htmlFor="piece-code">Tipo de pieza:</label>
                     <input
                       id="piece-code"
                       className="form-control"
+                      style={{ maxWidth: 180 }}
                       value={pieceCode}
+                      maxLength={12}
+                      placeholder="AM-B"
                       onChange={(e) => setPieceCode(e.target.value.toUpperCase())}
                       required
                     />
                     <div className="form-text">
-                      Si la pieza ya viene marcada, cambiala antes de guardar.
+                      Solo lo que distingue a la pieza, por ejemplo AM-B. El año y el número se ponen solos.
                     </div>
+                    <CodePreview prefix={pieceCode} code={createPieceCode} />
                   </div>
                   <div className="mb-3">
                     <label className="form-label fw-bold" htmlFor="piece-name">Nombre de la pieza:</label>
@@ -1328,15 +1325,18 @@ const UpdateItemModal = ({
                           <div className="col-4">
                             <input
                               className="form-control"
-                              aria-label="Código"
-                              value={newPieces[0]?.code || ""}
+                              aria-label="Tipo"
+                              placeholder="Tipo"
+                              maxLength={12}
+                              value={newPieces[0]?.prefix || ""}
                               onChange={(e) =>
                                 setNewPieces((prev) => {
-                                  const current = prev[0] || { code: "", name: "", quantity: "" };
-                                  return [{ ...current, code: e.target.value }];
+                                  const current = prev[0] || { prefix: "", name: "", quantity: "" };
+                                  return [{ ...current, prefix: e.target.value.toUpperCase() }];
                                 })
                               }
                             />
+                            <CodePreview prefix={newPieces[0]?.prefix} code={newPieceCodes[0]} />
                           </div>
                           <div className="col-8">
                             <input
@@ -1345,7 +1345,7 @@ const UpdateItemModal = ({
                               value={newPieces[0]?.name || ""}
                               onChange={(e) =>
                                 setNewPieces((prev) => {
-                                  const current = prev[0] || { code: "", name: "", quantity: "" };
+                                  const current = prev[0] || { prefix: "", name: "", quantity: "" };
                                   return [{ ...current, name: e.target.value }];
                                 })
                               }
@@ -1360,7 +1360,7 @@ const UpdateItemModal = ({
                           value={newPieces[0]?.quantity || ""}
                           onChange={(e) =>
                             setNewPieces((prev) => {
-                              const current = prev[0] || { code: "", name: "", quantity: "" };
+                              const current = prev[0] || { prefix: "", name: "", quantity: "" };
                               return [{ ...current, quantity: e.target.value }];
                             })
                           }
@@ -1412,16 +1412,19 @@ const UpdateItemModal = ({
                           <div className="col-4">
                             <input
                               className="form-control"
-                              value={piece.code}
-                              aria-label="Código"
+                              value={piece.prefix}
+                              aria-label="Tipo"
+                              placeholder="Tipo"
+                              maxLength={12}
                               onChange={(e) =>
                                 setNewPieces((prev) =>
                                   prev.map((row, rowIndex) =>
-                                    rowIndex === index ? { ...row, code: e.target.value } : row
+                                    rowIndex === index ? { ...row, prefix: e.target.value.toUpperCase() } : row
                                   )
                                 )
                               }
                             />
+                            <CodePreview prefix={piece.prefix} code={newPieceCodes[index]} />
                           </div>
                           <div className="col-8">
                             <input
@@ -1441,7 +1444,7 @@ const UpdateItemModal = ({
                         </div>
                       ))}
                       <div className="form-text">
-                        El código se propone solo. El nombre es obligatorio.
+                        En tipo poné solo lo que distingue a la pieza, por ejemplo AM-B. El año y el número se ponen solos. El nombre es obligatorio.
                       </div>
                     </div>
                   )}

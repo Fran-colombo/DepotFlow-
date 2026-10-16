@@ -485,10 +485,19 @@ def update_item_by_id(
             pieces = item_update.piece_names or []
             if len(pieces) != item_update.quantity:
                 raise ItemServiceError("Cada pieza nueva necesita un nombre")
+            from unit_service import codes_for_prefixes, infer_prefix
+
+            pending = [
+                index for index, piece in enumerate(pieces) if not (piece.code or "").strip()
+            ]
+            generated = codes_for_prefixes(
+                db, [pieces[index].prefix or infer_prefix(db, item) for index in pending]
+            )
+            filled = dict(zip(pending, generated))
             codes = []
             names_by_code = {}
-            for piece in pieces:
-                code = normalize_code(piece.code)
+            for index, piece in enumerate(pieces):
+                code = filled.get(index) or normalize_code(piece.code)
                 codes.append(code)
                 names_by_code[code] = piece.name
 
@@ -941,6 +950,7 @@ def list_item_units(
 
 class PieceCreateBody(BaseModel):
     code: Optional[str] = None
+    prefix: Optional[str] = None
     name: str
     description: Optional[str] = None
     observation: Optional[str] = None
@@ -1005,12 +1015,12 @@ def create_piece(
     if not item.track_units:
         raise HTTPException(status_code=400, detail="Esta subcategoría no identifica piezas")
     try:
-        units = create_units_for_item(
-            db,
-            item,
-            1,
-            codes=[body.code] if body.code and body.code.strip() else None,
-        )
+        code = (body.code or "").strip()
+        if not code:
+            from unit_service import codes_for_prefixes, infer_prefix
+
+            code = codes_for_prefixes(db, [body.prefix or infer_prefix(db, item)])[0]
+        units = create_units_for_item(db, item, 1, codes=[code])
         unit = units[0]
         apply_piece_profile(unit, body.name, body.is_broken, body.damage_note, body.repair_note, body.description)
         sync_breakage(db, unit, False)
