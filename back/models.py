@@ -254,6 +254,17 @@ class TransportNote(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class TransportServicePlace(Base):
+    __tablename__ = "transporte_lugares_service"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transport_id = Column(Integer, ForeignKey("transportes.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    phone = Column(String, nullable=True)
+    address = Column(String, nullable=True)
+    website = Column(String, nullable=True)
+
+
 class UnitDepotZone(Base):
     __tablename__ = "unit_depot_zones"
 

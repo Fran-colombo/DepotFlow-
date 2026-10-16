@@ -177,6 +177,41 @@ class FinePersonBody(BaseModel):
     person: str
 
 
+class KmBody(BaseModel):
+    km: int
+
+
+class ServicePlaceBody(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    website: Optional[str] = None
+
+
+def _clean(value) -> Optional[str]:
+    return " ".join((value or "").split()) or None
+
+
+def _place_row(place: models.TransportServicePlace) -> dict:
+    return {
+        "id": place.id,
+        "name": place.name,
+        "phone": place.phone or "",
+        "address": place.address or "",
+        "website": place.website or "",
+    }
+
+
+def _apply_place(place: models.TransportServicePlace, body: ServicePlaceBody):
+    name = _clean(body.name)
+    if not name:
+        raise HTTPException(status_code=400, detail="Poné el nombre del lugar")
+    place.name = name
+    place.phone = _clean(body.phone)
+    place.address = _clean(body.address)
+    place.website = (body.website or "").strip() or None
+
+
 def _names(db: Session) -> dict:
     rows = db.query(models.Transport.id, models.Transport.name).all()
     return {row.id: row.name for row in rows}
@@ -291,6 +326,12 @@ def read_transporte(
         .order_by(models.TransportNote.created_at.desc(), models.TransportNote.id.desc())
         .all()
     )
+    places = (
+        db.query(models.TransportServicePlace)
+        .filter(models.TransportServicePlace.transport_id == row.id)
+        .order_by(models.TransportServicePlace.name.asc())
+        .all()
+    )
     data = _summary(row, open_use, names)
     data.update({
         "last_service_at": _iso(row.last_service_at),
@@ -315,6 +356,7 @@ def read_transporte(
             }
             for note in notes
         ],
+        "service_places": [_place_row(place) for place in places],
     })
     return data
 
@@ -415,6 +457,84 @@ def return_transporte(
         use.km = km
         owner = row if use.transport_id == row.id else _get(db, use.transport_id)
         _apply_km(owner, km)
+    db.commit()
+    return {"ok": True}
+
+
+@router.put("/{transport_id}/km")
+def update_km(
+    transport_id: int,
+    body: KmBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    row = _get(db, transport_id)
+    if row.kind != "auto":
+        raise HTTPException(status_code=400, detail="El carro no lleva kilómetros")
+    km = _km(body.km)
+    if row.current_km is not None and km < row.current_km and not has_admin_access(current_user):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tiene {row.current_km} km. No puede tener menos. Si está mal, que lo corrija un admin",
+        )
+    row.current_km = km
+    db.commit()
+    return {"ok": True, "current_km": row.current_km}
+
+
+@router.post("/{transport_id}/lugares")
+def add_service_place(
+    transport_id: int,
+    body: ServicePlaceBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    _admin(current_user)
+    row = _get(db, transport_id)
+    if row.kind != "auto":
+        raise HTTPException(status_code=400, detail="El carro no lleva service")
+    place = models.TransportServicePlace(transport_id=row.id)
+    _apply_place(place, body)
+    db.add(place)
+    db.commit()
+    db.refresh(place)
+    return _place_row(place)
+
+
+def _get_place(db: Session, place_id: int) -> models.TransportServicePlace:
+    place = (
+        db.query(models.TransportServicePlace)
+        .filter(models.TransportServicePlace.id == place_id)
+        .first()
+    )
+    if not place:
+        raise HTTPException(status_code=404, detail="No está ese lugar")
+    return place
+
+
+@router.put("/lugares/{place_id}")
+def update_service_place(
+    place_id: int,
+    body: ServicePlaceBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    _admin(current_user)
+    place = _get_place(db, place_id)
+    _apply_place(place, body)
+    db.commit()
+    return _place_row(place)
+
+
+@router.delete("/lugares/{place_id}")
+def delete_service_place(
+    place_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    _admin(current_user)
+    place = _get_place(db, place_id)
+    db.delete(place)
     db.commit()
     return {"ok": True}
 

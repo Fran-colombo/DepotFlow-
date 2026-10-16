@@ -321,6 +321,21 @@ def ensure_inventory_schema():
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_transporte_notas_transport_id ON transporte_notas (transport_id)"
         ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS transporte_lugares_service (
+                id INTEGER NOT NULL PRIMARY KEY,
+                transport_id INTEGER NOT NULL,
+                name VARCHAR NOT NULL,
+                phone VARCHAR,
+                address VARCHAR,
+                website VARCHAR,
+                FOREIGN KEY(transport_id) REFERENCES transportes (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_transporte_lugares_service_transport_id "
+            "ON transporte_lugares_service (transport_id)"
+        ))
 
     if _column_exists("history_units", "id") and not _column_exists("history_units", "amount"):
         with engine.begin() as conn:

@@ -4,9 +4,11 @@ import useAuth from "../hooks/useAuth";
 import PersonPicker from "../components/PersonPicker";
 import FeedbackModal from "../components/FeedbackModal";
 import {
+  addServicePlace,
   addTransporteNote,
   createFine,
   createTransporte,
+  deleteServicePlace,
   getTransporte,
   leaveTransporte,
   listFines,
@@ -16,7 +18,9 @@ import {
   returnTransporte,
   setFinePerson,
   transportImageUrl,
+  updateServicePlace,
   updateTransporte,
+  updateTransporteKm,
   uploadTransporteImage,
 } from "../api/transportes";
 
@@ -114,14 +118,52 @@ function Photo({ row, alt }) {
   );
 }
 
+function formatKm(value) {
+  return Number(value).toLocaleString("es-AR");
+}
+
 function KmLine({ row }) {
   if (row.km_until == null) return null;
   const close = row.km_until < 1000;
+  if (row.km_until < 0) {
+    return (
+      <div className="small text-danger text-decoration-underline">
+        Se pasó {formatKm(-row.km_until)} km del service
+      </div>
+    );
+  }
   return (
     <div className={`small ${close ? "text-danger text-decoration-underline" : "app-muted"}`}>
-      Faltan {row.km_until} km para el service
+      Faltan {formatKm(row.km_until)} km para el service
     </div>
   );
+}
+
+function webHref(value) {
+  const text = (value || "").trim();
+  if (!text) return "";
+  return /^https?:\/\//i.test(text) ? text : `https://${text}`;
+}
+
+function serviceMessage(row, places) {
+  const last = row.last_service_km != null ? `El último fue hecho a los ${formatKm(row.last_service_km)} km` : "";
+  const next = row.next_service_km != null
+    ? `hay que programar un turno para hacer el próximo antes de los ${formatKm(row.next_service_km)} km.`
+    : "hay que programar un turno para hacer el próximo.";
+  const when = last ? `${last}, ${next}` : next.charAt(0).toUpperCase() + next.slice(1);
+  const lines = [
+    `${row.name}, ${row.plate}, está por necesitar el service. ${when}`,
+    "",
+    "Estos son los lugares donde podés hacer el service:",
+  ];
+  places.forEach((place) => {
+    lines.push("");
+    lines.push(`*${place.name}*`);
+    if (place.phone) lines.push(`Teléfono: ${place.phone}`);
+    if (place.address) lines.push(`Dirección: ${place.address}`);
+    if (place.website) lines.push(`Web: ${webHref(place.website)}`);
+  });
+  return lines.join("\n");
 }
 
 const Autos = () => {
@@ -236,6 +278,7 @@ const Autos = () => {
                     {row.with_name && <div className="app-muted small">Con {row.with_name}</div>}
                     {row.is_broken && <div className="small text-danger">Roto</div>}
                     {row.in_repair && <div className="small">Lo llevaron a arreglar</div>}
+                    {row.current_km != null && <div className="small">Tiene {formatKm(row.current_km)} km</div>}
                     <KmLine row={row} />
                   </div>
                 </button>
@@ -448,6 +491,8 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onFine, onSaved, onE
   const [note, setNote] = useState("");
   const [noteBy, setNoteBy] = useState("");
   const [saving, setSaving] = useState(false);
+  const [kmEdit, setKmEdit] = useState(null);
+  const [placesOpen, setPlacesOpen] = useState(false);
   const [profile, setProfile] = useState({
     name: row.name || "",
     plate: row.plate || "",
@@ -492,6 +537,21 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onFine, onSaved, onE
       await onSaved("Se guardó la ficha.");
     } catch (err) {
       onError(err.message || "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveKm = async () => {
+    setSaving(true);
+    try {
+      const km = optionalKm(kmEdit);
+      if (km == null) throw new Error("Escribí los kilómetros que tiene");
+      await updateTransporteKm(row.id, km);
+      setKmEdit(null);
+      await onSaved("Quedaron los km.");
+    } catch (err) {
+      onError(err.message || "No se pudieron guardar los km");
     } finally {
       setSaving(false);
     }
@@ -544,7 +604,41 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onFine, onSaved, onE
             )}
             <div className="mt-2">{row.name}</div>
             <div className="app-muted small mb-2">{row.place}{row.open_person ? ` · ${row.open_person}` : ""}</div>
-            {row.kind === "auto" && <KmLine row={row} />}
+            {row.kind === "auto" && (
+              <>
+                {kmEdit == null ? (
+                  <div className="d-flex align-items-center gap-2 small">
+                    <span>{row.current_km != null ? `Tiene ${formatKm(row.current_km)} km` : "Todavía no tiene km cargados"}</span>
+                    <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setKmEdit(row.current_km ?? "")}>
+                      Actualizar km
+                    </button>
+                  </div>
+                ) : (
+                  <div className="d-flex align-items-center gap-2 my-1" style={{ maxWidth: 360 }}>
+                    <input
+                      className="form-control form-control-sm"
+                      inputMode="numeric"
+                      autoFocus
+                      value={kmEdit}
+                      placeholder="Km que tiene ahora"
+                      onChange={(e) => setKmEdit(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveKm();
+                        if (e.key === "Escape") setKmEdit(null);
+                      }}
+                    />
+                    <button type="button" className="btn btn-sm btn-primary" disabled={saving} onClick={saveKm}>Guardar</button>
+                    <button type="button" className="btn btn-sm btn-outline-secondary" disabled={saving} onClick={() => setKmEdit(null)}>Cancelar</button>
+                  </div>
+                )}
+                <div className="d-flex align-items-center gap-2 flex-wrap">
+                  <KmLine row={row} />
+                  <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setPlacesOpen(true)}>
+                    Averiguar dónde hacerlo
+                  </button>
+                </div>
+              </>
+            )}
             <div className="d-flex gap-2 my-3">
               {!row.out ? (
                 <button type="button" className="btn btn-outline-danger" onClick={onLeave}>
@@ -681,6 +775,168 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onFine, onSaved, onE
           </div>
         </div>
       </div>
+      {placesOpen && (
+        <ServicePlacesModal
+          row={row}
+          isAdmin={isAdmin}
+          onClose={() => setPlacesOpen(false)}
+          onSaved={onSaved}
+          onError={onError}
+        />
+      )}
+    </div>
+  );
+}
+
+const EMPTY_PLACE = { name: "", phone: "", address: "", website: "" };
+
+function PlaceForm({ initial, saving, onSubmit, onCancel }) {
+  const [place, setPlace] = useState({ ...EMPTY_PLACE, ...initial });
+  const set = (field) => (e) => setPlace({ ...place, [field]: e.target.value });
+  return (
+    <form
+      className="border rounded p-2 mb-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSubmit({
+          name: place.name.trim(),
+          phone: place.phone.trim(),
+          address: place.address.trim(),
+          website: place.website.trim(),
+        });
+      }}
+    >
+      <input className="form-control form-control-sm mb-2" placeholder="Nombre" value={place.name} onChange={set("name")} required />
+      <input className="form-control form-control-sm mb-2" placeholder="Teléfono" inputMode="tel" value={place.phone} onChange={set("phone")} />
+      <input className="form-control form-control-sm mb-2" placeholder="Dirección" value={place.address} onChange={set("address")} />
+      <input className="form-control form-control-sm mb-2" placeholder="Página web (opcional)" value={place.website} onChange={set("website")} />
+      <div className="d-flex gap-2">
+        <button type="submit" className="btn btn-sm btn-primary" disabled={saving || !place.name.trim()}>Guardar</button>
+        <button type="button" className="btn btn-sm btn-outline-secondary" disabled={saving} onClick={onCancel}>Cancelar</button>
+      </div>
+    </form>
+  );
+}
+
+function ServicePlacesModal({ row, isAdmin, onClose, onSaved, onError }) {
+  const places = Array.isArray(row.service_places) ? row.service_places : [];
+  const [editingId, setEditingId] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const run = async (action, message) => {
+    setSaving(true);
+    try {
+      await action();
+      setEditingId(null);
+      setAdding(false);
+      await onSaved(message);
+    } catch (err) {
+      onError(err.message || "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const share = () => {
+    const text = serviceMessage(row, places);
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  };
+
+  return (
+    <div
+      className="modal show d-block"
+      style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title mb-0">Dónde hacer el service · {row.plate || row.name}</h5>
+            <button type="button" className="btn-close" aria-label="Cerrar" onClick={onClose}></button>
+          </div>
+          <div className="modal-body">
+            <div className="small app-muted mb-3">
+              {row.last_service_km != null ? `Último service a los ${formatKm(row.last_service_km)} km. ` : ""}
+              {row.next_service_km != null ? `El próximo antes de los ${formatKm(row.next_service_km)} km.` : ""}
+            </div>
+            {places.length === 0 && !adding && (
+              <p className="app-muted">
+                {isAdmin ? "Todavía no cargaste lugares para este auto." : "Todavía no hay lugares cargados. Pedile a un admin que los cargue."}
+              </p>
+            )}
+            {places.map((place) => (
+              editingId === place.id ? (
+                <PlaceForm
+                  key={place.id}
+                  initial={place}
+                  saving={saving}
+                  onCancel={() => setEditingId(null)}
+                  onSubmit={(data) => run(() => updateServicePlace(place.id, data), "Quedó el lugar.")}
+                />
+              ) : (
+                <div key={place.id} className="border rounded p-2 mb-2">
+                  <div className="fw-semibold">{place.name}</div>
+                  {place.phone && (
+                    <div className="small">Teléfono: <a href={`tel:${place.phone.replace(/[^\d+]/g, "")}`}>{place.phone}</a></div>
+                  )}
+                  {place.address && (
+                    <div className="small">
+                      Dirección:{" "}
+                      <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.address)}`} target="_blank" rel="noreferrer">
+                        {place.address}
+                      </a>
+                    </div>
+                  )}
+                  {place.website && (
+                    <div className="small">
+                      Web: <a href={webHref(place.website)} target="_blank" rel="noreferrer">{place.website}</a>
+                    </div>
+                  )}
+                  {isAdmin && (
+                    <div className="d-flex gap-2 mt-1">
+                      <button type="button" className="btn btn-link btn-sm p-0" disabled={saving} onClick={() => { setAdding(false); setEditingId(place.id); }}>Editar</button>
+                      <button
+                        type="button"
+                        className="btn btn-link btn-sm p-0 text-danger"
+                        disabled={saving}
+                        onClick={() => {
+                          if (window.confirm(`¿Sacar ${place.name}?`)) {
+                            run(() => deleteServicePlace(place.id), "Se sacó el lugar.");
+                          }
+                        }}
+                      >
+                        Sacar
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            ))}
+            {isAdmin && (adding ? (
+              <PlaceForm
+                initial={EMPTY_PLACE}
+                saving={saving}
+                onCancel={() => setAdding(false)}
+                onSubmit={(data) => run(() => addServicePlace(row.id, data), "Quedó el lugar.")}
+              />
+            ) : (
+              <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => { setEditingId(null); setAdding(true); }}>
+                Agregar lugar
+              </button>
+            ))}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-outline-secondary" onClick={onClose}>Cerrar</button>
+            <button type="button" className="btn btn-success" disabled={places.length === 0} onClick={share}>
+              <i className="bi bi-whatsapp me-1"></i>Compartir por WhatsApp
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -784,6 +1040,7 @@ function MoveModal({ move, carts, onClose, onDone, onError }) {
               <div className="mb-3">
                 <label className="form-label">Kilómetros</label>
                 <input className="form-control" inputMode="numeric" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Opcional" />
+                <div className="form-text">Si los ponés, quedan como los km que tiene el auto.</div>
               </div>
             )}
             {leaving && move.kind === "auto" && (

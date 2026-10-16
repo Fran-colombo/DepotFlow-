@@ -44,6 +44,34 @@ export function returnTransporte(id, data) {
   });
 }
 
+export function updateTransporteKm(id, km) {
+  return apiFetch(`/transportes/${id}/km`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ km }),
+  });
+}
+
+export function addServicePlace(id, data) {
+  return apiFetch(`/transportes/${id}/lugares`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function updateServicePlace(placeId, data) {
+  return apiFetch(`/transportes/lugares/${placeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function deleteServicePlace(placeId) {
+  return apiFetch(`/transportes/lugares/${placeId}`, { method: "DELETE" });
+}
+
 export function addTransporteNote(id, data) {
   return apiFetch(`/transportes/${id}/notas`, {
     method: "POST",
