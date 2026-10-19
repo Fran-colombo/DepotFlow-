@@ -1202,6 +1202,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       .catch(() => setMoveTargets([]));
   };
 
+  const moveMatches = moveTargets.filter((row) => row.name.toLowerCase().includes(moveQuery.trim().toLowerCase()));
+  const moveTarget = moveTargets.find((row) => String(row.id) === String(moveTargetId));
+
   const saveCategoryMove = async (event) => {
     event.preventDefault();
     if (!moveUnit || busy) return;
@@ -1646,20 +1649,31 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 className="form-control mb-2"
                 placeholder="Buscar"
                 value={moveQuery}
-                onChange={(e) => setMoveQuery(e.target.value)}
+                onChange={(e) => {
+                  const query = e.target.value;
+                  setMoveQuery(query);
+                  const found = moveTargets.filter((row) => row.name.toLowerCase().includes(query.trim().toLowerCase()));
+                  if (found.length === 1) setMoveTargetId(String(found[0].id));
+                }}
               />
-              <select
-                className="form-select"
-                size={6}
-                value={moveTargetId}
-                onChange={(e) => setMoveTargetId(e.target.value)}
-              >
-                {moveTargets
-                  .filter((row) => row.name.toLowerCase().includes(moveQuery.trim().toLowerCase()))
-                  .map((row) => (
-                    <option key={row.id} value={row.id}>{row.name}</option>
-                  ))}
-              </select>
+              <div className="list-group" style={{ maxHeight: 220, overflowY: "auto" }}>
+                {moveMatches.map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className={`list-group-item list-group-item-action${String(row.id) === String(moveTargetId) ? " active" : ""}`}
+                    onClick={() => setMoveTargetId(String(row.id))}
+                  >
+                    {row.name}
+                  </button>
+                ))}
+                {moveMatches.length === 0 && (
+                  <div className="list-group-item small app-muted">
+                    {moveTargets.length === 0 ? "No hay otra subcategoría que cuente de la misma forma." : "No hay subcategorías con ese nombre."}
+                  </div>
+                )}
+              </div>
+              {moveTarget && <div className="form-text">Va a pasar a {moveTarget.name}.</div>}
               <div className="form-check mt-3">
                 <input
                   className="form-check-input"
