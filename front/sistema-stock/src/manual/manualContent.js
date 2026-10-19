@@ -240,7 +240,7 @@ export const MANUAL_SECTIONS = [
             "Elegí **Quién lo devuelve**. Es obligatorio.",
             "Tocá **Confirmar Devolución**.",
           ] },
-          { type: "warn", text: "Lo que está en reparación no aparece acá. Eso se devuelve desde el detalle, con **Volver al depósito**." },
+          { type: "warn", text: "Lo que está en reparación no aparece acá. Eso se devuelve desde el detalle, con **Movimientos → Volver al depósito**." },
           { type: "p", text: "También podés devolver desde **Pendientes** o desde **Existencias**." },
         ],
         related: ["devolver-pieza", "pendientes", "existencias-acciones"],
@@ -263,7 +263,7 @@ export const MANUAL_SECTIONS = [
         keywords: ["trasladar", "traslado", "obra a obra", "cambiar de obra", "pasar"],
         body: [
           { type: "steps", items: [
-            "En **⋯** elegí **Trasladar entre obras** (o el botón **Trasladar** de una pieza en obra, en el detalle).",
+            "En **⋯** elegí **Trasladar entre obras** (o, en el detalle, **Movimientos → Trasladar a otra obra** de una pieza en obra).",
             "Elegí el **Origen** (la obra donde está) y el **Destino** (la obra adonde va).",
             "Escribí la **Cantidad a trasladar** y **Quién lo mueve**.",
             "Tocá **Confirmar traslado**.",
@@ -287,8 +287,9 @@ export const MANUAL_SECTIONS = [
           ] },
           { type: "p", text: "El cambio queda en **Historial de movimientos** del producto." },
           { type: "tip", text: "Para mover muchos productos juntos, usá Exportar traslado y Actualización masiva." },
+          { type: "tip", text: "Para mandar una sola pieza a otro depósito, hacelo desde el detalle: **Cambiar de lugar → Cambiar de depósito**." },
         ],
-        related: ["traslado-lote", "zonas-pieza", "diferencias-movimientos"],
+        related: ["cambiar-deposito-pieza", "traslado-lote", "zonas-pieza", "diferencias-movimientos"],
       },
       {
         id: "fotos-producto",
@@ -525,11 +526,27 @@ export const MANUAL_SECTIONS = [
             "Las piezas se ven en secciones: **En depósito**, **En obra**, **Fuera de servicio** y **Usadas**. Las tiradas no aparecen.",
             "Si hay varios tipos de código, se agrupan. Tocá el grupo para abrirlo.",
             "**Código o nombre**: filtra las piezas de esta ventana.",
-            "Cada pieza tiene su tarjeta con estado, botones, datos, observaciones y zonas.",
+            "Cada pieza tiene su tarjeta con estado, los menús **Movimientos**, **Foto** y **Cambiar de lugar**, datos, observaciones y zonas.",
           ] },
           { type: "p", text: "Si el producto se lleva por cantidad, el detalle solo muestra cuántos hay: los retiros se hacen desde la fila en Productos." },
         ],
-        related: ["retirar-pieza", "pieza-extra", "estados"],
+        related: ["menus-pieza", "retirar-pieza", "pieza-extra", "estados"],
+      },
+      {
+        id: "menus-pieza",
+        title: "Los menús de cada pieza",
+        summary: "Movimientos, Foto y Cambiar de lugar: qué hay en cada uno.",
+        keywords: ["menú", "botones", "movimientos", "foto", "cambiar de lugar", "opciones", "dónde está el botón", "no encuentro"],
+        body: [
+          { type: "p", text: "Arriba a la derecha de cada pieza hay tres botones. Tocá uno para abrirlo y elegí la opción. Solo aparecen las opciones que se pueden usar con esa pieza en ese momento." },
+          { type: "compare", rows: [
+            { name: "Movimientos", text: "**Retirar** (en depósito), **Devolver al depósito** (en obra), **Volver al depósito** (en reparación), **Trasladar a otra obra**, **Tirar** (rota o fuera de servicio), **Historial** y **Ver roturas**." },
+            { name: "Foto", text: "**Cargar foto** o **Cambiar foto**, **Ver foto** y **Quitar foto**." },
+            { name: "Cambiar de lugar", text: "**Cambiar de depósito** (manda esa pieza sola a otro depósito) y **Cambiar de categoría** (la pasa a otra subcategoría)." },
+          ] },
+          { type: "tip", text: "Si no ves una opción, es porque no corresponde: por ejemplo, **Retirar** no aparece si la pieza ya está en una obra." },
+        ],
+        related: ["retirar-pieza", "devolver-pieza", "cambiar-deposito-pieza", "cambiar-categoria", "pieza-extra"],
       },
       {
         id: "retirar-pieza",
@@ -538,7 +555,7 @@ export const MANUAL_SECTIONS = [
         keywords: ["retirar pieza", "llevar a reparar", "reparación", "arreglar", "service", "marcar usada"],
         body: [
           { type: "steps", items: [
-            "En la sección **En depósito**, tocá **Retirar** en la pieza.",
+            "En la sección **En depósito**, abrí **Movimientos** en la pieza y elegí **Retirar**.",
             "Si se va a arreglar, tildá **Llevar a reparar**. Si no, elegí la **Obra de destino**.",
             "Si es una caja, elegí **Parcial** (y cuánto) o **Total**.",
             "Elegí **Quién lo retira** (obligatorio) y, si querés, una **Nota**.",
@@ -555,8 +572,8 @@ export const MANUAL_SECTIONS = [
         keywords: ["devolver pieza", "volver al depósito", "volvió de reparación", "reparación"],
         body: [
           { type: "list", items: [
-            "**Desde una obra**: en **En obra** tocá **Devolver**. La obra viene puesta. Elegí **Quién lo devuelve** (y cuántos, si es caja) y confirmá.",
-            "**Desde reparación**: en **Fuera de servicio** tocá **Volver al depósito** y confirmá.",
+            "**Desde una obra**: en **En obra** abrí **Movimientos** y elegí **Devolver al depósito**. La obra viene puesta. Elegí **Quién lo devuelve** (y cuántos, si es caja) y confirmá.",
+            "**Desde reparación**: en **Fuera de servicio** abrí **Movimientos**, elegí **Volver al depósito** y confirmá.",
           ] },
           { type: "p", text: "Si dice \"No hay una salida pendiente de ... en esa obra\", revisá que la obra sea la correcta." },
         ],
@@ -574,7 +591,7 @@ export const MANUAL_SECTIONS = [
             "Tocá **Guardar pieza**.",
           ] },
           { type: "p", text: "Cuando esté arreglada, destildá **Rota**, escribí **Qué se le hizo** (obligatorio) y tocá **Se arregló**." },
-          { type: "p", text: "El botón **Roturas** muestra todas las roturas que tuvo la pieza, abiertas y arregladas." },
+          { type: "p", text: "**Movimientos → Ver roturas** muestra todas las roturas que tuvo la pieza, abiertas y arregladas." },
           { type: "warn", text: "Marcarla rota no la saca del depósito: se puede seguir retirando. Si la llevan a arreglar, usá **Retirar** con **Llevar a reparar**." },
         ],
         related: ["tirar", "estados", "retirar-pieza"],
@@ -585,9 +602,9 @@ export const MANUAL_SECTIONS = [
         summary: "Dar de baja una pieza rota o que no tiene arreglo.",
         keywords: ["tirar", "descartar", "baja", "basura", "tirado", "TIRADO", "autorizado"],
         body: [
-          { type: "p", text: "El botón **Tirar** aparece solo si la pieza está **rota** o **fuera de servicio**." },
+          { type: "p", text: "La opción **Tirar** (en **Movimientos**) aparece solo si la pieza está **rota** o **fuera de servicio**." },
           { type: "steps", items: [
-            "Tocá **Tirar** en la pieza.",
+            "En la pieza abrí **Movimientos** y elegí **Tirar**.",
             "Elegí **Quién la tira** y **Autorizado por**. Los dos son obligatorios.",
             "Tocá **Tirar**.",
           ] },
@@ -599,18 +616,38 @@ export const MANUAL_SECTIONS = [
       {
         id: "cambiar-categoria",
         title: "Pasar una pieza a otro producto",
-        summary: "El botón Cambiar de categoría.",
-        keywords: ["cambiar de categoría", "cambiar subcategoría", "pasar", "mover pieza", "otro producto", "código nuevo"],
+        summary: "Cambiar de lugar → Cambiar de categoría.",
+        keywords: ["cambiar de categoría", "cambiar subcategoría", "pasar", "mover pieza", "otro producto", "código nuevo", "cambiar de lugar"],
         body: [
           { type: "steps", items: [
-            "En la pieza tocá **Cambiar de categoría**.",
+            "En la pieza abrí **Cambiar de lugar** y elegí **Cambiar de categoría**.",
             "Buscá y elegí la **Subcategoría** de destino. Solo aparecen las que se cuentan de la misma forma.",
             "Si querés cambiarle el código, tildá **Actualizar el código** y escribí el **Código nuevo** (te sugiere uno).",
             "Tocá **Pasar**.",
           ] },
           { type: "p", text: "La pieza se lleva su historial, sus observaciones y su stock." },
         ],
-        related: ["producto-pieza"],
+        related: ["cambiar-deposito-pieza", "producto-pieza"],
+      },
+      {
+        id: "cambiar-deposito-pieza",
+        title: "Mandar una sola pieza a otro depósito",
+        summary: "Cambiar de lugar → Cambiar de depósito, sin mover todo el producto.",
+        keywords: ["cambiar de depósito", "otro depósito", "otro galpón", "mover una pieza", "mover pieza sola", "cambiar de lugar", "llevar a otro galpón"],
+        body: [
+          { type: "steps", items: [
+            "En la pieza abrí **Cambiar de lugar** y elegí **Cambiar de depósito**.",
+            "Elegí el **Depósito destino** y la **Zona destino**.",
+            "Escribí la **Persona que realiza el intercambio** y tocá **Confirmar Movimiento**.",
+          ] },
+          { type: "p", text: "La pieza pasa al mismo producto en el otro depósito (si no existe, se crea). Se lleva su código, su historial y sus observaciones. Queda en el **Historial de movimientos**." },
+          { type: "list", items: [
+            "Se puede con piezas **En depósito** o **En obra**. Si está en reparación, primero tiene que volver.",
+            "Para cambiarla de zona dentro del **mismo** depósito no hace falta moverla: usá **En el galpón** en la tarjeta.",
+            "Para mover todo el producto, usá **Mover** desde el botón **⋯** de la fila en Productos.",
+          ] },
+        ],
+        related: ["mover", "zonas-pieza", "cambiar-categoria", "menus-pieza"],
       },
       {
         id: "zonas-pieza",
@@ -623,9 +660,9 @@ export const MANUAL_SECTIONS = [
             "Elegí la zona. Si es una caja, podés repartir la cantidad: **Agregar zona** suma otra fila.",
             "Tocá **Guardar zonas**. Las cantidades tienen que sumar lo que hay.",
           ] },
-          { type: "p", text: "Esto no mueve stock: solo indica dónde buscarla. Para cambiar el producto de zona, usá **Mover**." },
+          { type: "p", text: "Esto no mueve stock: solo indica dónde buscarla. Para mandar la pieza a otro depósito, usá **Cambiar de lugar → Cambiar de depósito**. Para cambiar todo el producto de zona, usá **Mover**." },
         ],
-        related: ["mover", "lugares"],
+        related: ["cambiar-deposito-pieza", "mover", "lugares"],
       },
       {
         id: "pieza-extra",
@@ -634,8 +671,8 @@ export const MANUAL_SECTIONS = [
         keywords: ["foto pieza", "historial pieza", "observación pieza", "anotar", "quitar foto", "cambiar foto"],
         body: [
           { type: "list", items: [
-            "**Foto** / **Cambiar foto** / **Quitar foto**: la foto de esa pieza. Quitar no pide confirmación.",
-            "**Historial**: todos los movimientos de esa pieza (retiros, devoluciones, traslados, tirado).",
+            "**Foto**: **Cargar foto** o **Cambiar foto**, **Ver foto** (también tocando la miniatura) y **Quitar foto**, que pide confirmación.",
+            "**Movimientos → Historial**: todos los movimientos de esa pieza (retiros, devoluciones, traslados, cambios de depósito, tirado).",
             "**Observación de esta pieza**: escribila, poné quién la anotó (vacío: fuiste vos) y tocá **Anotar**. Se ven las últimas 3; **Ver más** muestra más.",
           ] },
         ],
@@ -934,7 +971,7 @@ export const MANUAL_SECTIONS = [
             { name: "Retirar", text: "Sale del depósito a una obra (o a reparar)." },
             { name: "Devolver", text: "Vuelve de una obra (o de reparación) al depósito." },
             { name: "Trasladar entre obras", text: "Pasa de una obra a otra sin volver al depósito." },
-            { name: "Mover", text: "Cambia de depósito o de zona dentro de los galpones." },
+            { name: "Mover", text: "Cambia de depósito o de zona dentro de los galpones. Desde el detalle, **Cambiar de lugar → Cambiar de depósito** hace lo mismo con una sola pieza." },
             { name: "Tirar", text: "Una pieza rota o fuera de servicio se descarta. Queda en el Historial." },
             { name: "Quitar stock", text: "Baja de cantidad o de piezas que se gastaron o se perdieron, sin obra. No queda en el Historial." },
           ] },

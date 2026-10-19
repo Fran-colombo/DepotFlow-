@@ -3,7 +3,7 @@ import { moveItem } from "../api/movements";
 import { getItemUnits } from "../api/items";
 import { getZones } from "../api/zones";
 
-const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) => {
+const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, onlyCode = "" }) => {
   const [formData, setFormData] = useState({
     item_id: item?.id || 0,
     quantity: 1,
@@ -37,7 +37,9 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
       .then((data) => {
         if (cancelled) return;
         const units = (data?.units || []).filter(
-          (unit) => unit.status === "en_stock" || unit.status === "retirada"
+          (unit) =>
+            (unit.status === "en_stock" || unit.status === "retirada") &&
+            (!onlyCode || unit.code === onlyCode)
         );
         setMovablePieces(units);
         setSelectedCodes(units.map((unit) => unit.code));
@@ -51,7 +53,7 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
     return () => {
       cancelled = true;
     };
-  }, [isOpen, item]);
+  }, [isOpen, item, onlyCode]);
 
   useEffect(() => {
     const loadZones = async () => {
@@ -98,7 +100,7 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
       item_id: item.id,
       quantity: 1,
       from_shed_id: item.shed_id,
-      to_shed_id: item.shed_id || "",
+      to_shed_id: onlyCode ? "" : item.shed_id || "",
       from_zone_id: item.zone_id || null,
       to_zone_id: "",
       username: ""
@@ -176,8 +178,8 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
     <div
       className="modal show d-block fade"
       tabIndex="-1"
-      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-    
+      style={{ backgroundColor: 'rgba(0,0,0,0.5)', ...(onlyCode ? { zIndex: 1070 } : {}) }}
+      onClick={onlyCode ? (event) => event.stopPropagation() : undefined}
     >
       <div className="modal-dialog modal-dialog-centered">
         <div
@@ -200,7 +202,8 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
               }}>
               <h5 className="modal-title text-primary">
                 <i className="bi bi-arrow-left-right me-2 text-info"></i>
-                Mover ítem: <strong>{item.name}</strong>
+                {onlyCode ? "Cambiar de depósito: " : "Mover ítem: "}
+                <strong>{onlyCode || item.name}</strong>
               </h5>
               <button type="button" className="btn-close" onClick={onClose}></button>
             </div>
@@ -233,10 +236,17 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
                   required
                 >
                   <option value="">Seleccionar galpón</option>
-                  {sheds.map(shed => (
-                    <option key={shed.id} value={shed.id}>{shed.name}</option>
-                  ))}
+                  {sheds
+                    .filter((shed) => !onlyCode || Number(shed.id) !== Number(item.shed_id))
+                    .map(shed => (
+                      <option key={shed.id} value={shed.id}>{shed.name}</option>
+                    ))}
                 </select>
+                {onlyCode && (
+                  <div className="form-text">
+                    Para cambiarla de zona dentro del mismo depósito usá "En el galpón" en la tarjeta de la pieza.
+                  </div>
+                )}
               </div>
 
               <div className="mb-3">
@@ -261,7 +271,22 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds }) 
                 )}
               </div>
 
-              {tracksPieces ? (
+              {onlyCode ? (
+                <div className="mb-3">
+                  <label className="form-label fw-semibold text-primary">Pieza:</label>
+                  {movablePieces.length === 0 ? (
+                    <div className="text-muted small">
+                      {onlyCode} no se puede mover ahora: tiene que estar en el depósito o en obra.
+                    </div>
+                  ) : (
+                    <div>
+                      {movablePieces[0].code}
+                      {movablePieces[0].name ? ` ${movablePieces[0].name}` : ""}
+                      <span className="text-muted"> · {movablePieces[0].status_label}</span>
+                    </div>
+                  )}
+                </div>
+              ) : tracksPieces ? (
                 <div className="mb-3">
                   <div className="d-flex justify-content-between align-items-center mb-2">
                     <label className="form-label fw-semibold text-primary mb-0">Piezas a mover</label>

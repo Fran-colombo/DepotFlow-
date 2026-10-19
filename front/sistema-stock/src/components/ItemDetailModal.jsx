@@ -26,6 +26,9 @@ import PersonPicker from "./PersonPicker";
 import CodePreview from "./CodePreview";
 import { cleanPrefix, prefixProblem, useCodePreview } from "./pieceCodes";
 import TrasladoModal from "./TrasladoModal";
+import ActionMenu from "./ActionMenu";
+import SwitchShedModal from "./SwitchShedModal";
+import { getSheds } from "../api/sheds";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
 import { isMetro, measureMark, measureNoun } from "../measure";
@@ -86,6 +89,7 @@ const PieceCard = ({
   onTransfer,
   onShowHistory,
   onChangeCategory,
+  onMoveShed,
   onDiscard,
   onEditQuantity,
   zones = [],
@@ -312,6 +316,8 @@ const PieceCard = ({
   const visibleNotes = orderedNotes.slice(0, shownNotes);
   const canEditQty = isAdmin && inner && unit.status !== "consumida" && (place === "depot" || (unit.quantity || 0) === 0);
   const canDiscard = Boolean(unit.is_broken) || unit.status === "fuera_de_servicio" || place === "repair";
+  const canMoveShed = Boolean(onMoveShed) && place !== "repair" && (unit.status === "en_stock" || unit.status === "retirada");
+  const hasBreaks = Array.isArray(unit.breaks) && unit.breaks.length > 0;
 
   return (
     <div className="border rounded p-3 mb-2 bg-white">
@@ -367,80 +373,46 @@ const PieceCard = ({
               </div>
             </div>
             <div className="d-flex flex-wrap gap-1 justify-content-end">
-              <label className="btn btn-sm btn-outline-secondary mb-0">
-                {imageUrl ? "Cambiar foto" : "Foto"}
-                <input type="file" accept="image/*" hidden onChange={onFile} />
-              </label>
-              {imageUrl && (
-                <button type="button" className="btn btn-sm btn-outline-danger" onClick={removePhoto}>
-                  Quitar foto
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-primary"
-                onClick={() => onShowHistory(unit)}
-              >
-                Historial
-              </button>
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-secondary"
+              <ActionMenu
+                label="Movimientos"
+                variant="outline-primary"
                 disabled={returning}
-                onClick={() => onChangeCategory?.(unit)}
-              >
-                Cambiar de categoría
-              </button>
-              {canDiscard && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-danger"
-                  disabled={returning}
-                  onClick={() => onDiscard?.(unit)}
-                >
-                  Tirar
-                </button>
-              )}
-              {canEditQty && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-primary"
-                  disabled={returning}
-                  onClick={() => onEditQuantity(unit)}
-                >
-                  Actualizar cantidad
-                </button>
-              )}
-              {canRetire && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-danger"
-                  disabled={returning}
-                  onClick={() => onRetire(unit)}
-                >
-                  Retirar
-                </button>
-              )}
-              {onTransfer && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-info"
-                  disabled={returning}
-                  onClick={() => onTransfer(unit)}
-                >
-                  Trasladar
-                </button>
-              )}
-              {canReturn && (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-success"
-                  disabled={returning}
-                  onClick={() => onDevolver(unit)}
-                >
-                  {place === "repair" ? "Volver al depósito" : "Devolver"}
-                </button>
-              )}
+                items={[
+                  canRetire && { label: "Retirar", onClick: () => onRetire(unit) },
+                  canReturn && {
+                    label: place === "repair" ? "Volver al depósito" : "Devolver al depósito",
+                    onClick: () => onDevolver(unit),
+                  },
+                  onTransfer && { label: "Trasladar a otra obra", onClick: () => onTransfer(unit) },
+                  canEditQty && { label: "Actualizar cantidad", onClick: () => onEditQuantity(unit) },
+                  canDiscard && { label: "Tirar", danger: true, onClick: () => onDiscard?.(unit) },
+                  { divider: true },
+                  { label: "Historial", onClick: () => onShowHistory(unit) },
+                  hasBreaks && { label: "Ver roturas", onClick: () => setBreaksOpen(true) },
+                ]}
+              />
+              <ActionMenu
+                label="Foto"
+                items={[
+                  { label: imageUrl ? "Cambiar foto" : "Cargar foto", file: onFile },
+                  imageUrl && { label: "Ver foto", onClick: () => setPhotoOpen(true) },
+                  imageUrl && {
+                    label: "Quitar foto",
+                    danger: true,
+                    onClick: () => {
+                      if (window.confirm(`¿Quitar la foto de ${unit.code}?`)) removePhoto();
+                    },
+                  },
+                ]}
+              />
+              <ActionMenu
+                label="Cambiar de lugar"
+                disabled={returning}
+                items={[
+                  canMoveShed && { label: "Cambiar de depósito", onClick: () => onMoveShed(unit) },
+                  { label: "Cambiar de categoría", onClick: () => onChangeCategory?.(unit) },
+                ]}
+              />
             </div>
           </div>
           {depotHere > 0 && zones.length > 0 && (
@@ -520,15 +492,6 @@ const PieceCard = ({
               {unit.damage_note && <div>Qué le pasó: {unit.damage_note}</div>}
               {unit.repair_note && <div>Qué habría que hacer: {unit.repair_note}</div>}
             </div>
-          )}
-          {Array.isArray(unit.breaks) && unit.breaks.length > 0 && (
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-secondary mt-2"
-              onClick={() => setBreaksOpen(true)}
-            >
-              Roturas
-            </button>
           )}
           {orderedNotes.length > 0 && (
             <div className="small mt-2">
@@ -820,6 +783,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [openGroups, setOpenGroups] = useState({});
   const [shedZones, setShedZones] = useState([]);
   const [moveUnit, setMoveUnit] = useState(null);
+  const [shedMoveUnit, setShedMoveUnit] = useState(null);
+  const [sheds, setSheds] = useState([]);
   const [moveTargets, setMoveTargets] = useState([]);
   const [moveTargetId, setMoveTargetId] = useState("");
   const [moveQuery, setMoveQuery] = useState("");
@@ -1238,6 +1203,20 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     }
   };
 
+  const openShedMove = async (unit) => {
+    try {
+      const list = sheds.length ? sheds : await getSheds();
+      if (!list.some((shed) => Number(shed.id) !== Number(item.shed_id))) {
+        setFeedback({ type: "error", message: "No hay otro depósito al que mandarla." });
+        return;
+      }
+      setSheds(list);
+      setShedMoveUnit(unit);
+    } catch (err) {
+      setFeedback({ type: "error", message: err.message || "No se pudieron cargar los depósitos" });
+    }
+  };
+
   const openTransfer = (unit) => {
     let places = (unit.out_places || [])
       .filter((row) => row.place && row.place !== REPAIR_PLACE && row.quantity > 0)
@@ -1341,6 +1320,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     onTransfer={place === "obra" && !consumable ? openTransfer : undefined}
                     onShowHistory={setHistoryUnit}
                     onChangeCategory={openCategoryMove}
+                    onMoveShed={openShedMove}
                     onDiscard={openDiscard}
                     zones={shedZones}
                     homeZoneId={item?.zone_id}
@@ -1629,6 +1609,20 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
           </form>
         </div>
       </div>
+    )}
+    {shedMoveUnit && (
+      <SwitchShedModal
+        item={item}
+        isOpen
+        onlyCode={shedMoveUnit.code}
+        sheds={sheds}
+        onClose={() => setShedMoveUnit(null)}
+        refreshItems={() => {
+          setFeedback({ type: "success", message: `${shedMoveUnit.code} pasó al otro depósito.` });
+          reload();
+          onChanged?.();
+        }}
+      />
     )}
     {moveUnit && (
       <div
