@@ -89,10 +89,13 @@ def _use_row(use: models.TransportUse, names: dict) -> dict:
         "cart_id": use.cart_id,
         "cart_name": names.get(use.cart_id) or "",
         "external_vehicle": use.external_vehicle or "",
+        "vehicle_name": names.get(use.transport_id) or "",
+        "with_transport_id": use.with_transport_id,
+        "with_transport_name": names.get(use.with_transport_id) or "",
     }
 
 
-def _summary(row: models.Transport, open_use, names: dict) -> dict:
+def _summary(row: models.Transport, open_use, names: dict, joined_cart=None) -> dict:
     km_until = None
     if row.kind == "auto" and row.current_km is not None and row.next_service_km is not None:
         km_until = int(row.next_service_km) - int(row.current_km)
@@ -103,9 +106,14 @@ def _summary(row: models.Transport, open_use, names: dict) -> dict:
             place = "En uso"
             if open_use.cart_id:
                 with_name = names.get(open_use.cart_id) or ""
+            elif joined_cart:
+                with_name = names.get(joined_cart.transport_id) or ""
         elif open_use.cart_id == row.id:
             place = "Con un auto"
             with_name = names.get(open_use.transport_id) or ""
+        elif open_use.with_transport_id:
+            place = "Con un auto"
+            with_name = names.get(open_use.with_transport_id) or ""
         else:
             place = "Prestado"
             with_name = open_use.external_vehicle or ""
@@ -125,6 +133,8 @@ def _summary(row: models.Transport, open_use, names: dict) -> dict:
         "place": place,
         "with_name": with_name,
         "open_person": open_use.person if open_use else "",
+        "open_left_at": _iso(open_use.left_at) if open_use else None,
+        "joined_cart_id": joined_cart.transport_id if joined_cart else None,
     }
 
 
@@ -140,11 +150,13 @@ class LeaveBody(BaseModel):
     cart_id: Optional[int] = None
     km: Optional[int] = None
     external_vehicle: Optional[str] = None
+    with_transport_id: Optional[int] = None
 
 
 class ReturnBody(BaseModel):
     returned_at: str
     km: Optional[int] = None
+    cart_too: bool = True
 
 
 class ProfileBody(BaseModel):
@@ -223,6 +235,18 @@ def _apply_km(row: models.Transport, km):
     row.current_km = km
 
 
+def _joined_cart(db: Session, auto_id: int):
+    return (
+        db.query(models.TransportUse)
+        .filter(
+            models.TransportUse.returned_at.is_(None),
+            models.TransportUse.with_transport_id == auto_id,
+        )
+        .order_by(models.TransportUse.id.desc())
+        .first()
+    )
+
+
 @router.get("")
 def list_transportes(
     db: Annotated[Session, Depends(get_db)],
@@ -236,11 +260,17 @@ def list_transportes(
         .all()
     )
     open_by_id = {}
+    joined_by_auto = {}
     for use in open_rows:
         open_by_id[use.transport_id] = use
         if use.cart_id:
             open_by_id[use.cart_id] = use
-    return [_summary(row, open_by_id.get(row.id), names) for row in rows]
+        if use.with_transport_id:
+            joined_by_auto[use.with_transport_id] = use
+    return [
+        _summary(row, open_by_id.get(row.id), names, joined_by_auto.get(row.id))
+        for row in rows
+    ]
 
 
 @router.get("/multas")
@@ -309,6 +339,7 @@ def read_transporte(
             or_(
                 models.TransportUse.transport_id == row.id,
                 models.TransportUse.cart_id == row.id,
+                models.TransportUse.with_transport_id == row.id,
             )
         )
         .order_by(models.TransportUse.left_at.desc(), models.TransportUse.id.desc())
@@ -332,7 +363,8 @@ def read_transporte(
         .order_by(models.TransportServicePlace.name.asc())
         .all()
     )
-    data = _summary(row, open_use, names)
+    joined = _joined_cart(db, row.id) if row.kind == "auto" else None
+    data = _summary(row, open_use, names, joined)
     data.update({
         "last_service_at": _iso(row.last_service_at),
         "last_service_km": row.last_service_km,
@@ -411,6 +443,7 @@ def leave_transporte(
     km = _km(body.km)
     cart_id = None
     external = None
+    with_transport_id = None
     if row.kind == "auto":
         if body.cart_id:
             cart = _get(db, body.cart_id)
@@ -419,6 +452,19 @@ def leave_transporte(
             if _open_for(db, cart.id):
                 raise HTTPException(status_code=400, detail="Ese carro ya está afuera")
             cart_id = cart.id
+    elif body.with_transport_id:
+        auto = _get(db, body.with_transport_id)
+        if auto.kind != "auto":
+            raise HTTPException(status_code=400, detail="Elegí un auto")
+        auto_use = _open_for(db, auto.id)
+        if not auto_use or auto_use.transport_id != auto.id:
+            raise HTTPException(status_code=400, detail=f"{auto.plate or auto.name} no está afuera")
+        if auto_use.cart_id or _joined_cart(db, auto.id):
+            raise HTTPException(status_code=400, detail=f"{auto.plate or auto.name} ya lleva un carro")
+        if left_at < auto_use.left_at:
+            raise HTTPException(status_code=400, detail="El carro no puede salir antes que el auto")
+        with_transport_id = auto.id
+        km = None
     else:
         external = (body.external_vehicle or "").strip()
         if not external:
@@ -430,6 +476,7 @@ def leave_transporte(
         left_at=left_at,
         km=km,
         external_vehicle=external,
+        with_transport_id=with_transport_id,
     )
     db.add(use)
     _apply_km(row, km)
@@ -452,13 +499,20 @@ def return_transporte(
     if returned_at < use.left_at:
         raise HTTPException(status_code=400, detail="La devolución no puede ser anterior a la salida")
     km = _km(body.km)
+    joined = None
+    if row.kind == "auto" and use.transport_id == row.id and body.cart_too:
+        joined = _joined_cart(db, row.id)
+        if joined and returned_at < joined.left_at:
+            raise HTTPException(status_code=400, detail="El carro no puede volver antes de haber salido")
     use.returned_at = returned_at
+    if joined:
+        joined.returned_at = returned_at
     if km is not None:
         use.km = km
         owner = row if use.transport_id == row.id else _get(db, use.transport_id)
         _apply_km(owner, km)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "cart_returned": bool(joined)}
 
 
 @router.put("/{transport_id}/km")

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useLocation } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, LayoutGrid, ClipboardList, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound, Car } from "lucide-react"
+import { Package, LayoutGrid, ClipboardList, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound, Car, BookOpen } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 import { createTelegramLink, getTelegramBot } from "../api/auth"
 
@@ -98,6 +98,11 @@ const Dashboard = ({ title, children }) => {
           </button>
           <div className={`navbar-collapse ${navOpen ? "d-block" : "collapse"}`} id="navbarNav">
             <div className="ms-lg-auto d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-1 gap-lg-2 pt-2 pt-lg-0">
+              <button onClick={() => go("/manual")} className={navLinkClass("/manual")}>
+                <BookOpen className="me-1" size={18} />
+                Manual de uso
+              </button>
+
               <button onClick={() => go("/")} className={navLinkClass("/")}>
                 <Package className="me-1" size={18} />
                 Productos

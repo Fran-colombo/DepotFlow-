@@ -337,6 +337,14 @@ def ensure_inventory_schema():
             "ON transporte_lugares_service (transport_id)"
         ))
 
+    if _column_exists("transporte_usos", "id") and not _column_exists("transporte_usos", "with_transport_id"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE transporte_usos ADD COLUMN with_transport_id INTEGER"))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_transporte_usos_with_transport_id "
+                "ON transporte_usos (with_transport_id)"
+            ))
+
     if _column_exists("history_units", "id") and not _column_exists("history_units", "amount"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE history_units ADD COLUMN amount INTEGER"))

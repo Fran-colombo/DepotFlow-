@@ -231,6 +231,7 @@ class TransportUse(Base):
     returned_at = Column(DateTime, nullable=True)
     km = Column(Integer, nullable=True)
     external_vehicle = Column(String, nullable=True)
+    with_transport_id = Column(Integer, ForeignKey("transportes.id"), nullable=True, index=True)
 
 
 class TransportFine(Base):

@@ -17,6 +17,7 @@ import CategoriesPage from "./pages/Categories";
 import ObrasPage from "./pages/Obras";
 import EmpleadosPage from "./pages/Empleados";
 import SysadminPage from "./pages/Sysadmin";
+import Manual from "./pages/Manual";
 
 
 function App() {
@@ -32,6 +33,12 @@ function App() {
           <Route path="/" element={
             <PrivateRoute>
               <Items/>
+            </PrivateRoute>
+          } />
+
+          <Route path="/manual" element={
+            <PrivateRoute>
+              <Manual />
             </PrivateRoute>
           } />
 

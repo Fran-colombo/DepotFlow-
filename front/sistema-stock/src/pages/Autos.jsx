@@ -36,25 +36,68 @@ function nowParts() {
   };
 }
 
-function toIso(dateText, timeText) {
-  const dateMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec((dateText || "").trim());
-  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec((timeText || "").trim());
-  if (!dateMatch || !timeMatch) {
-    throw new Error("La fecha es día/mes/año y la hora de 00:00 a 23:59");
+function parseTime(text) {
+  const raw = (text || "").trim();
+  let hour;
+  let minute;
+  if (/^\d{1,4}$/.test(raw)) {
+    const split = raw.length <= 2 ? raw.length : raw.length - 2;
+    hour = Number(raw.slice(0, split));
+    minute = Number(raw.slice(split) || 0);
+  } else {
+    const match = /^(\d{1,2})\s*[:.,h\s-]\s*(\d{1,2})?$/i.exec(raw);
+    if (!match) return null;
+    hour = Number(match[1]);
+    minute = Number(match[2] || 0);
   }
-  const day = Number(dateMatch[1]);
-  const month = Number(dateMatch[2]);
-  const year = Number(dateMatch[3]);
-  const hour = Number(timeMatch[1]);
-  const minute = Number(timeMatch[2]);
-  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59) {
-    throw new Error("La fecha es día/mes/año y la hora de 00:00 a 23:59");
-  }
+  if (hour > 23 || minute > 59) return null;
+  return { hour, minute };
+}
+
+function parseDate(text) {
+  const raw = (text || "").trim();
+  const currentYear = new Date().getFullYear();
+  let parts;
+  if (/^\d{8}$/.test(raw)) parts = [raw.slice(0, 2), raw.slice(2, 4), raw.slice(4)];
+  else if (/^\d{6}$/.test(raw)) parts = [raw.slice(0, 2), raw.slice(2, 4), raw.slice(4)];
+  else if (/^\d{4}$/.test(raw)) parts = [raw.slice(0, 2), raw.slice(2)];
+  else parts = raw.split(/[/.,\s-]+/).filter(Boolean);
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  const day = Number(parts[0]);
+  const month = Number(parts[1]);
+  let year = parts[2] ? Number(parts[2]) : currentYear;
+  if (parts[2] && parts[2].length <= 2) year += 2000;
   const check = new Date(year, month - 1, day);
   if (check.getFullYear() !== year || check.getMonth() !== month - 1 || check.getDate() !== day) {
-    throw new Error("Esa fecha no existe");
+    return { invalid: true };
   }
-  return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}`;
+  return { day, month, year };
+}
+
+function formatDateText(text) {
+  const date = parseDate(text);
+  if (!date || date.invalid) return text;
+  return `${pad2(date.day)}/${pad2(date.month)}/${date.year}`;
+}
+
+function formatTimeText(text) {
+  const time = parseTime(text);
+  return time ? `${pad2(time.hour)}:${pad2(time.minute)}` : text;
+}
+
+function toIso(dateText, timeText) {
+  const date = parseDate(dateText);
+  const time = parseTime(timeText);
+  if (!date || !time) {
+    throw new Error("La fecha es día/mes/año y la hora de 00:00 a 23:59");
+  }
+  if (date.invalid) throw new Error("Esa fecha no existe");
+  return `${date.year}-${pad2(date.month)}-${pad2(date.day)}T${pad2(time.hour)}:${pad2(time.minute)}`;
+}
+
+function selectAll(event) {
+  const input = event.target;
+  setTimeout(() => input.select(), 0);
 }
 
 function WhenFields({ date, time, onDate, onTime }) {
@@ -63,20 +106,26 @@ function WhenFields({ date, time, onDate, onTime }) {
       <label className="form-label">Fecha</label>
       <input
         className="form-control mb-2"
-        inputMode="numeric"
+        inputMode="decimal"
         placeholder="15/10/2026"
         value={date}
+        onFocus={selectAll}
         onChange={(e) => onDate(e.target.value)}
+        onBlur={() => onDate(formatDateText(date))}
       />
       <label className="form-label">Hora</label>
       <input
         className="form-control"
-        inputMode="numeric"
+        inputMode="decimal"
         placeholder="08:43"
         value={time}
+        onFocus={selectAll}
         onChange={(e) => onTime(e.target.value)}
+        onBlur={() => onTime(formatTimeText(time))}
       />
-      <div className="form-text">Día/mes/año y hora de 00:00 a 23:59. Está puesta la de ahora. Cambiala si lo cargás después.</div>
+      <div className="form-text">
+        Está puesta la de ahora. Al tocar el campo se marca todo: escribí encima. Para las 8:00 alcanza con 800 o 8, y para el 15/10 con 15.10.
+      </div>
     </>
   );
 }
@@ -222,6 +271,7 @@ const Autos = () => {
   const autos = rows.filter((row) => row.kind === "auto");
   const carts = rows.filter((row) => row.kind === "carro");
   const freeCarts = carts.filter((row) => !row.out);
+  const autosOut = autos.filter((row) => row.place === "En uso" && !row.with_name);
   const finePeople = [...new Set(fines.map((fine) => fine.person).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
   const hasNameless = fines.some((fine) => !fine.person);
   const shownFines = fines.filter((fine) => {
@@ -288,7 +338,7 @@ const Autos = () => {
                       Salir
                     </button>
                   ) : (
-                    <button type="button" className="btn btn-sm btn-outline-success" onClick={() => setMove({ id: row.id, kind: "auto", action: "return" })}>
+                    <button type="button" className="btn btn-sm btn-outline-success" onClick={() => setMove({ id: row.id, kind: "auto", action: "return", row })}>
                       Devolver
                     </button>
                   )}
@@ -328,7 +378,7 @@ const Autos = () => {
                 <div className="card-footer bg-white border-0 pt-0 d-flex gap-2">
                   {!row.out ? (
                     <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setMove({ id: row.id, kind: "carro", action: "leave" })}>
-                      Prestar
+                      Salir
                     </button>
                   ) : (
                     <button type="button" className="btn btn-sm btn-outline-success" onClick={() => setMove({ id: row.id, kind: "carro", action: "return" })}>
@@ -430,7 +480,7 @@ const Autos = () => {
             setDetailId(null);
           }}
           onLeave={() => setMove({ id: detail.id, kind: detail.kind, action: "leave" })}
-          onReturn={() => setMove({ id: detail.id, kind: detail.kind, action: "return" })}
+          onReturn={() => setMove({ id: detail.id, kind: detail.kind, action: "return", row: detail })}
           onFine={() => setFining(true)}
           onSaved={async (message) => {
             await refreshDetail();
@@ -443,6 +493,7 @@ const Autos = () => {
         <MoveModal
           move={move}
           carts={freeCarts}
+          autosOut={autosOut}
           onClose={() => setMove(null)}
           onDone={async (message) => {
             setMove(null);
@@ -642,7 +693,7 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onFine, onSaved, onE
             <div className="d-flex gap-2 my-3">
               {!row.out ? (
                 <button type="button" className="btn btn-outline-danger" onClick={onLeave}>
-                  {row.kind === "auto" ? "Salir" : "Prestar"}
+                  Salir
                 </button>
               ) : (
                 <button type="button" className="btn btn-outline-success" onClick={onReturn}>Devolver</button>
@@ -760,8 +811,15 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onFine, onSaved, onE
               <ul className="list-unstyled mb-0">
                 {(row.uses || []).map((use) => (
                   <li key={use.id} className="mb-2">
-                    <div>Salió {formatWhen(use.left_at)} · {use.person}</div>
+                    {use.with_transport_id === row.id ? (
+                      <div>Se sumó el carro {use.vehicle_name} {formatWhen(use.left_at)} · {use.person}</div>
+                    ) : (
+                      <div>Salió {formatWhen(use.left_at)} · {use.person}</div>
+                    )}
                     {use.cart_name && <div className="small">Con el carro {use.cart_name}</div>}
+                    {use.with_transport_name && use.with_transport_id !== row.id && (
+                      <div className="small">Con el auto {use.with_transport_name}</div>
+                    )}
                     {use.external_vehicle && <div className="small">Auto de afuera: {use.external_vehicle}</div>}
                     {use.returned_at ? (
                       <div className="small">Volvió {formatWhen(use.returned_at)}{use.km != null ? ` · ${use.km} km` : ""}</div>
@@ -971,7 +1029,7 @@ function PendingFine({ fine, isAdmin, saving, onPaid, onPerson }) {
   );
 }
 
-function MoveModal({ move, carts, onClose, onDone, onError }) {
+function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
   const suggested = nowParts();
   const [person, setPerson] = useState("");
   const [date, setDate] = useState(suggested.date);
@@ -979,13 +1037,30 @@ function MoveModal({ move, carts, onClose, onDone, onError }) {
   const [km, setKm] = useState("");
   const [cartId, setCartId] = useState("");
   const [external, setExternal] = useState("");
+  const [vehicle, setVehicle] = useState(autosOut.length ? "nuestro" : "afuera");
+  const [autoId, setAutoId] = useState("");
+  const [cartToo, setCartToo] = useState(true);
   const [saving, setSaving] = useState(false);
   const leaving = move.action === "leave";
+  const cartLeaving = leaving && move.kind === "carro";
+  const withOurs = cartLeaving && vehicle === "nuestro";
+  const chosenAuto = autosOut.find((row) => String(row.id) === autoId);
+  const returnRow = !leaving && move.kind === "auto" ? move.row : null;
+
+  const pickAuto = (value) => {
+    setAutoId(value);
+    const auto = autosOut.find((row) => String(row.id) === value);
+    if (auto?.open_person && !person.trim()) setPerson(auto.open_person);
+  };
 
   const submit = async (event) => {
     event.preventDefault();
     if (leaving && !person.trim()) {
       onError("Indicá quién lo lleva");
+      return;
+    }
+    if (withOurs && !chosenAuto) {
+      onError("Elegí con qué auto sale");
       return;
     }
     let when;
@@ -1004,12 +1079,14 @@ function MoveModal({ move, carts, onClose, onDone, onError }) {
           left_at: when,
           km: kilometers,
           ...(move.kind === "auto" && cartId ? { cart_id: Number(cartId) } : {}),
-          ...(move.kind === "carro" ? { external_vehicle: external.trim() } : {}),
+          ...(cartLeaving && withOurs ? { with_transport_id: chosenAuto.id } : {}),
+          ...(cartLeaving && !withOurs ? { external_vehicle: external.trim() } : {}),
         });
-        await onDone(move.kind === "auto" ? "Salió." : "Quedó prestado.");
+        if (move.kind === "auto") await onDone("Salió.");
+        else await onDone(withOurs ? `Salió con ${chosenAuto.plate || chosenAuto.name}.` : "Salió con el auto de afuera.");
       } else {
-        await returnTransporte(move.id, { returned_at: when, km: kilometers });
-        await onDone("Volvió.");
+        const result = await returnTransporte(move.id, { returned_at: when, km: kilometers, cart_too: cartToo });
+        await onDone(result?.cart_returned ? "Volvieron el auto y el carro." : "Volvió.");
       }
     } catch (err) {
       onError(err.message || "No se pudo guardar");
@@ -1023,10 +1100,46 @@ function MoveModal({ move, carts, onClose, onDone, onError }) {
       <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
         <form className="modal-content" onSubmit={submit}>
           <div className="modal-header">
-            <h5 className="modal-title mb-0">{leaving ? (move.kind === "auto" ? "Salir" : "Prestar") : "Devolver"}</h5>
+            <h5 className="modal-title mb-0">{leaving ? (move.kind === "auto" ? "Salir" : "Salir con el carro") : "Devolver"}</h5>
             <button type="button" className="btn-close" aria-label="Cerrar" onClick={onClose}></button>
           </div>
           <div className="modal-body">
+            {cartLeaving && (
+              <div className="mb-3">
+                <label className="form-label">Con qué auto sale</label>
+                <div className="form-check">
+                  <input
+                    id="carro-nuestro"
+                    type="radio"
+                    className="form-check-input"
+                    checked={vehicle === "nuestro"}
+                    disabled={!autosOut.length}
+                    onChange={() => setVehicle("nuestro")}
+                  />
+                  <label className="form-check-label" htmlFor="carro-nuestro">Un auto nuestro que ya está afuera</label>
+                </div>
+                <div className="form-check">
+                  <input id="carro-afuera" type="radio" className="form-check-input" checked={vehicle === "afuera"} onChange={() => setVehicle("afuera")} />
+                  <label className="form-check-label" htmlFor="carro-afuera">Un auto de afuera</label>
+                </div>
+                {!autosOut.length && (
+                  <div className="form-text">No hay autos nuestros afuera sin carro. Si sale junto con un auto, usá Salir en el auto y elegí el carro.</div>
+                )}
+                {withOurs && (
+                  <select className="form-select mt-2" value={autoId} onChange={(e) => pickAuto(e.target.value)}>
+                    <option value="">Elegí el auto</option>
+                    {autosOut.map((auto) => (
+                      <option key={auto.id} value={auto.id}>
+                        {auto.plate || auto.name}{auto.open_person ? ` · lo tiene ${auto.open_person}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {!withOurs && (
+                  <input className="form-control mt-2" value={external} onChange={(e) => setExternal(e.target.value)} placeholder="Patente o de quién es" required />
+                )}
+              </div>
+            )}
             {leaving && (
               <div className="mb-3">
                 <label className="form-label">Quién lo lleva</label>
@@ -1054,11 +1167,15 @@ function MoveModal({ move, carts, onClose, onDone, onError }) {
                 </select>
               </div>
             )}
-            {leaving && move.kind === "carro" && (
-              <div className="mb-3">
-                <label className="form-label">Auto de afuera</label>
-                <input className="form-control" value={external} onChange={(e) => setExternal(e.target.value)} placeholder="Patente o de quién es" required />
-              </div>
+            {returnRow?.with_name && (
+              returnRow.joined_cart_id ? (
+                <div className="form-check">
+                  <input id="carro-vuelve" type="checkbox" className="form-check-input" checked={cartToo} onChange={(e) => setCartToo(e.target.checked)} />
+                  <label className="form-check-label" htmlFor="carro-vuelve">También volvió el carro {returnRow.with_name}</label>
+                </div>
+              ) : (
+                <div className="form-text">Vuelve también el carro {returnRow.with_name}, porque salieron juntos.</div>
+              )
             )}
           </div>
           <div className="modal-footer">
