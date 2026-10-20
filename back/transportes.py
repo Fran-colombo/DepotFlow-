@@ -159,6 +159,23 @@ class ReturnBody(BaseModel):
     cart_too: bool = True
 
 
+class HandoverBody(BaseModel):
+    person: str
+    at: str
+    km: Optional[int] = None
+    cart_too: bool = True
+
+
+class PastUseBody(BaseModel):
+    person: str
+    left_at: str
+    returned_at: str
+    km: Optional[int] = None
+    cart_id: Optional[int] = None
+    external_vehicle: Optional[str] = None
+    with_transport_id: Optional[int] = None
+
+
 class ProfileBody(BaseModel):
     name: str
     plate: Optional[str] = None
@@ -233,6 +250,29 @@ def _apply_km(row: models.Transport, km):
     if km is None or row.kind != "auto":
         return
     row.current_km = km
+
+
+def _busy(db: Session, transport_id: int, start: datetime, end: datetime):
+    return (
+        db.query(models.TransportUse)
+        .filter(
+            or_(
+                models.TransportUse.transport_id == transport_id,
+                models.TransportUse.cart_id == transport_id,
+            ),
+            models.TransportUse.left_at < end,
+            or_(
+                models.TransportUse.returned_at.is_(None),
+                models.TransportUse.returned_at > start,
+            ),
+        )
+        .order_by(models.TransportUse.left_at.asc())
+        .first()
+    )
+
+
+def _busy_detail(use: models.TransportUse, label: str) -> str:
+    return f"En esas fechas {label} lo tenía {use.person} (salió {use.left_at.strftime('%d/%m/%Y %H:%M')})"
 
 
 def _joined_cart(db: Session, auto_id: int):
@@ -513,6 +553,122 @@ def return_transporte(
         _apply_km(owner, km)
     db.commit()
     return {"ok": True, "cart_returned": bool(joined)}
+
+
+@router.post("/{transport_id}/pase")
+def hand_over_transporte(
+    transport_id: int,
+    body: HandoverBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    row = _get(db, transport_id)
+    use = _open_for(db, row.id)
+    if not use:
+        raise HTTPException(status_code=400, detail="Está en depósito")
+    if use.transport_id != row.id or use.with_transport_id:
+        auto = _get(db, use.with_transport_id or use.transport_id)
+        raise HTTPException(status_code=400, detail=f"Va con {auto.plate or auto.name}. Pasá el auto")
+    person = (body.person or "").strip()
+    if not person:
+        raise HTTPException(status_code=400, detail="Indicá quién lo agarra")
+    if person.casefold() == (use.person or "").strip().casefold():
+        raise HTTPException(status_code=400, detail=f"Ya lo tiene {use.person}")
+    at = _moment(body.at)
+    if at < use.left_at:
+        raise HTTPException(status_code=400, detail="El pase no puede ser antes de que saliera")
+    km = _km(body.km)
+    joined = _joined_cart(db, row.id) if row.kind == "auto" else None
+    if joined and at < joined.left_at:
+        raise HTTPException(status_code=400, detail="El carro salió después de esa hora")
+
+    use.returned_at = at
+    if km is not None:
+        use.km = km
+    db.add(models.TransportUse(
+        transport_id=row.id,
+        cart_id=use.cart_id if body.cart_too else None,
+        person=person,
+        left_at=at,
+        km=km,
+        external_vehicle=use.external_vehicle,
+    ))
+    if joined:
+        joined.returned_at = at
+        if body.cart_too:
+            db.add(models.TransportUse(
+                transport_id=joined.transport_id,
+                person=person,
+                left_at=at,
+                with_transport_id=row.id,
+            ))
+    _apply_km(row, km)
+    db.commit()
+    return {"ok": True, "cart_passed": bool(use.cart_id or joined) and body.cart_too}
+
+
+@router.post("/{transport_id}/uso-pasado")
+def add_past_use(
+    transport_id: int,
+    body: PastUseBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    _admin(current_user)
+    row = _get(db, transport_id)
+    person = (body.person or "").strip()
+    if not person:
+        raise HTTPException(status_code=400, detail="Indicá quién lo tuvo")
+    left_at = _moment(body.left_at)
+    returned_at = _moment(body.returned_at)
+    if returned_at <= left_at:
+        raise HTTPException(status_code=400, detail="La vuelta tiene que ser después de la salida")
+    if returned_at > datetime.now():
+        raise HTTPException(
+            status_code=400,
+            detail="La vuelta no puede ser en el futuro. Si todavía lo tiene, usá Salir",
+        )
+    clash = _busy(db, row.id, left_at, returned_at)
+    if clash:
+        raise HTTPException(status_code=400, detail=_busy_detail(clash, row.plate or row.name))
+    km = _km(body.km)
+    cart_id = None
+    external = None
+    with_transport_id = None
+    if row.kind == "auto":
+        if body.cart_id:
+            cart = _get(db, body.cart_id)
+            if cart.kind != "carro":
+                raise HTTPException(status_code=400, detail="Eso no es un carro")
+            clash = _busy(db, cart.id, left_at, returned_at)
+            if clash:
+                raise HTTPException(status_code=400, detail=_busy_detail(clash, f"el carro {cart.name}"))
+            cart_id = cart.id
+    else:
+        km = None
+        if body.with_transport_id:
+            auto = _get(db, body.with_transport_id)
+            if auto.kind != "auto":
+                raise HTTPException(status_code=400, detail="Elegí un auto")
+            with_transport_id = auto.id
+        else:
+            external = (body.external_vehicle or "").strip()
+            if not external:
+                raise HTTPException(status_code=400, detail="Indicá con qué auto de afuera salió")
+    db.add(models.TransportUse(
+        transport_id=row.id,
+        cart_id=cart_id,
+        person=person,
+        left_at=left_at,
+        returned_at=returned_at,
+        km=km,
+        external_vehicle=external,
+        with_transport_id=with_transport_id,
+    ))
+    if km is not None and (row.current_km is None or km > row.current_km):
+        row.current_km = km
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/{transport_id}/km")

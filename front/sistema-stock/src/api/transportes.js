@@ -44,6 +44,22 @@ export function returnTransporte(id, data) {
   });
 }
 
+export function handOverTransporte(id, data) {
+  return apiFetch(`/transportes/${id}/pase`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function addPastUse(id, data) {
+  return apiFetch(`/transportes/${id}/uso-pasado`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export function updateTransporteKm(id, km) {
   return apiFetch(`/transportes/${id}/km`, {
     method: "PUT",
