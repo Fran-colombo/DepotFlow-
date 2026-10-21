@@ -762,6 +762,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [retireScope, setRetireScope] = useState("parcial");
   const [retireRepair, setRetireRepair] = useState(false);
   const [returnFromRepair, setReturnFromRepair] = useState(false);
+  const [repairFixed, setRepairFixed] = useState("");
+  const [repairFix, setRepairFix] = useState("");
+  const [repairDamage, setRepairDamage] = useState("");
+  const [repairOutcome, setRepairOutcome] = useState("");
+  const [repairAuthorized, setRepairAuthorized] = useState("");
   const [qtyUnit, setQtyUnit] = useState(null);
   const [qtyValue, setQtyValue] = useState("");
   const [qtyError, setQtyError] = useState("");
@@ -1012,6 +1017,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const openReturn = (unit, fromRepair = false) => {
     const obra = (unit.out_places || []).find((row) => row.place !== REPAIR_PLACE && row.quantity > 0);
     setReturnFromRepair(fromRepair);
+    setRepairFixed("");
+    setRepairFix("");
+    setRepairDamage("");
+    setRepairOutcome("");
+    setRepairAuthorized("");
     setPopupPlace(fromRepair ? REPAIR_PLACE : (obra?.place || lastRetiroPlace(unit)));
     setPopupPerson("");
     setPopupNote("");
@@ -1079,11 +1089,34 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       setPopupError("Indicá quién lo devuelve");
       return;
     }
+    if (returnFromRepair) {
+      if (repairFixed !== "yes" && repairFixed !== "no") {
+        setPopupError("Indicá si se arregló");
+        return;
+      }
+      if (repairFixed === "yes" && !repairFix.trim()) {
+        setPopupError("Contá qué le hicieron");
+        return;
+      }
+      if (repairFixed === "no" && !repairDamage.trim()) {
+        setPopupError("Contá cuál es el error");
+        return;
+      }
+      if (repairFixed === "no" && repairOutcome !== "depot" && repairOutcome !== "discard") {
+        setPopupError("Indicá si se puede reparar o se tira");
+        return;
+      }
+      if (repairFixed === "no" && repairOutcome === "discard" && !repairAuthorized.trim()) {
+        setPopupError("Indicá quién autoriza tirarla");
+        return;
+      }
+    }
+    const discarding = returnFromRepair && repairFixed === "no" && repairOutcome === "discard";
     const amount = innerQuantity ? parseInt(popupAmount, 10) : 1;
     const max = returnFromRepair
       ? repairAmountOf(actionUnit.unit)
       : (actionUnit.unit.out_quantity || 0) - repairAmountOf(actionUnit.unit);
-    if (innerQuantity && (!amount || amount < 1 || amount > max)) {
+    if (!discarding && innerQuantity && (!amount || amount < 1 || amount > max)) {
       setPopupError(`Podés devolver hasta ${max}`);
       return;
     }
@@ -1092,14 +1125,31 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     try {
       await devolverItem({
         itemId: item.id,
-        amount,
+        amount: discarding ? 1 : amount,
         place: popupPlace.trim(),
         personWhoReturned: popupPerson.trim(),
         codes: [unit.code],
         ...(popupNote.trim() ? { note: popupNote.trim() } : {}),
+        ...(returnFromRepair ? {
+          fixed: repairFixed === "yes",
+          ...(repairFixed === "yes" ? { fix_note: repairFix.trim() } : {
+            damage_note: repairDamage.trim(),
+            outcome: repairOutcome,
+            ...(repairOutcome === "discard" ? { authorized_by: repairAuthorized.trim() } : {}),
+          }),
+        } : {}),
       });
       setActionUnit(null);
-      setFeedback({ type: "success", message: "Se devolvió al depósito." });
+      setFeedback({
+        type: "success",
+        message: discarding
+          ? "Se tiró."
+          : repairFixed === "yes"
+            ? "Volvió al depósito y quedó arreglada."
+            : returnFromRepair
+              ? "Volvió al depósito y quedó rota."
+              : "Se devolvió al depósito.",
+      });
       await reload();
       onChanged?.();
     } catch (err) {
@@ -1849,7 +1899,90 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                   )}
                 </>
               ) : returnFromRepair ? (
-                <p className="mb-3">Vuelve de reparación al depósito.</p>
+                <>
+                  <p className="mb-3">Vuelve de reparación al depósito.</p>
+                  <div className="mb-2">¿Se arregló?</div>
+                  <div className="form-check">
+                    <input
+                      id="repair-fixed-yes"
+                      type="radio"
+                      className="form-check-input"
+                      name="repair-fixed"
+                      checked={repairFixed === "yes"}
+                      onChange={() => setRepairFixed("yes")}
+                    />
+                    <label className="form-check-label" htmlFor="repair-fixed-yes">Sí</label>
+                  </div>
+                  <div className="form-check mb-3">
+                    <input
+                      id="repair-fixed-no"
+                      type="radio"
+                      className="form-check-input"
+                      name="repair-fixed"
+                      checked={repairFixed === "no"}
+                      onChange={() => setRepairFixed("no")}
+                    />
+                    <label className="form-check-label" htmlFor="repair-fixed-no">No</label>
+                  </div>
+                  {repairFixed === "yes" && (
+                    <div className="mb-3">
+                      <label className="form-label" htmlFor="repair-fix">Qué le hicieron</label>
+                      <textarea
+                        id="repair-fix"
+                        className="form-control"
+                        rows="2"
+                        value={repairFix}
+                        onChange={(e) => setRepairFix(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  {repairFixed === "no" && (
+                    <>
+                      <div className="mb-3">
+                        <label className="form-label" htmlFor="repair-damage">Cuál es el error</label>
+                        <textarea
+                          id="repair-damage"
+                          className="form-control"
+                          rows="2"
+                          value={repairDamage}
+                          onChange={(e) => setRepairDamage(e.target.value)}
+                        />
+                      </div>
+                      <div className="form-check">
+                        <input
+                          id="repair-can"
+                          type="radio"
+                          className="form-check-input"
+                          name="repair-outcome"
+                          checked={repairOutcome === "depot"}
+                          onChange={() => setRepairOutcome("depot")}
+                        />
+                        <label className="form-check-label" htmlFor="repair-can">Se puede reparar</label>
+                      </div>
+                      <div className="form-check mb-3">
+                        <input
+                          id="repair-throw"
+                          type="radio"
+                          className="form-check-input"
+                          name="repair-outcome"
+                          checked={repairOutcome === "discard"}
+                          onChange={() => setRepairOutcome("discard")}
+                        />
+                        <label className="form-check-label" htmlFor="repair-throw">Se tira</label>
+                      </div>
+                      {repairOutcome === "depot" && (
+                        <div className="form-text mb-3">Vuelve al depósito y queda marcada rota.</div>
+                      )}
+                      {repairOutcome === "discard" && (
+                        <div className="mb-3">
+                          <div className="form-text mb-2">Se tira el código entero. No vuelve al depósito.</div>
+                          <label className="form-label">Quién autoriza</label>
+                          <PersonPicker value={repairAuthorized} onChange={setRepairAuthorized} disabled={busy} />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
               ) : (
                 <div className="mb-3">
                   <label className="form-label">Obra desde la que vuelve</label>
@@ -1900,7 +2033,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                   )}
                 </div>
               )}
-              {innerQuantity && actionUnit.kind === "return" && (
+              {innerQuantity && actionUnit.kind === "return" && !(returnFromRepair && repairFixed === "no" && repairOutcome === "discard") && (
                 <div className="mb-3">
                   <label className="form-label">{isMetro(measureUnit) ? "Cuántos metros" : "Cuántos"}</label>
                   <input
@@ -1948,7 +2081,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
               </button>
               <button
                 type="submit"
-                className={`btn ${actionUnit.kind === "retire" ? "btn-danger" : "btn-success"}`}
+                className={`btn ${actionUnit.kind === "retire" || (returnFromRepair && repairOutcome === "discard" && repairFixed === "no") ? "btn-danger" : "btn-success"}`}
                 disabled={busy}
               >
                 {actionUnit.kind === "retire"
@@ -1958,7 +2091,9 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                       ? "Retirar y marcar usada"
                       : "Retirar"
                   : returnFromRepair
-                    ? "Volver al depósito"
+                    ? repairOutcome === "discard"
+                      ? "Tirar"
+                      : "Volver al depósito"
                     : "Devolver"}
               </button>
             </div>

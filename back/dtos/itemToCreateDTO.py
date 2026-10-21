@@ -20,6 +20,7 @@ class ItemCreateDTO(ItemBaseDTO):
     inner_quantity: bool = False
     codes: Optional[List[str]] = None
     code_prefix: Optional[str] = None
+    aliases: Optional[str] = None
 
 class PieceNameDTO(BaseModel):
     code: Optional[str] = None

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { addPiece, createItem, updateItem, updateItemCounting, getItems, getItemById, getItemUnits, suggestPrefix, retirarItem } from "../api/items";
+import { addPiece, createItem, updateItem, updateItemAliases, updateItemCounting, getItems, getItemById, getItemUnits, suggestPrefix, retirarItem } from "../api/items";
 import { getCategories } from "../api/categories";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
@@ -46,6 +46,7 @@ const UpdateItemModal = ({
     zone_id: "",
     quantityOnly: false,
     innerQuantity: false,
+    aliases: "",
   });
   const [createdLabels, setCreatedLabels] = useState(null);
   const [createStep, setCreateStep] = useState("form");
@@ -73,6 +74,8 @@ const UpdateItemModal = ({
   const [newPieces, setNewPieces] = useState([]);
   const [existingPieces, setExistingPieces] = useState([]);
   const [savedNames, setSavedNames] = useState({});
+  const [aliasesText, setAliasesText] = useState("");
+  const [aliasesSaved, setAliasesSaved] = useState("");
   const [savedQuantities, setSavedQuantities] = useState({});
 
   const isLockedToItem = mode === "update" && itemId != null;
@@ -92,6 +95,7 @@ const UpdateItemModal = ({
       zone_id: "",
       quantityOnly: false,
       innerQuantity: false,
+      aliases: "",
     });
     setCreatedLabels(null);
     setCreateStep("form");
@@ -229,6 +233,34 @@ const UpdateItemModal = ({
     setCountingMode(currentCounting);
     setCountingPrefix(selectedUpdateItem.code_prefix || "");
   }, [selectedUpdateItem, currentCounting]);
+
+  useEffect(() => {
+    const next = selectedUpdateItem?.aliases || "";
+    setAliasesText(next);
+    setAliasesSaved(next);
+  }, [selectedUpdateItem?.id, selectedUpdateItem?.aliases]);
+
+  const saveAliases = async () => {
+    if (!selectedUpdateItem?.id || isLoading) return;
+    setIsLoading(true);
+    setError("");
+    try {
+      const saved = await updateItemAliases(selectedUpdateItem.id, aliasesText.trim());
+      const next = saved?.aliases || "";
+      setAliasesText(next);
+      setAliasesSaved(next);
+      setItems((prev) => prev.map((item) => (
+        item.id === selectedUpdateItem.id ? { ...item, aliases: next } : item
+      )));
+      setLockedItem((prev) => (
+        prev?.id === selectedUpdateItem.id ? { ...prev, aliases: next } : prev
+      ));
+    } catch (err) {
+      setError(err.message || "No se pudieron guardar los otros nombres");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const pickCounting = (mode) => {
     setCountingMode(mode);
@@ -582,6 +614,7 @@ const UpdateItemModal = ({
         const created = await createItem({
           name: formData.name,
           description: formData.description,
+          aliases: formData.aliases,
           quantity: formData.quantityOnly ? typedQuantity : 0,
           category: formData.category,
           shed_id: Number(formData.shed_id),
@@ -987,6 +1020,22 @@ const UpdateItemModal = ({
                     />
                   </div>
 
+                  <div className="mb-3">
+                    <label className="form-label fw-bold" htmlFor="subcategory-aliases">Otros nombres:</label>
+                    <input
+                      id="subcategory-aliases"
+                      className="form-control"
+                      value={formData.aliases}
+                      placeholder="codo, curva 90"
+                      onChange={(e) =>
+                        setFormData({ ...formData, aliases: e.target.value })
+                      }
+                    />
+                    <div className="form-text">
+                      Separalos con coma. La búsqueda los toma aunque no estén en el nombre.
+                    </div>
+                  </div>
+
                   {formData.quantityOnly && (
                   <div className="mb-3">
                     <label className="form-label fw-bold">Cantidad:</label>
@@ -1199,6 +1248,30 @@ const UpdateItemModal = ({
                         </select>
                       </div>
                     </>
+                  )}
+
+                  {selectedUpdateItem && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold" htmlFor="update-aliases">Otros nombres:</label>
+                      <input
+                        id="update-aliases"
+                        className="form-control"
+                        value={aliasesText}
+                        placeholder="codo, curva 90"
+                        onChange={(e) => setAliasesText(e.target.value)}
+                      />
+                      <div className="form-text">
+                        Separalos con coma. Sirven para encontrar este producto con otro nombre.
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm mt-2"
+                        disabled={isLoading || aliasesText.trim() === (aliasesSaved || "").trim()}
+                        onClick={saveAliases}
+                      >
+                        Guardar otros nombres
+                      </button>
+                    </div>
                   )}
 
                   {isAdmin && selectedUpdateItem && (

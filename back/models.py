@@ -24,6 +24,7 @@ class Item(Base):
     name = Column(String, index=True)
     category = Column(String, index=True)
     description = Column(String, index=True)
+    aliases = Column(String, nullable=True)
     totalAmount = Column(Integer, index=True)
     actualAmount = Column(Integer, nullable=False)
     is_available = Column(Boolean, default=True)

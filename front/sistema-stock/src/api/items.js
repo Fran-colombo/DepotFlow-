@@ -481,6 +481,14 @@ export function updateUnitProfile(unitId, data) {
   });
 }
 
+export function updateItemAliases(itemId, aliases) {
+  return apiFetch(`/items/${itemId}/aliases`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ aliases }),
+  });
+}
+
 export function updateItemCounting(itemId, data) {
   return apiFetch(`/items/${itemId}/counting`, {
     method: "PUT",
@@ -497,14 +505,23 @@ export function identifyItem(itemId, prefix) {
   });
 }
 
-export async function exportPieces(q = "", options = {}) {
-  const token = localStorage.getItem("authToken");
-  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+function pieceParams(q, options) {
   const params = new URLSearchParams();
   const text = (q || "").trim();
   if (text) params.set("q", text);
   if (options.broken) params.set("broken", "true");
   if (options.withoutImage) params.set("without_image", "true");
+  if (options.situation) params.set("situation", options.situation);
+  if (options.obra) params.set("obra", options.obra);
+  if (options.category) params.set("category", options.category);
+  if (options.shedId) params.set("shed_id", String(options.shedId));
+  return params;
+}
+
+export async function exportPieces(q = "", options = {}) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const params = pieceParams(q, options);
   const response = await fetch(`${base}/units/export?${params.toString()}`, {
     method: "GET",
     headers: {
@@ -523,14 +540,17 @@ export function discardUnit(unitId, data) {
 }
 
 export async function searchPieces(q = "", options = {}) {
-  const params = new URLSearchParams();
+  const params = pieceParams(q, options);
   const text = (q || "").trim();
-  if (text) params.set("q", text);
-  if (options.broken) params.set("broken", "true");
-  if (options.withoutImage) params.set("without_image", "true");
-  const broad = Boolean(text || options.broken || options.withoutImage);
+  const broad = Boolean(
+    text || options.broken || options.withoutImage || options.situation || options.obra || options.category || options.shedId
+  );
   params.set("limit", broad ? "500" : "10");
   return apiFetch(`/units?${params.toString()}`);
+}
+
+export function getPiecePlaces() {
+  return apiFetch("/units/places");
 }
 
 export function getUnitImageUrl(unit) {

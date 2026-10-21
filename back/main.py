@@ -48,7 +48,9 @@ import transportes
 from item_categories import category_is_consumable, category_units_by_name, normalize_lookup, seed_categories
 from pydantic import BaseModel
 from observations import add_unit_observation
+from search_text import search_matches, search_rank, search_tokens
 from unit_service import (
+    REPAIR_PLACE,
     apply_piece_profile,
     breaks_by_unit,
     sync_breakage,
@@ -177,23 +179,6 @@ def read_items(
             .filter(models.Item.status == 1)
         )
 
-        if name:
-            needle = f"%{_fold_text(name)}%"
-            piece_match = (
-                db.query(models.ItemUnit.id)
-                .filter(
-                    models.ItemUnit.item_id == models.Item.id,
-                    or_(
-                        _fold_column(models.ItemUnit.code).like(needle),
-                        _fold_column(func.coalesce(models.ItemUnit.name, "")).like(needle),
-                    ),
-                )
-                .exists()
-            )
-            query = query.filter(or_(
-                _fold_column(func.coalesce(models.Item.name, "")).like(needle),
-                piece_match,
-            ))
         if category:
             query = query.filter(models.Item.category.ilike(f"%{category}%"))
         if shed_id:
@@ -201,23 +186,49 @@ def read_items(
         if zone_id:
             query = query.filter(models.Item.zone_id == zone_id)
 
-        total_records = query.count()
-        total_pages = ceil(total_records / page_size)
+        name_query = (name or "").strip()
+        ranked_search = bool(search_tokens(name_query))
+        if ranked_search:
+            candidates = query.order_by(
+                models.Shed.name.asc().nullslast(),
+                models.Zone.name.asc().nullslast(),
+                models.Item.name.asc(),
+            ).all()
+            texts, codes = _unit_search_bits(db, [item.id for item in candidates])
+            shed_names = {row.id: row.name or "" for row in db.query(models.Shed).all()}
+            ranked = []
+            for item in candidates:
+                score = _item_search_score(
+                    item, name_query, texts.get(item.id, []), codes.get(item.id, [])
+                )
+                if score is None:
+                    continue
+                zone_name = item.zone.name if item.zone else ""
+                ranked.append((
+                    score,
+                    shed_names.get(item.shed_id, ""),
+                    zone_name,
+                    item.name or "",
+                    item,
+                ))
+            ranked.sort(key=lambda row: (-row[0], row[1], row[2], row[3]))
+            total_records = len(ranked)
+            items = [row[4] for row in ranked[(page - 1) * page_size: page * page_size]]
+        else:
+            total_records = query.count()
+            items = query.order_by(
+                models.Shed.name.asc().nullslast(),
+                models.Zone.name.asc().nullslast(),
+                models.Item.name.asc(),
+            ).offset((page - 1) * page_size).limit(page_size).all()
+
+        total_pages = ceil(total_records / page_size) if page_size else 0
 
         consumable_keys = {
             normalize_lookup(category.name)
             for category in db.query(models.Category).filter(models.Category.is_consumable == True).all()
         }
         unit_by_category = category_units_by_name(db)
-
-        items = query.order_by(
-                        models.Shed.name.asc().nullslast(),
-                        models.Zone.name.asc().nullslast(),
-                        models.Item.name.asc(),
-                     ) \
-                     .offset((page - 1) * page_size) \
-                     .limit(page_size) \
-                     .all()
 
         data = []
         for item in items:
@@ -250,16 +261,57 @@ def read_items(
 
 @app.get("/search")
 def searchItems(name: str, db: item_dependency):
-    needle = f"%{_fold_text(name)}%"
+    if not search_tokens(name):
+        return []
+    items = db.query(models.Item).filter(models.Item.status == 1).all()
+    texts, codes = _unit_search_bits(db, [item.id for item in items])
+    ranked = []
+    for item in items:
+        score = _item_search_score(item, name, texts.get(item.id, []), codes.get(item.id, []))
+        if score is None:
+            continue
+        ranked.append((score, item.name or "", item))
+    ranked.sort(key=lambda row: (-row[0], row[1]))
+    return [
+        {"id": item.id, "name": item.name, "category": item.category}
+        for _score, _name, item in ranked
+    ]
+
+
+def _unit_search_bits(db, item_ids):
+    texts = {}
+    codes = {}
+    ids = [item_id for item_id in item_ids if item_id is not None]
+    if not ids:
+        return texts, codes
     rows = (
-        db.query(models.Item.id, models.Item.name, models.Item.category)
+        db.query(
+            models.ItemUnit.item_id,
+            models.ItemUnit.code,
+            models.ItemUnit.name,
+            models.ItemUnit.description,
+        )
         .filter(
-            models.Item.status == 1,
-            _fold_column(func.coalesce(models.Item.name, "")).like(needle),
+            models.ItemUnit.item_id.in_(ids),
+            models.ItemUnit.status != "tirada",
         )
         .all()
     )
-    return [{"id": row.id, "name": row.name, "category": row.category} for row in rows]
+    for item_id, code, unit_name, description in rows:
+        texts.setdefault(item_id, []).extend([code or "", unit_name or "", description or ""])
+        if code:
+            codes.setdefault(item_id, []).append(code)
+    return texts, codes
+
+
+def _item_search_score(item, query, extra, codes):
+    parts = [item.name, item.description, item.category, item.aliases, *extra]
+    if not search_matches(query, *parts):
+        return None
+    score = search_rank(query, *parts)
+    for code in codes:
+        score = max(score, search_rank(query, *parts, code=code))
+    return score
 
 
 def getItemById(item_id: int, db: item_dependency):
@@ -287,6 +339,7 @@ def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
             inner_quantity=item.inner_quantity,
             codes=item.codes,
             code_prefix=item.code_prefix,
+            aliases=item.aliases,
         )
         return {
             "id": created.id,
@@ -566,6 +619,7 @@ def get_item_details(
             "name": item.name,
             "category": item.category,
             "description": item.description,
+            "aliases": item.aliases,
             "totalAmount": item.totalAmount,
             "actualAmount": item.actualAmount,
             "is_available": item.is_available,
@@ -613,6 +667,24 @@ def get_item_details(
         )
 
 
+class AliasesBody(BaseModel):
+    aliases: Optional[str] = ""
+
+
+@app.put("/items/{item_id}/aliases")
+def update_item_aliases(
+    item_id: int,
+    body: AliasesBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    item = db.query(models.Item).filter(models.Item.id == item_id, models.Item.status == 1).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item.aliases = (body.aliases or "").strip() or None
+    db.commit()
+    return {"aliases": item.aliases or ""}
+
 
 def _piece_place(unit: models.ItemUnit, item: models.Item | None, places) -> str:
     if unit.status == "consumida":
@@ -626,28 +698,91 @@ def _piece_place(unit: models.ItemUnit, item: models.Item | None, places) -> str
     return " · ".join(names) if names else "En obra"
 
 
-def _fold_text(value):
-    folded = value or ""
-    for source, target in (
-        ("á", "a"), ("Á", "a"), ("é", "e"), ("É", "e"),
-        ("í", "i"), ("Í", "i"), ("ó", "o"), ("Ó", "o"),
-        ("ú", "u"), ("Ú", "u"), ("ü", "u"), ("Ü", "u"),
-        ("ñ", "n"), ("Ñ", "n"),
-    ):
-        folded = folded.replace(source, target)
-    return folded.lower()
+def _pieces_active(text, broken, without_image, situation, obra, category, shed_id):
+    return bool(text or broken or without_image or situation or obra or category or shed_id)
 
 
-def _fold_column(column):
-    folded = column
-    for source, target in (
-        ("á", "a"), ("Á", "a"), ("é", "e"), ("É", "e"),
-        ("í", "i"), ("Í", "i"), ("ó", "o"), ("Ó", "o"),
-        ("ú", "u"), ("Ú", "u"), ("ü", "u"), ("Ü", "u"),
-        ("ñ", "n"), ("Ñ", "n"),
-    ):
-        folded = func.replace(folded, source, target)
-    return func.lower(folded)
+def _pieces_query(db, broken, without_image, situation, obra, category, shed_id):
+    query = (
+        db.query(models.ItemUnit, models.Item)
+        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
+        .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
+        .options(contains_eager(models.Item.zone))
+        .filter(models.Item.status == 1, models.ItemUnit.status != "tirada")
+    )
+    if situation == "en_deposito":
+        query = query.filter(models.ItemUnit.status == "en_stock")
+    elif situation == "fuera":
+        query = query.filter(models.ItemUnit.status.in_(("retirada", "fuera_de_servicio")))
+    elif situation == "en_obra":
+        query = query.filter(models.ItemUnit.status == "retirada")
+    elif situation == "fuera_de_servicio":
+        query = query.filter(models.ItemUnit.status == "fuera_de_servicio")
+    elif situation == "usadas":
+        query = query.filter(models.ItemUnit.status == "consumida")
+    elif situation == "con_stock":
+        query = query.filter(models.ItemUnit.status == "en_stock", models.ItemUnit.quantity > 0)
+    elif situation == "sin_stock":
+        query = query.filter(
+            models.ItemUnit.status.notin_(("consumida", "tirada")),
+            or_(
+                models.ItemUnit.quantity <= 0,
+                models.ItemUnit.status != "en_stock",
+            ),
+        )
+    if obra:
+        pending_ids = (
+            db.query(models.HistoryUnit.unit_id)
+            .join(models.History, models.History.id == models.HistoryUnit.history_id)
+            .filter(
+                models.History.action == models.ActionEnum.retiro,
+                models.History.turnback == False,
+                models.History.amountNotReturned > 0,
+                models.History.place == obra,
+                models.History.place != REPAIR_PLACE,
+            )
+        )
+        query = query.filter(models.ItemUnit.id.in_(pending_ids))
+    if category:
+        query = query.filter(models.Item.category == category)
+    if shed_id:
+        query = query.filter(models.Item.shed_id == shed_id)
+    if broken:
+        query = query.filter(models.ItemUnit.is_broken.is_(True))
+    if without_image:
+        query = query.filter(or_(
+            models.ItemUnit.image_filename.is_(None),
+            models.ItemUnit.image_filename == "",
+        ))
+    return query
+
+
+def _pieces_rows(query, text, limit=None):
+    ordered = query.order_by(models.ItemUnit.code.asc())
+    if search_tokens(text):
+        rows = ordered.all()
+        scored = []
+        for unit, item in rows:
+            parts = [
+                unit.code,
+                unit.name,
+                unit.description,
+                item.name,
+                item.description,
+                item.aliases,
+                item.category,
+            ]
+            if not search_matches(text, *parts):
+                continue
+            scored.append((search_rank(text, *parts, code=unit.code or ""), unit, item))
+        scored.sort(key=lambda row: (-row[0], row[1].code or ""))
+        rows = [(unit, item) for _score, unit, item in scored]
+        if limit is not None:
+            return rows[:limit]
+        return rows
+    if limit is not None:
+        return ordered.limit(limit).all()
+    return ordered.all()
 
 
 @app.get("/units")
@@ -657,33 +792,20 @@ def list_pieces(
     q: str = "",
     broken: bool = False,
     without_image: bool = False,
+    situation: str = "",
+    obra: str = "",
+    category: str = "",
+    shed_id: Optional[int] = None,
     limit: int = Query(10, ge=1, le=500),
 ):
     text = (q or "").strip()
-    broad = bool(text or broken or without_image)
+    situation = (situation or "").strip()
+    obra = (obra or "").strip()
+    category = (category or "").strip()
+    broad = _pieces_active(text, broken, without_image, situation, obra, category, shed_id)
     cap = 10 if not broad else min(limit, 500)
-    query = (
-        db.query(models.ItemUnit, models.Item)
-        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
-        .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
-        .options(contains_eager(models.Item.zone))
-        .filter(models.Item.status == 1, models.ItemUnit.status != "tirada")
-    )
-    if text:
-        needle = f"%{_fold_text(text)}%"
-        query = query.filter(or_(
-            _fold_column(models.ItemUnit.code).like(needle),
-            _fold_column(func.coalesce(models.ItemUnit.name, "")).like(needle),
-            _fold_column(models.Item.name).like(needle),
-        ))
-    if broken:
-        query = query.filter(models.ItemUnit.is_broken.is_(True))
-    if without_image:
-        query = query.filter(or_(
-            models.ItemUnit.image_filename.is_(None),
-            models.ItemUnit.image_filename == "",
-        ))
-    rows = query.order_by(models.ItemUnit.code.asc()).limit(cap).all()
+    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id)
+    rows = _pieces_rows(query, text, cap)
     away_ids = [
         unit.id
         for unit, _item in rows
@@ -766,6 +888,38 @@ def _pieces_export(rows, places_by_unit) -> BytesIO:
     return buffer
 
 
+@app.get("/units/places")
+def piece_places(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    names = {
+        obra.name
+        for obra in db.query(models.Obra).filter(
+            models.Obra.active == True,
+            models.Obra.stage != "finalizada",
+        ).all()
+        if obra.name
+    }
+    pending = (
+        db.query(models.History.place)
+        .filter(
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.amountNotReturned > 0,
+            models.History.place.isnot(None),
+            models.History.place != "",
+            models.History.place != REPAIR_PLACE,
+        )
+        .distinct()
+        .all()
+    )
+    for (place,) in pending:
+        if place and " → " not in place:
+            names.add(place)
+    return {"data": [{"name": name} for name in sorted(names, key=lambda value: value.lower())]}
+
+
 @app.get("/units/export")
 def export_pieces(
     db: item_dependency,
@@ -773,32 +927,19 @@ def export_pieces(
     q: str = "",
     broken: bool = False,
     without_image: bool = False,
+    situation: str = "",
+    obra: str = "",
+    category: str = "",
+    shed_id: Optional[int] = None,
 ):
     text = (q or "").strip()
-    if not text and not broken and not without_image:
-        raise HTTPException(status_code=400, detail="Elegí rotas, sin foto o un texto para exportar")
-    query = (
-        db.query(models.ItemUnit, models.Item)
-        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
-        .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
-        .options(contains_eager(models.Item.zone))
-        .filter(models.Item.status == 1, models.ItemUnit.status != "tirada")
-    )
-    if text:
-        needle = f"%{_fold_text(text)}%"
-        query = query.filter(or_(
-            _fold_column(models.ItemUnit.code).like(needle),
-            _fold_column(func.coalesce(models.ItemUnit.name, "")).like(needle),
-            _fold_column(models.Item.name).like(needle),
-        ))
-    if broken:
-        query = query.filter(models.ItemUnit.is_broken.is_(True))
-    if without_image:
-        query = query.filter(or_(
-            models.ItemUnit.image_filename.is_(None),
-            models.ItemUnit.image_filename == "",
-        ))
-    rows = query.order_by(models.ItemUnit.code.asc()).all()
+    situation = (situation or "").strip()
+    obra = (obra or "").strip()
+    category = (category or "").strip()
+    if not _pieces_active(text, broken, without_image, situation, obra, category, shed_id):
+        raise HTTPException(status_code=400, detail="Elegí un filtro o un texto para exportar")
+    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id)
+    rows = _pieces_rows(query, text)
     away_ids = [
         unit.id
         for unit, _item in rows

@@ -45,6 +45,7 @@ COLUMN_LABELS = {
     "phone": "Teléfono",
     "telegram_id": "Telegram",
     "description": "Descripción",
+    "aliases": "Otros nombres",
     "category": "Categoría",
     "totalAmount": "Cantidad total",
     "actualAmount": "Cantidad en depósito",

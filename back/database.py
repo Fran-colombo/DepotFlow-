@@ -371,6 +371,10 @@ def ensure_inventory_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE items ADD COLUMN code_prefix VARCHAR"))
 
+    if _column_exists("items", "id") and not _column_exists("items", "aliases"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE items ADD COLUMN aliases VARCHAR"))
+
     if _column_exists("item_units", "id") and not _column_exists("item_units", "image_filename"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN image_filename VARCHAR"))

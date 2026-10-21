@@ -46,6 +46,7 @@ def create_item(
     inner_quantity: bool = False,
     codes=None,
     code_prefix=None,
+    aliases=None,
 ):
     from unit_service import create_units_for_item, normalize_prefix, prefix_conflicts, suggest_prefix
 
@@ -102,6 +103,7 @@ def create_item(
         item_to_add = models.Item(
             name=name_well_written,
             description=description or "",
+            aliases=(aliases or "").strip() or None,
             category=category,
             shed_id=resolved_shed_id,
             zone_id=zone_id,

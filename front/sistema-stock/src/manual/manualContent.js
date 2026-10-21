@@ -161,7 +161,7 @@ export const MANUAL_SECTIONS = [
             { name: "Usuario", text: "Quién lo cargó en el sistema. Lo pone solo: sos vos." },
             { name: "Responsable", text: "Quién se lo llevó, lo devolvió o lo movió de verdad. Es lo que elegís en \"Quién lo retira\", \"Quién lo devuelve\" o \"Quién lo mueve\"." },
           ] },
-          { type: "p", text: "Para elegir a la persona tocá el selector: aparecen los empleados. Si no está, elegí **Otros** y escribí el nombre completo." },
+          { type: "p", text: "Para elegir a la persona tocá el selector, buscá el nombre y elegilo. La lista no se abre entera: se desplaza. Si no está, elegí **Otros** y escribí el nombre completo." },
         ],
       },
     ],
@@ -178,7 +178,7 @@ export const MANUAL_SECTIONS = [
         keywords: ["buscar", "filtrar", "nombre", "código", "categoría", "depósito", "zona", "limpiar", "encontrar"],
         body: [
           { type: "list", items: [
-            "**Nombre**: escribí parte del nombre del producto, o el código o nombre de una pieza. No importan los acentos ni las mayúsculas.",
+            "**Nombre**: escribí parte del nombre, un sinónimo o una palabra parecida. También busca en la descripción, en **Otros nombres**, en la categoría y en el código o nombre de una pieza. No importan los acentos ni las mayúsculas.",
             "**Categoría**, **Depósito** y **Zona**: para achicar la lista. La zona se habilita después de elegir el depósito.",
             "**Limpiar**: borra todos los filtros.",
           ] },
@@ -351,7 +351,7 @@ export const MANUAL_SECTIONS = [
         body: [
           { type: "steps", items: [
             "En Productos tocá **Agregar**.",
-            "Completá **Subcategoría** (el nombre), **Categoría**, **Depósito** y **Zona**. Son obligatorios. La **Descripción** es opcional.",
+            "Completá **Subcategoría** (el nombre), **Categoría**, **Depósito** y **Zona**. Son obligatorios. La **Descripción** y **Otros nombres** son opcionales. En otros nombres van apodos separados por coma, para encontrarlo aunque lo busquen distinto.",
             "Si no lleva códigos, tildá **Solo cantidad**, escribí la **Cantidad** y tocá **Crear**. Listo.",
             "Si lleva códigos, revisá el **Prefijo** (se propone solo a partir del nombre). Si cada código guarda una cantidad adentro, tildá **Cantidad dentro del código**.",
             "Tocá **Crear subcategoría**. Queda en 0 y te pregunta **¿Agregar una pieza?**. Con **Sí** cargás la primera.",
@@ -501,15 +501,18 @@ export const MANUAL_SECTIONS = [
       {
         id: "pantalla-piezas",
         title: "La pantalla Piezas",
-        summary: "Buscar por código, ver rotas o sin foto y exportar.",
-        keywords: ["piezas", "buscar código", "rotas", "sin foto", "exportar", "excel"],
+        summary: "Buscar por código o por un nombre parecido, y filtrar por dónde está.",
+        keywords: ["piezas", "buscar código", "rotas", "sin foto", "exportar", "excel", "filtro", "obra", "stock", "fuera de servicio"],
         body: [
           { type: "list", items: [
-            "**Buscar**: código, nombre de la pieza o nombre del producto.",
+            "**Buscar**: código, nombre de la pieza, nombre del producto, descripción u otros nombres. Si la palabra no es idéntica pero es parecida o un sinónimo (codo y curva, caño y tubo), también aparece.",
+            "**Situación**: todas, en depósito, fuera del depósito, en obra, fuera de servicio, usadas, con stock o sin stock.",
+            "**Obra**: una obra en particular, también si ya finalizó y todavía tiene piezas afuera.",
+            "**Categoría** y **Depósito** achican la lista.",
             "**Rotas**: solo las piezas marcadas como rotas.",
             "**Sin foto**: las que todavía no tienen foto.",
-            "Sin búsqueda muestra solo las primeras 10. Buscá o filtrá para ver más.",
-            "**Exportar** baja un Excel con lo que estás viendo. Se habilita cuando buscás o tildás un filtro.",
+            "Sin búsqueda ni filtro muestra solo las primeras 10. Buscá o filtrá para ver más.",
+            "**Exportar** baja un Excel con lo que estás viendo. Se habilita cuando buscás o elegís un filtro.",
           ] },
           { type: "p", text: "Tocá una tarjeta para abrir el detalle de esa pieza." },
         ],
@@ -573,7 +576,9 @@ export const MANUAL_SECTIONS = [
         body: [
           { type: "list", items: [
             "**Desde una obra**: en **En obra** abrí **Movimientos** y elegí **Devolver al depósito**. La obra viene puesta. Elegí **Quién lo devuelve** (y cuántos, si es caja) y confirmá.",
-            "**Desde reparación**: en **Fuera de servicio** abrí **Movimientos**, elegí **Volver al depósito** y confirmá.",
+            "**Desde reparación**: en **Fuera de servicio** abrí **Movimientos** y elegí **Volver al depósito**. Pregunta **¿Se arregló?**.",
+            "Si se arregló, escribí **Qué le hicieron**. Vuelve al depósito y se destilda **Rota**.",
+            "Si no, escribí **Cuál es el error**. **Se puede reparar** la vuelve al depósito marcada rota. **Se tira** pide quién autoriza y la descarta: no vuelve al stock.",
           ] },
           { type: "p", text: "Si dice \"No hay una salida pendiente de ... en esa obra\", revisá que la obra sea la correcta." },
         ],
@@ -590,7 +595,7 @@ export const MANUAL_SECTIONS = [
             "Escribí **Qué le pasó** y **Qué habría que hacer**.",
             "Tocá **Guardar pieza**.",
           ] },
-          { type: "p", text: "Cuando esté arreglada, destildá **Rota**, escribí **Qué se le hizo** (obligatorio) y tocá **Se arregló**." },
+          { type: "p", text: "Cuando esté arreglada, destildá **Rota**, escribí **Qué se le hizo** (obligatorio) y tocá **Se arregló**. Si vuelve de reparación, esa pregunta aparece al elegir **Volver al depósito**." },
           { type: "p", text: "**Movimientos → Ver roturas** muestra todas las roturas que tuvo la pieza, abiertas y arregladas." },
           { type: "warn", text: "Marcarla rota no la saca del depósito: se puede seguir retirando. Si la llevan a arreglar, usá **Retirar** con **Llevar a reparar**." },
         ],
@@ -1081,7 +1086,7 @@ export const MANUAL_SECTIONS = [
         body: [
           { type: "compare", rows: [
             { name: "Rota", text: "Una marca: tiene un problema, pero puede seguir en depósito." },
-            { name: "Fuera de servicio", text: "Se la llevaron a reparar. Vuelve con Volver al depósito." },
+            { name: "Fuera de servicio", text: "Se la llevaron a reparar. Al volver pregunta si se arregló." },
             { name: "Usada", text: "Insumo gastado o dado de baja con Quitar stock." },
             { name: "Tirada", text: "Descartada. Ya no se ve y su código empieza con TIRADO-." },
           ] },

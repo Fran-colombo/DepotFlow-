@@ -31,14 +31,17 @@ from unit_service import (
     REPAIR_PLACE,
     STATUS_FUERA_DE_SERVICIO,
     apply_inner_return,
+    discard_unit,
     find_unit_by_code,
     link_history_units,
     piece_amount,
     restore_units,
     return_shares,
     align_depot_zones,
+    sync_breakage,
     take_inner_quantity,
     take_units_out,
+    unit_out_places,
     units_for_pending_place,
 )
 
@@ -644,6 +647,87 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     db.refresh(history)
     return _history_with_codes(history, units)
 
+
+def _validate_repair_return(dto):
+    if dto.fixed is None:
+        raise HTTPException(400, "Indicá si se arregló")
+    if dto.fixed:
+        if not (dto.fix_note or "").strip():
+            raise HTTPException(400, "Contá qué le hicieron")
+        return
+    if not (dto.damage_note or "").strip():
+        raise HTTPException(400, "Contá cuál es el error")
+    if (dto.outcome or "") not in ("depot", "discard"):
+        raise HTTPException(400, "Indicá si se puede reparar o se tira")
+    if dto.outcome == "discard" and not (dto.authorized_by or "").strip():
+        raise HTTPException(400, "Indicá quién autoriza tirarla")
+
+
+def _repair_units(db, item, dto):
+    chosen = [code for code in (dto.codes or []) if code and str(code).strip()]
+    if not chosen:
+        raise HTTPException(400, "Elegí el código")
+    units = []
+    for code in chosen:
+        try:
+            unit = find_unit_by_code(db, code)
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
+        if not unit or unit.item_id != item.id:
+            raise HTTPException(400, "No hay una pieza con ese código")
+        units.append(unit)
+    return units
+
+
+def _remember_repair_note(dto, text):
+    extra = (text or "").strip()
+    if not extra:
+        return
+    note = (dto.note or "").strip()
+    dto.note = f"{note}\n{extra}".strip() if note else extra
+
+
+def _mark_repaired(db, units, dto):
+    done = (dto.fix_note or "").strip()
+    for unit in units:
+        was_broken = bool(unit.is_broken)
+        previous_damage = unit.damage_note
+        previous_repair = unit.repair_note
+        unit.is_broken = False
+        unit.damage_note = None
+        unit.repair_note = None
+        if was_broken:
+            sync_breakage(db, unit, True, previous_damage, previous_repair, done)
+    _remember_repair_note(dto, done)
+
+
+def _mark_still_broken(db, units, dto):
+    why = (dto.damage_note or "").strip()
+    for unit in units:
+        was_broken = bool(unit.is_broken)
+        unit.is_broken = True
+        unit.damage_note = why
+        sync_breakage(db, unit, was_broken)
+    _remember_repair_note(dto, why)
+
+
+def _discard_from_repair(db, item, dto, user_id, user_name):
+    units = _repair_units(db, item, dto)
+    for unit in units:
+        in_repair = unit.status == STATUS_FUERA_DE_SERVICIO or any(
+            row.get("place") == REPAIR_PLACE and int(row.get("quantity") or 0) > 0
+            for row in unit_out_places(db, unit)
+        )
+        if not in_repair:
+            raise HTTPException(400, f"{unit.code} no está en reparación")
+    who = (dto.personWhoReturned or "").strip() or user_name
+    _mark_still_broken(db, units, dto)
+    for unit in units:
+        discard_unit(db, item, unit, who, (dto.authorized_by or "").strip(), user_id, user_name)
+    db.commit()
+    return {"discarded": True, "codes": [unit.code for unit in units]}
+
+
 @router.post("/devolver")
 def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_user: Annotated[dict, Depends(get_current_user)]):
     user_id = current_user["user_id"]
@@ -652,6 +736,16 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
     item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
     if not item:
         raise HTTPException(404, "Item not found")
+
+    from_repair = (dto.place or "").strip() == REPAIR_PLACE
+    if from_repair:
+        _validate_repair_return(dto)
+        if dto.fixed is False and dto.outcome == "discard":
+            try:
+                return _discard_from_repair(db, item, dto, user_id, user_name)
+            except ItemServiceError as exc:
+                db.rollback()
+                raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     units = []
     return_amounts = None
@@ -798,6 +892,16 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             if p.amountNotReturned == 0:
                 p.turnback = True
                 p.turnbackDate = now()
+
+    if from_repair:
+        try:
+            if dto.fixed:
+                _mark_repaired(db, units, dto)
+            else:
+                _mark_still_broken(db, units, dto)
+        except ItemServiceError as exc:
+            db.rollback()
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     quien_devuelve = dto.personWhoReturned.strip() if dto.personWhoReturned and dto.personWhoReturned.strip() else user_name
 

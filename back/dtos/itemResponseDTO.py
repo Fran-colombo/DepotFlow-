@@ -6,6 +6,7 @@ class ItemResponseDTO(BaseModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+    aliases: Optional[str] = None
     totalAmount: int
     actualAmount: int
     is_available: bool
