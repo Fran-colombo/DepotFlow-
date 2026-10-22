@@ -526,6 +526,20 @@ function pieceParams(q, options) {
   return params;
 }
 
+export async function sharePiecesCatalog(ids) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const response = await fetch(`${base}/units/catalog`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify({ ids }),
+  });
+  await downloadExcelBlob(response, "piezas.pdf");
+}
+
 export async function exportPieces(q = "", options = {}) {
   const token = localStorage.getItem("authToken");
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");

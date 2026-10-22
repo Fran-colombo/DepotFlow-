@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
-import { exportPieces, getItemById, getPiecePlaces, getUnitImageUrl, searchPieces } from "../api/items";
+import { exportPieces, getItemById, getPiecePlaces, getUnitImageUrl, searchPieces, sharePiecesCatalog } from "../api/items";
 import { getCategories } from "../api/categories";
 import { getSheds } from "../api/sheds";
 import ItemDetailModal from "../components/ItemDetailModal";
@@ -33,6 +33,8 @@ const Piezas = () => {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [chosen, setChosen] = useState([]);
   const filters = { broken, withoutImage, situation, obra, category, shedId };
   const filtering = Boolean(query.trim() || broken || withoutImage || situation || obra || category || shedId);
   const canExport = filtering;
@@ -59,6 +61,43 @@ const Piezas = () => {
       setError(err.message || "No se pudo exportar");
     } finally {
       setExporting(false);
+    }
+  };
+
+  const chosenIds = new Set(chosen.map((piece) => piece.id));
+
+  const togglePiece = (piece) => {
+    setChosen((current) => {
+      if (current.some((row) => row.id === piece.id)) {
+        return current.filter((row) => row.id !== piece.id);
+      }
+      return [...current, { id: piece.id, code: piece.code, name: piece.name || "" }];
+    });
+  };
+
+  const addVisible = () => {
+    setChosen((current) => {
+      const seen = new Set(current.map((piece) => piece.id));
+      const next = [...current];
+      pieces.forEach((piece) => {
+        if (seen.has(piece.id)) return;
+        seen.add(piece.id);
+        next.push({ id: piece.id, code: piece.code, name: piece.name || "" });
+      });
+      return next;
+    });
+  };
+
+  const share = async () => {
+    if (!chosen.length || sharing) return;
+    setSharing(true);
+    setError("");
+    try {
+      await sharePiecesCatalog(chosen.map((piece) => piece.id));
+    } catch (err) {
+      setError(err.message || "No se pudo compartir");
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -216,9 +255,43 @@ const Piezas = () => {
           >
             {exporting ? "Exportando…" : "Exportar"}
           </button>
+          <button
+            type="button"
+            className="btn btn-outline-secondary btn-sm"
+            disabled={pieces.length === 0}
+            onClick={addVisible}
+          >
+            Agregar estas
+          </button>
         </div>
         {!canExport && (
-          <div className="form-text">Para exportar, buscá o elegí un filtro.</div>
+          <div className="form-text">Para exportar la planilla, buscá o elegí un filtro.</div>
+        )}
+        {chosen.length > 0 && (
+          <div className="border rounded p-2 mt-3">
+            <div className="d-flex flex-wrap gap-2 align-items-center mb-2">
+              <span className="fw-semibold">{chosen.length} elegida{chosen.length === 1 ? "" : "s"}</span>
+              <button type="button" className="btn btn-sm btn-primary" disabled={sharing} onClick={share}>
+                {sharing ? "Armando…" : "Compartir"}
+              </button>
+              <button type="button" className="btn btn-sm btn-outline-secondary" disabled={sharing} onClick={() => setChosen([])}>
+                Vaciar
+              </button>
+            </div>
+            <div className="d-flex flex-wrap gap-1" style={{ maxHeight: "7rem", overflowY: "auto" }}>
+              {chosen.map((piece) => (
+                <button
+                  key={piece.id}
+                  type="button"
+                  className="btn btn-sm btn-outline-secondary"
+                  disabled={sharing}
+                  onClick={() => togglePiece(piece)}
+                >
+                  {piece.code} ×
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 
@@ -236,9 +309,19 @@ const Piezas = () => {
             const imageUrl = getUnitImageUrl(piece);
             return (
               <div className="col-12 col-sm-6 col-lg-4 col-xl-3" key={piece.id}>
+                <div className="card h-100 border shadow-sm position-relative">
+                  <div className="position-absolute top-0 start-0 p-2" style={{ zIndex: 2 }}>
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={chosenIds.has(piece.id)}
+                      aria-label={`Elegir ${piece.code}`}
+                      onChange={() => togglePiece(piece)}
+                    />
+                  </div>
                 <button
                   type="button"
-                  className="card h-100 w-100 text-start border shadow-sm"
+                  className="btn p-0 h-100 w-100 text-start border-0"
                   onClick={() => openPiece(piece)}
                 >
                   <div
@@ -265,6 +348,7 @@ const Piezas = () => {
                     )}
                   </div>
                 </button>
+                </div>
               </div>
             );
           })}

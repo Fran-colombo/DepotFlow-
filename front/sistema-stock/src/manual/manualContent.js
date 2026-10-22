@@ -507,7 +507,7 @@ export const MANUAL_SECTIONS = [
         id: "pantalla-piezas",
         title: "La pantalla Piezas",
         summary: "Buscar por código o por un nombre parecido, y filtrar por dónde está.",
-        keywords: ["piezas", "buscar código", "rotas", "sin foto", "exportar", "excel", "filtro", "obra", "stock", "fuera de servicio"],
+        keywords: ["piezas", "buscar código", "rotas", "sin foto", "exportar", "excel", "filtro", "obra", "stock", "fuera de servicio", "compartir", "whatsapp", "pdf", "lista"],
         body: [
           { type: "list", items: [
             "**Buscar**: código, nombre de la pieza, nombre del producto, descripción u otros nombres. Si la palabra no es idéntica pero es parecida o un sinónimo (codo y curva, caño y tubo), también aparece.",
@@ -518,8 +518,10 @@ export const MANUAL_SECTIONS = [
             "**Sin foto**: las que todavía no tienen foto.",
             "Sin búsqueda ni filtro muestra solo las primeras 10. Buscá o filtrá para ver más.",
             "**Exportar** baja un Excel con lo que estás viendo. Se habilita cuando buscás o elegís un filtro.",
+            "**Agregar estas** suma a la lista todas las piezas que se están viendo. Podés cambiar el filtro y agregar otro grupo: amoladoras en depósito y taladros rotos quedan juntas. El tilde de cada tarjeta elige una sola. La lista no se borra al cambiar el filtro.",
+            "**Compartir** baja un PDF de las elegidas: foto, código, nombre, descripción si tiene, dónde está y, si está rota, qué le pasó. Ese archivo se manda por WhatsApp.",
           ] },
-          { type: "p", text: "Tocá una tarjeta para abrir el detalle de esa pieza." },
+          { type: "p", text: "Tocá una tarjeta para abrir el detalle de esa pieza. El tilde no abre el detalle." },
         ],
         related: ["detalle", "productos-vs-piezas"],
       },

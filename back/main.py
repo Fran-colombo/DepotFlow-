@@ -38,7 +38,10 @@ from item_transfer import (
 )
 from whatsapp.router import router as whatsapp_router
 from telegram.bot import router as telegram_router, start_telegram_bot
-from item_images import router as item_images_router, delete_stored_image
+from item_images import router as item_images_router, delete_stored_image, stored_image_path
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas
 import categories
 import obras
 import empleados
@@ -886,6 +889,174 @@ def _pieces_export(rows, places_by_unit) -> BytesIO:
     wb.save(buffer)
     buffer.seek(0)
     return buffer
+
+
+class CatalogBody(BaseModel):
+    ids: list[int]
+
+
+def _catalog_place(unit, item, places) -> str:
+    place = _piece_place(unit, item, places)
+    if unit.status != "en_stock":
+        return place
+    shed = item.shed.name if item and item.shed else ""
+    if shed and place and place != shed:
+        return f"{shed} · {place}"
+    return shed or place or "En depósito"
+
+
+def _catalog_pdf(entries) -> BytesIO:
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    left = 1.4 * cm
+    right = width - 1.4 * cm
+    text_x = left + 5.2 * cm
+    text_w = right - text_x
+    photo = 4.6 * cm
+    when = datetime.now(pytz.timezone("America/Argentina/Buenos_Aires")).strftime("%d/%m/%Y")
+
+    def clip_width(text, font, size):
+        raw = " ".join(str(text or "").split())
+        if not raw or pdf.stringWidth(raw, font, size) <= text_w:
+            return raw
+        trimmed = raw
+        while trimmed and pdf.stringWidth(trimmed + "…", font, size) > text_w:
+            trimmed = trimmed[:-1]
+        return (trimmed + "…") if trimmed else ""
+
+    def wrap(text, font, size, limit):
+        raw = " ".join(str(text or "").split())
+        if not raw:
+            return []
+        lines = []
+        current = ""
+        for word in raw.split(" "):
+            trial = word if not current else f"{current} {word}"
+            if pdf.stringWidth(trial, font, size) <= text_w:
+                current = trial
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+            if len(lines) >= limit:
+                break
+        if current and len(lines) < limit:
+            lines.append(current)
+        if len(lines) == limit and (current or len(raw) > sum(len(line) for line in lines)):
+            lines[-1] = clip_width(lines[-1], font, size)
+        return lines
+
+    def header():
+        y = height - 1.5 * cm
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(left, y, "PIEZAS")
+        pdf.setFont("Helvetica", 10)
+        pdf.drawRightString(right, y, f"{when} · {len(entries)}")
+        return y - 0.9 * cm
+
+    y = header()
+    for unit, item, places in entries:
+        lines = []
+        name = (unit.name or "").strip() or (item.name or "")
+        lines.append(("Helvetica-Bold", 12, unit.code or "—"))
+        if name and name != (unit.code or ""):
+            lines.append(("Helvetica", 11, clip_width(name, "Helvetica", 11)))
+        description = (unit.description or "").strip()
+        for line in wrap(description, "Helvetica", 9, 3):
+            lines.append(("Helvetica", 9, line))
+        place = _catalog_place(unit, item, places)
+        lines.append(("Helvetica", 9, clip_width(place, "Helvetica", 9)))
+        if unit.is_broken:
+            lines.append(("Helvetica-Bold", 9, "Rota"))
+            for line in wrap(unit.damage_note or "", "Helvetica", 9, 2):
+                lines.append(("Helvetica", 9, line))
+        text_h = 0.42 * cm * max(len(lines), 1)
+        block_h = max(photo, text_h) + 0.45 * cm
+        if y - block_h < 1.4 * cm:
+            pdf.showPage()
+            y = header()
+        image_path = stored_image_path(unit.image_filename) if unit.image_filename else None
+        if image_path and image_path.is_file():
+            try:
+                pdf.drawImage(
+                    str(image_path),
+                    left,
+                    y - photo,
+                    width=photo,
+                    height=photo,
+                    preserveAspectRatio=True,
+                    anchor="c",
+                    mask="auto",
+                )
+            except Exception:
+                pass
+        cursor = y - 0.35 * cm
+        for font, size, text in lines:
+            if text == "Rota":
+                pdf.setFillColorRGB(0.7, 0.1, 0.1)
+            else:
+                pdf.setFillColorRGB(0, 0, 0)
+            pdf.setFont(font, size)
+            pdf.drawString(text_x, cursor, clip_width(text, font, size))
+            cursor -= 0.42 * cm
+        y -= block_h
+    pdf.save()
+    buffer.seek(0)
+    return buffer
+
+
+@app.post("/units/catalog")
+def catalog_pieces(
+    body: CatalogBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    wanted = []
+    seen = set()
+    for raw in body.ids or []:
+        try:
+            unit_id = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if unit_id in seen:
+            continue
+        seen.add(unit_id)
+        wanted.append(unit_id)
+    if not wanted:
+        raise HTTPException(status_code=400, detail="Elegí al menos una pieza")
+    if len(wanted) > 200:
+        raise HTTPException(status_code=400, detail="Se pueden compartir hasta 200 piezas por vez")
+    rows = (
+        db.query(models.ItemUnit, models.Item)
+        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
+        .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
+        .options(contains_eager(models.Item.zone))
+        .filter(
+            models.ItemUnit.id.in_(wanted),
+            models.Item.status == 1,
+            models.ItemUnit.status != "tirada",
+        )
+        .all()
+    )
+    by_id = {unit.id: (unit, item) for unit, item in rows}
+    ordered = [by_id[unit_id] for unit_id in wanted if unit_id in by_id]
+    if not ordered:
+        raise HTTPException(status_code=400, detail="No hay piezas para compartir")
+    away_ids = [
+        unit.id
+        for unit, _item in ordered
+        if unit.status not in ("consumida", "fuera_de_servicio", "en_stock")
+    ]
+    places_by_unit = pending_places_by_unit(db, away_ids)
+    entries = [(unit, item, places_by_unit.get(unit.id)) for unit, item in ordered]
+    buffer = _catalog_pdf(entries)
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="piezas.pdf"'},
+    )
 
 
 @app.get("/units/places")
