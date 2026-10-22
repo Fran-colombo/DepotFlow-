@@ -30,6 +30,7 @@ from item_service import ItemServiceError
 from unit_service import (
     REPAIR_PLACE,
     STATUS_FUERA_DE_SERVICIO,
+    STATUS_RETIRADA,
     apply_inner_return,
     discard_unit,
     find_unit_by_code,
@@ -39,11 +40,19 @@ from unit_service import (
     return_shares,
     align_depot_zones,
     sync_breakage,
+    mark_inner_used_if_empty,
+    mark_withdrawn_used,
     take_inner_quantity,
     take_units_out,
     unit_out_places,
     units_for_pending_place,
 )
+
+NO_VOLVIO_REASONS = {
+    "gastado": "Se gastó",
+    "perdido": "Se perdió",
+    "roto": "Se rompió",
+}
 
 
 
@@ -941,6 +950,256 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
     db.refresh(created)
 
     return _history_with_codes(created, units)
+
+
+def _pending_label(total):
+    if total == 1:
+        return "En esa obra hay 1 pendiente"
+    return f"En esa obra hay {total} pendientes"
+
+
+def _close_pending_amount(rows, amount):
+    total = sum(row.amountNotReturned or 0 for row in rows)
+    if amount > total:
+        raise HTTPException(status_code=400, detail=_pending_label(total))
+    remaining = amount
+    for row in rows:
+        if remaining <= 0:
+            break
+        pending_amount = row.amountNotReturned or 0
+        take = pending_amount if remaining >= pending_amount else remaining
+        row.amountNotReturned = pending_amount - take
+        remaining -= take
+        if row.amountNotReturned == 0:
+            row.turnback = True
+            row.turnbackDate = now()
+
+
+def _lower_total(item, amount):
+    total = int(item.totalAmount or 0)
+    if amount > total:
+        raise HTTPException(
+            status_code=400,
+            detail=f"El total del producto es {total} y no alcanza para cerrar {amount}",
+        )
+    item.totalAmount = total - amount
+
+
+def _units_pending_at(db, item, place, codes=None):
+    rows = (
+        db.query(models.ItemUnit)
+        .join(models.HistoryUnit, models.HistoryUnit.unit_id == models.ItemUnit.id)
+        .join(models.History, models.History.id == models.HistoryUnit.history_id)
+        .filter(
+            models.ItemUnit.item_id == item.id,
+            models.ItemUnit.status == STATUS_RETIRADA,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.place == place,
+            models.History.amountNotReturned > 0,
+        )
+        .order_by(models.History.date.asc(), models.History.id.asc(), models.ItemUnit.id.asc())
+        .all()
+    )
+    ordered = []
+    seen = set()
+    for unit in rows:
+        if unit.id in seen:
+            continue
+        seen.add(unit.id)
+        ordered.append(unit)
+    if not codes:
+        return ordered
+    by_code = {unit.code: unit for unit in ordered}
+    chosen = []
+    for code in codes:
+        unit = by_code.get(code)
+        if not unit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No hay una salida pendiente de {code} en esa obra",
+            )
+        chosen.append(unit)
+    return chosen
+
+
+def _close_unit_pending(db, unit, place):
+    history = (
+        db.query(models.History)
+        .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+        .filter(
+            models.HistoryUnit.unit_id == unit.id,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.amountNotReturned > 0,
+            models.History.place == place,
+        )
+        .order_by(models.History.date.asc(), models.History.id.asc())
+        .first()
+    )
+    if not history or (history.amountNotReturned or 0) < 1:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No hay una salida pendiente de {unit.code} en esa obra",
+        )
+    history.amountNotReturned -= 1
+    if history.amountNotReturned == 0:
+        history.turnback = True
+        history.turnbackDate = now()
+
+
+@router.post("/no-volvio")
+def no_volvio_item(
+    dto: devolucionDTO.NoVolvioDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    if dto.amount < 1:
+        raise HTTPException(status_code=400, detail="La cantidad tiene que ser mayor a 0")
+    reason = NO_VOLVIO_REASONS.get((dto.reason or "").strip())
+    if not reason:
+        raise HTTPException(status_code=400, detail="Indicá si se gastó, se perdió o se rompió")
+    place = (dto.place or "").strip()
+    if not place:
+        raise HTTPException(status_code=400, detail="Elegí la obra")
+    if place == REPAIR_PLACE:
+        raise HTTPException(
+            status_code=400,
+            detail="Lo que está en reparación se devuelve o se tira desde Fuera de servicio",
+        )
+
+    item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    user_id = current_user["user_id"]
+    user_name = get_user_name_by_id(db, user_id)
+    who = (dto.personWhoConfirmed or "").strip() or user_name
+    raw_codes = [str(code).strip() for code in (dto.codes or []) if code and str(code).strip()]
+    units = []
+    link_amounts = None
+
+    try:
+        if item.inner_quantity:
+            if len(raw_codes) > 1:
+                raise HTTPException(status_code=400, detail="Elegí un solo código")
+            pending = (
+                db.query(models.History, models.ItemUnit)
+                .join(models.HistoryUnit, models.HistoryUnit.history_id == models.History.id)
+                .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
+                .filter(
+                    models.History.itemId == item.id,
+                    models.ItemUnit.item_id == item.id,
+                    models.History.action == models.ActionEnum.retiro,
+                    models.History.turnback == False,
+                    models.History.amountNotReturned > 0,
+                    models.History.place == place,
+                )
+            )
+            if raw_codes:
+                unit = find_unit_by_code(db, raw_codes[0])
+                if not unit or unit.item_id != item.id:
+                    raise HTTPException(status_code=400, detail="No hay una pieza con ese código")
+                pending = pending.filter(models.HistoryUnit.unit_id == unit.id)
+            pending_rows = pending.order_by(models.History.date.asc(), models.History.id.asc()).all()
+            unique_rows = []
+            seen_pairs = set()
+            for row, unit in pending_rows:
+                key = (row.id, unit.id)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                unique_rows.append((row, unit))
+            pending_rows = unique_rows
+            total_pending = sum(row.amountNotReturned or 0 for row, _unit in pending_rows)
+            if dto.amount > total_pending:
+                raise HTTPException(status_code=400, detail=_pending_label(total_pending))
+            remaining = dto.amount
+            taken_by_unit = {}
+            seen_units = {}
+            for row, unit in pending_rows:
+                if remaining <= 0:
+                    break
+                pending_amount = row.amountNotReturned or 0
+                take = pending_amount if remaining >= pending_amount else remaining
+                row.amountNotReturned = pending_amount - take
+                remaining -= take
+                if row.amountNotReturned == 0:
+                    row.turnback = True
+                    row.turnbackDate = now()
+                taken_by_unit[unit.id] = taken_by_unit.get(unit.id, 0) + take
+                seen_units[unit.id] = unit
+            db.flush()
+            units = []
+            for unit_id in taken_by_unit:
+                unit = seen_units[unit_id]
+                mark_inner_used_if_empty(db, unit)
+                units.append(unit)
+            link_amounts = taken_by_unit
+        elif item.track_units:
+            if raw_codes and len(raw_codes) != dto.amount:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La cantidad tiene que coincidir con las piezas elegidas",
+                )
+            normalized = []
+            for raw in raw_codes:
+                unit = find_unit_by_code(db, raw)
+                if not unit or unit.item_id != item.id:
+                    raise HTTPException(status_code=400, detail="No hay una pieza con ese código")
+                normalized.append(unit.code)
+            available = _units_pending_at(db, item, place, normalized or None)
+            if normalized:
+                units = available
+            elif len(available) < dto.amount:
+                raise HTTPException(status_code=400, detail=_pending_label(len(available)))
+            else:
+                units = available[: dto.amount]
+            for unit in units:
+                _close_unit_pending(db, unit, place)
+                mark_withdrawn_used(unit)
+            link_amounts = {unit.id: 1 for unit in units}
+        else:
+            pendientes = (
+                db.query(models.History)
+                .filter(
+                    models.History.itemId == item.id,
+                    models.History.action == models.ActionEnum.retiro,
+                    models.History.turnback == False,
+                    models.History.place == place,
+                )
+                .order_by(models.History.date.asc(), models.History.id.asc())
+                .all()
+            )
+            _close_pending_amount(pendientes, dto.amount)
+
+        _lower_total(item, dto.amount)
+        moment = now()
+        history = models.History(
+            itemId=item.id,
+            userId=user_id,
+            userName=user_name,
+            personWhoTook=who,
+            action=models.ActionEnum.no_volvio,
+            amountRetired=dto.amount,
+            amountNotReturned=0,
+            date=moment,
+            place=place,
+            note=reason,
+            turnback=True,
+            turnbackDate=moment,
+            lastNotification=None,
+        )
+        db.add(history)
+        db.flush()
+        if units:
+            link_history_units(db, history.id, units, link_amounts)
+        db.commit()
+    except ItemServiceError as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+    return {"ok": True, "amount": dto.amount, "reason": reason, "codes": [unit.code for unit in units]}
 
 
 @router.post("/trasladar")

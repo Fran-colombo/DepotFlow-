@@ -11,6 +11,7 @@ class ActionEnum(enum.Enum):
     carga = "carga"
     traslado = "traslado"
     descarte = "descarte"
+    no_volvio = "no_volvio"
 
 class RoleEnum(enum.Enum):
      admin = "admin"

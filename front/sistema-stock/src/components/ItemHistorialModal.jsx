@@ -6,6 +6,8 @@ const actionLabel = (action) => {
   if (action === "devolucion") return "Devolución";
   if (action === "traslado") return "Traslado";
   if (action === "carga") return "Carga";
+  if (action === "descarte") return "Tirado";
+  if (action === "no_volvio") return "No volvió";
   return action || "—";
 };
 
@@ -14,6 +16,8 @@ const actionBadgeClass = (action) => {
   if (action === "devolucion") return "bg-success";
   if (action === "traslado") return "bg-info text-dark";
   if (action === "carga") return "bg-primary";
+  if (action === "descarte") return "bg-dark";
+  if (action === "no_volvio") return "bg-secondary";
   return "bg-secondary";
 };
 

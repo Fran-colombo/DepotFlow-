@@ -498,6 +498,23 @@ def apply_inner_return(unit: models.ItemUnit, amount: int):
     return unit
 
 
+def mark_withdrawn_used(unit: models.ItemUnit):
+    if unit.status != STATUS_RETIRADA:
+        raise ItemServiceError(f"El código {unit.code} no está en una obra")
+    unit.status = STATUS_CONSUMIDA
+    unit.consumed_at = datetime.utcnow()
+    return unit
+
+
+def mark_inner_used_if_empty(db: Session, unit: models.ItemUnit):
+    if unit.status in (STATUS_CONSUMIDA, STATUS_TIRADA, STATUS_FUERA_DE_SERVICIO):
+        return unit
+    if int(unit.quantity or 0) == 0 and unit_out_quantity(db, unit) == 0:
+        unit.status = STATUS_CONSUMIDA
+        unit.consumed_at = datetime.utcnow()
+    return unit
+
+
 def set_inner_contents(db: Session, item: models.Item, contents) -> None:
     if not item.inner_quantity:
         raise ItemServiceError("Esta subcategoría no guarda cantidad dentro del código")

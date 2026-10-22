@@ -10,6 +10,7 @@ class ActionEnum(str, Enum):
     carga = "carga"
     traslado = "traslado"
     descarte = "descarte"
+    no_volvio = "no_volvio"
 
 
 class HistoryCreateDTO(BaseModel):

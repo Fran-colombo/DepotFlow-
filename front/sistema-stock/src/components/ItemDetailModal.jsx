@@ -26,6 +26,7 @@ import PersonPicker from "./PersonPicker";
 import CodePreview from "./CodePreview";
 import { cleanPrefix, prefixProblem, useCodePreview } from "./pieceCodes";
 import TrasladoModal from "./TrasladoModal";
+import NoVolvioModal from "./NoVolvioModal";
 import ActionMenu from "./ActionMenu";
 import SwitchShedModal from "./SwitchShedModal";
 import { getSheds } from "../api/sheds";
@@ -39,6 +40,7 @@ const ACTION_LABEL = {
   carga: "Carga",
   traslado: "Traslado",
   descarte: "Tirado",
+  no_volvio: "No volvió",
 };
 
 const REPAIR_PLACE = "Reparación";
@@ -86,6 +88,7 @@ const PieceCard = ({
   onReload,
   onRetire,
   onDevolver,
+  onNoVolvio,
   onTransfer,
   onShowHistory,
   onChangeCategory,
@@ -383,6 +386,7 @@ const PieceCard = ({
                     label: place === "repair" ? "Volver al depósito" : "Devolver al depósito",
                     onClick: () => onDevolver(unit),
                   },
+                  onNoVolvio && canReturn && { label: "No volvió", onClick: () => onNoVolvio(unit) },
                   onTransfer && { label: "Trasladar a otra obra", onClick: () => onTransfer(unit) },
                   canEditQty && { label: "Actualizar cantidad", onClick: () => onEditQuantity(unit) },
                   canDiscard && { label: "Tirar", danger: true, onClick: () => onDiscard?.(unit) },
@@ -774,6 +778,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [transferUnit, setTransferUnit] = useState(null);
+  const [noVolvioUnit, setNoVolvioUnit] = useState(null);
   const [freshCodes, setFreshCodes] = useState([]);
   const [pieceName, setPieceName] = useState("");
   const [pieceNote, setPieceNote] = useState("");
@@ -1285,6 +1290,23 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     });
   };
 
+  const openNoVolvio = (unit) => {
+    let places = (unit.out_places || [])
+      .filter((row) => row.place && row.place !== REPAIR_PLACE && row.quantity > 0)
+      .map((row) => ({
+        place: row.place,
+        pending_amount: innerQuantity ? row.quantity : 1,
+      }));
+    if (!innerQuantity && places.length === 0) {
+      const obra = lastRetiroPlace(unit);
+      if (obra) places = [{ place: obra, pending_amount: 1 }];
+    }
+    setNoVolvioUnit({
+      code: unit.code,
+      places,
+    });
+  };
+
   const section = (title, list, place) => {
     const shown = innerQuantity && place === "depot"
       ? list.reduce((sum, unit) => sum + (unit.quantity || 0), 0)
@@ -1367,6 +1389,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     }}
                     onRetire={openRetire}
                     onDevolver={place === "repair" ? (unit) => openReturn(unit, true) : (unit) => openReturn(unit, false)}
+                    onNoVolvio={place === "obra" && !consumable ? openNoVolvio : undefined}
                     onTransfer={place === "obra" && !consumable ? openTransfer : undefined}
                     onShowHistory={setHistoryUnit}
                     onChangeCategory={openCategoryMove}
@@ -2178,6 +2201,23 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
           </div>
         </div>
       </div>
+    )}
+    {noVolvioUnit && (
+      <NoVolvioModal
+        itemId={item.id}
+        itemName={item.name || ""}
+        code={noVolvioUnit.code}
+        places={noVolvioUnit.places}
+        isOpen
+        onClose={() => setNoVolvioUnit(null)}
+        onSuccess={async () => {
+          await reload();
+          onChanged?.();
+        }}
+        onFinished={(result) => {
+          if (result?.type === "success") setFeedback(result);
+        }}
+      />
     )}
     {transferUnit && (
       <TrasladoModal

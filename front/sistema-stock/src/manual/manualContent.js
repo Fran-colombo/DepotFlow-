@@ -93,16 +93,20 @@ export const MANUAL_SECTIONS = [
         id: "insumo-herramienta",
         title: "Insumo o herramienta",
         summary: "Qué cambia si el producto se gasta o vuelve.",
-        keywords: ["insumo", "consumible", "herramienta", "no vuelve", "usada", "se gasta"],
+        keywords: ["insumo", "consumible", "herramienta", "no vuelve", "usada", "se gasta", "balde", "disco", "cámara", "no volvió"],
         body: [
           { type: "p", text: "En Productos cada fila tiene una etiqueta: **Insumo** (amarilla) o **Herramienta** (gris). Lo define la categoría." },
           { type: "compare", rows: [
             { name: "Herramienta", text: "Sale a una obra y queda pendiente hasta que vuelve. Aparece en Pendientes." },
             { name: "Insumo", text: "Se gasta. Al retirarlo no vuelve: baja del total, las piezas quedan como Usadas y no se puede devolver ni trasladar entre obras." },
           ] },
-          { type: "p", text: "En una herramienta con código podés tildar **No vuelve al depósito** al retirar, si sabés que no va a volver." },
+          { type: "p", text: "En una herramienta con código podés tildar **No vuelve al depósito** al retirar, si ya sabés que no va a volver." },
+          { type: "p", text: "Si puede volver, aunque a veces se gaste, se pierda o se rompa, se retira como herramienta. El retiro no cambia. Lo que vuelve se devuelve, en parte o todo. Lo que no volvió se cierra después con **No volvió**, eligiendo si se gastó, se perdió o se rompió." },
+          { type: "p", text: "Los discos se retiran como herramienta. Si salen 5 y vuelven 2, esos 2 se devuelven y los otros 3 se cierran con **No volvió: se gastó**. Si la categoría fuera insumo, los 2 no podrían volver." },
+          { type: "p", text: "Los baldes salen pendientes. Los que vuelven se devuelven. Si uno vuelve roto, se devuelve y se marca rota. Los que se deshicieron o no aparecen se cierran con **se rompió** o **se perdió**." },
+          { type: "p", text: "Una cámara queda pendiente todo el tiempo que está en la obra. Cuando se van, se devuelve. No es una deuda ni un insumo: está instalada hasta que la obra termina." },
         ],
-        related: ["retirar", "estados"],
+        related: ["retirar", "estados", "pendientes"],
       },
       {
         id: "lugares",
@@ -242,6 +246,7 @@ export const MANUAL_SECTIONS = [
           ] },
           { type: "warn", text: "Lo que está en reparación no aparece acá. Eso se devuelve desde el detalle, con **Movimientos → Volver al depósito**." },
           { type: "p", text: "También podés devolver desde **Pendientes** o desde **Existencias**." },
+          { type: "p", text: "Si una parte no volvió porque se gastó, se perdió o se rompió, no se devuelve: se cierra con **No volvió** desde Pendientes o desde la pieza que está en obra." },
         ],
         related: ["devolver-pieza", "pendientes", "existencias-acciones"],
       },
@@ -543,7 +548,7 @@ export const MANUAL_SECTIONS = [
         body: [
           { type: "p", text: "Arriba a la derecha de cada pieza hay tres botones. Tocá uno para abrirlo y elegí la opción. Solo aparecen las opciones que se pueden usar con esa pieza en ese momento." },
           { type: "compare", rows: [
-            { name: "Movimientos", text: "**Retirar** (en depósito), **Devolver al depósito** (en obra), **Volver al depósito** (en reparación), **Trasladar a otra obra**, **Tirar** (rota o fuera de servicio), **Historial** y **Ver roturas**." },
+            { name: "Movimientos", text: "**Retirar** (en depósito), **Devolver al depósito** (en obra), **No volvió** (en obra: se gastó, se perdió o se rompió), **Volver al depósito** (en reparación), **Trasladar a otra obra**, **Tirar** (rota o fuera de servicio), **Historial** y **Ver roturas**." },
             { name: "Foto", text: "**Cargar foto** o **Cambiar foto**, **Ver foto** y **Quitar foto**." },
             { name: "Cambiar de lugar", text: "**Cambiar de depósito** (manda esa pieza sola a otro depósito) y **Cambiar de categoría** (la pasa a otra subcategoría)." },
           ] },
@@ -576,6 +581,7 @@ export const MANUAL_SECTIONS = [
         body: [
           { type: "list", items: [
             "**Desde una obra**: en **En obra** abrí **Movimientos** y elegí **Devolver al depósito**. La obra viene puesta. Elegí **Quién lo devuelve** (y cuántos, si es caja) y confirmá.",
+            "Si no volvió, en **Movimientos** elegí **No volvió**. Indicá cuántos, si se gastó, se perdió o se rompió, y quién lo confirma. Esa cantidad no vuelve al depósito.",
             "**Desde reparación**: en **Fuera de servicio** abrí **Movimientos** y elegí **Volver al depósito**. Pregunta **¿Se arregló?**.",
             "Si se arregló, escribí **Qué le hicieron**. Vuelve al depósito y se destilda **Rota**.",
             "Si no, escribí **Cuál es el error**. **Se puede reparar** la vuelve al depósito marcada rota. **Se tira** pide quién autoriza y la descarta: no vuelve al stock.",
@@ -789,15 +795,17 @@ export const MANUAL_SECTIONS = [
       {
         id: "pendientes",
         title: "Ver y resolver pendientes",
-        summary: "Devolver o trasladar lo que está afuera.",
-        keywords: ["pendientes", "pendiente", "falta devolver", "afuera", "devolver", "trasladar", "deuda"],
+        summary: "Devolver, trasladar o cerrar lo que no volvió.",
+        keywords: ["pendientes", "pendiente", "falta devolver", "afuera", "devolver", "trasladar", "deuda", "no volvió", "se gastó", "se perdió", "se rompió", "balde", "disco", "cámara"],
         body: [
           { type: "p", text: "Cada fila es un retiro que todavía no volvió completo: producto, quién lo retiró, cuánto falta, dónde está y la fecha." },
           { type: "list", items: [
             "Filtrá por **Persona que retiró** o **Lugar al que fue**.",
-            "**Devolver**: abre la devolución con ese lugar ya elegido.",
+            "**Devolver**: abre la devolución con ese lugar ya elegido. Sirve para una parte o para todo.",
+            "**No volvió**: cierra una parte o todo lo pendiente porque se gastó, se perdió o se rompió en la obra. No vuelve al depósito y baja el total. Las piezas de esa cantidad quedan Usadas.",
             "**Trasladar**: lo pasa a otra obra sin que vuelva al depósito.",
           ] },
+          { type: "p", text: "Si puede volver, se retira como herramienta y queda acá. Los discos que sobran se devuelven y el resto se cierra con **No volvió**. Los baldes que no aparecen o se deshicieron, también. La cámara se deja pendiente y, cuando se van de la obra, se devuelve." },
           { type: "p", text: "Los insumos no aparecen, porque no vuelven. Lo que está en reparación tampoco: eso se ve en el detalle, en Fuera de servicio." },
           { type: "tip", text: "Al devolver se van cerrando primero los retiros más viejos de ese producto en ese lugar." },
         ],
@@ -999,6 +1007,7 @@ export const MANUAL_SECTIONS = [
           { type: "compare", rows: [
             { name: "Retirar", text: "Sale del depósito a una obra (o a reparar)." },
             { name: "Devolver", text: "Vuelve de una obra (o de reparación) al depósito." },
+            { name: "No volvió", text: "Lo que salió a una obra y se gastó, se perdió o se rompió. Cierra esa cantidad, en parte o todo. No vuelve al depósito y baja el total." },
             { name: "Trasladar entre obras", text: "Pasa de una obra a otra sin volver al depósito." },
             { name: "Mover", text: "Cambia de depósito o de zona dentro de los galpones. Desde el detalle, **Cambiar de lugar → Cambiar de depósito** hace lo mismo con una sola pieza." },
             { name: "Tirar", text: "Una pieza rota o fuera de servicio se descarta. Queda en el Historial." },

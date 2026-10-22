@@ -3,6 +3,7 @@ import Dashboard from "./Dashboard";
 import { getPendientes } from "../api/items";
 import TrasladoModal from "../components/TrasladoModal";
 import DevolverItemModal from "../components/DevolucionModal";
+import NoVolvioModal from "../components/NoVolvioModal";
 
 const Pendientes = () => {
   const [pendientes, setPendientes] = useState([]);
@@ -22,6 +23,7 @@ const Pendientes = () => {
   const [error, setError] = useState("");
   const [showTrasladoModal, setShowTrasladoModal] = useState(false);
   const [showDevolverModal, setShowDevolverModal] = useState(false);
+  const [showNoVolvioModal, setShowNoVolvioModal] = useState(false);
   const [selectedPending, setSelectedPending] = useState(null);
 
   const fetchPendientes = async (page = 1) => {
@@ -149,6 +151,16 @@ const Pendientes = () => {
                     </button>
                     <button
                       type="button"
+                      className="btn btn-outline-secondary"
+                      onClick={() => {
+                        setSelectedPending(registro);
+                        setShowNoVolvioModal(true);
+                      }}
+                    >
+                      No volvió
+                    </button>
+                    <button
+                      type="button"
                       className="btn btn-outline-info"
                       onClick={() => {
                         setSelectedPending(registro);
@@ -198,6 +210,16 @@ const Pendientes = () => {
                             }}
                           >
                             Devolver
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-secondary"
+                            onClick={() => {
+                              setSelectedPending(registro);
+                              setShowNoVolvioModal(true);
+                            }}
+                          >
+                            No volvió
                           </button>
                           <button
                             type="button"
@@ -292,6 +314,21 @@ const Pendientes = () => {
           defaultFromPlace={selectedPending.place || ""}
           onClose={() => {
             setShowTrasladoModal(false);
+            setSelectedPending(null);
+          }}
+          onSuccess={() => fetchPendientes(pagination.current_page)}
+        />
+      )}
+
+      {showNoVolvioModal && selectedPending && (
+        <NoVolvioModal
+          itemId={selectedPending.itemId}
+          itemName={selectedPending.itemName || ""}
+          place={selectedPending.place || ""}
+          maxAmount={selectedPending.amountNotReturned || 0}
+          isOpen={showNoVolvioModal}
+          onClose={() => {
+            setShowNoVolvioModal(false);
             setSelectedPending(null);
           }}
           onSuccess={() => fetchPendientes(pagination.current_page)}

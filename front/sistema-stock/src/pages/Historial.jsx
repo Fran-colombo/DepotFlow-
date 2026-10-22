@@ -107,6 +107,7 @@ useEffect(() => {
       case 'traslado': return 'bg-info text-white';
       case 'carga': return 'bg-primary text-white';
       case 'descarte': return 'bg-dark text-white';
+      case 'no_volvio': return 'bg-secondary text-white';
       default: return 'bg-secondary text-white';
     }
   };
@@ -117,6 +118,7 @@ useEffect(() => {
     if (action === 'carga') return 'Carga';
     if (action === 'devolucion') return 'Devolución';
     if (action === 'descarte') return 'Tirado';
+    if (action === 'no_volvio') return 'No volvió';
     return action || '—';
   };
 
@@ -136,6 +138,9 @@ useEffect(() => {
     }
     if (registro.action === 'descarte') {
       return { className: 'bg-dark text-white', label: 'Tirado' };
+    }
+    if (registro.action === 'no_volvio') {
+      return { className: 'bg-secondary text-white', label: 'No volvió' };
     }
     if (registro.turnback) {
       return { className: 'bg-success text-white', label: 'Devuelto' };
@@ -277,6 +282,7 @@ useEffect(() => {
                 <option value="traslado">Traslados</option>
                 <option value="carga">Cargas</option>
                 <option value="descarte">Tirado</option>
+                <option value="no_volvio">No volvió</option>
               </select>
             </div>
 

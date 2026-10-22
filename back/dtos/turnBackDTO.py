@@ -13,3 +13,12 @@ class DevolucionDTO(BaseModel):
     damage_note: Optional[str] = None
     outcome: Optional[str] = None
     authorized_by: Optional[str] = None
+
+
+class NoVolvioDTO(BaseModel):
+    itemId: int
+    amount: int
+    place: str
+    reason: str
+    personWhoConfirmed: Optional[str] = None
+    codes: Optional[List[str]] = None
