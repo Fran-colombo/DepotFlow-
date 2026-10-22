@@ -838,7 +838,7 @@ export const MANUAL_SECTIONS = [
           { type: "steps", items: [
             "Tocá **Salir** en el auto.",
             "Elegí **Quién lo lleva** (obligatorio). Si no está, **Otros** y escribí el nombre.",
-            "La **Fecha** y la **Hora** vienen con las de ahora. Si lo cargás después, tocá el campo (se marca todo) y escribí encima. Para las 8:00 alcanza con 800 o 8.",
+            "La **Fecha** y la **Hora** vienen con las de ahora. En la fecha, tocá el día, el mes o el año para cambiar solo eso. Para las 8:00 alcanza con 800 o 8.",
             "Si sabés los **Kilómetros**, escribilos.",
             "Si lleva un carro, elegilo en **Carro**.",
             "Tocá **Guardar**.",
@@ -855,8 +855,8 @@ export const MANUAL_SECTIONS = [
           { type: "p", text: "Si el auto y el carro salen juntos, usá **Salir** en el auto y elegí el carro. Si el carro sale después, hacelo desde el carro:" },
           { type: "steps", items: [
             "Tocá **Salir** en el carro.",
-            "En **Con qué auto sale** elegí **Un auto nuestro que ya está afuera** y elegí el auto. Si es de otra persona o empresa, elegí **Un auto de afuera** y escribí la patente o de quién es.",
-            "Revisá **Quién lo lleva** (si elegiste un auto nuestro, viene puesto quien lo tiene), la fecha y la hora.",
+            "En **Con qué auto sale** elegí **Un auto nuestro que ya está afuera** y elegí el auto. Si es de otra persona o empresa, elegí **Un auto de afuera** y escribí la patente o de quién es. Si solo importa dónde quedó, elegí **Solo la obra** y la obra: no hace falta quién ni la patente.",
+            "Revisá **Quién lo lleva** (si elegiste un auto nuestro, viene puesto quien lo tiene), la fecha y la hora. Con **Solo la obra** alcanza la obra, la fecha y la hora.",
             "Tocá **Guardar**.",
           ] },
           { type: "p", text: "Ejemplo: alguien sale a las 8:00 con el auto, vuelve a las 12:00 a buscar el carro y se va sin devolver el auto. En el carro tocá **Salir**, elegí ese auto y poné 12:00." },

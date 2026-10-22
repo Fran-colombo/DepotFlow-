@@ -3,6 +3,7 @@ import { addPiece, createItem, updateItem, updateItemAliases, updateItemCounting
 import { getCategories } from "../api/categories";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
+import CategoryPicker from "./CategoryPicker";
 import PersonPicker from "./PersonPicker";
 import { getSheds, getShedById } from "../api/sheds";
 import { getZones } from "../api/zones";
@@ -1057,20 +1058,11 @@ const UpdateItemModal = ({
 
                   <div className="mb-3">
                     <label className="form-label fw-bold">Categoría:</label>
-                    <select
-                      className="form-select"
+                    <CategoryPicker
+                      categories={categories}
                       value={formData.category}
-                      onChange={(e) =>
-                        setFormData({ ...formData, category: e.target.value })
-                      }
-                      required
-                    >
-                      {categories.map((cat) => (
-                        <option key={cat.id || cat.name} value={cat.name}>
-                          {cat.label || cat.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(name) => setFormData({ ...formData, category: name })}
+                    />
                     {categories.find((cat) => cat.name === formData.category)?.hint && (
                       <div className="form-text mt-2">
                         {categories.find((cat) => cat.name === formData.category).hint}

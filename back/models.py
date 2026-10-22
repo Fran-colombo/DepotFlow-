@@ -234,6 +234,7 @@ class TransportUse(Base):
     km = Column(Integer, nullable=True)
     external_vehicle = Column(String, nullable=True)
     with_transport_id = Column(Integer, ForeignKey("transportes.id"), nullable=True, index=True)
+    obra = Column(String, nullable=True)
 
 
 class TransportFine(Base):

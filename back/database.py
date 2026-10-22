@@ -286,6 +286,7 @@ def ensure_inventory_schema():
                 returned_at DATETIME,
                 km INTEGER,
                 external_vehicle VARCHAR,
+                obra VARCHAR,
                 FOREIGN KEY(transport_id) REFERENCES transportes (id),
                 FOREIGN KEY(cart_id) REFERENCES transportes (id)
             )
@@ -344,6 +345,10 @@ def ensure_inventory_schema():
                 "CREATE INDEX IF NOT EXISTS ix_transporte_usos_with_transport_id "
                 "ON transporte_usos (with_transport_id)"
             ))
+
+    if _column_exists("transporte_usos", "id") and not _column_exists("transporte_usos", "obra"):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE transporte_usos ADD COLUMN obra VARCHAR"))
 
     if _column_exists("history_units", "id") and not _column_exists("history_units", "amount"):
         with engine.begin() as conn:

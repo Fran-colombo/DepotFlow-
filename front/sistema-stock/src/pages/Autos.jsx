@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
 import useAuth from "../hooks/useAuth";
 import PersonPicker from "../components/PersonPicker";
+import ObraPicker from "../components/ObraPicker";
+import { getObras } from "../api/obras";
 import FeedbackModal from "../components/FeedbackModal";
 import {
   addServicePlace,
@@ -102,7 +104,25 @@ function selectAll(event) {
   setTimeout(() => input.select(), 0);
 }
 
-const WHEN_HINT = "Está puesta la de ahora. Al tocar el campo se marca todo: escribí encima. Para las 8:00 alcanza con 800 o 8, y para el 15/10 con 15.10.";
+function selectDatePart(event) {
+  const input = event.target;
+  const value = input.value || "";
+  const pos = input.selectionStart ?? 0;
+  const parts = [];
+  let start = 0;
+  for (let i = 0; i <= value.length; i += 1) {
+    if (i === value.length || value[i] === "/") {
+      if (i > start) parts.push([start, i]);
+      start = i + 1;
+    }
+  }
+  const segment = parts.find(([from, to]) => pos >= from && pos <= to) || parts[0];
+  if (!segment) return;
+  const [from, to] = segment;
+  setTimeout(() => input.setSelectionRange(from, to), 0);
+}
+
+const WHEN_HINT = "Está puesta la de ahora. En la fecha, tocá el día, el mes o el año para cambiar solo eso. Para las 8:00 alcanza con 800 o 8, y para el 15/10 con 15.10.";
 
 function WhenFields({ date, time, onDate, onTime, hint = WHEN_HINT }) {
   return (
@@ -113,7 +133,8 @@ function WhenFields({ date, time, onDate, onTime, hint = WHEN_HINT }) {
         inputMode="decimal"
         placeholder="15/10/2026"
         value={date}
-        onFocus={selectAll}
+        onFocus={selectDatePart}
+        onClick={selectDatePart}
         onChange={(e) => onDate(e.target.value)}
         onBlur={() => onDate(formatDateText(date))}
       />
@@ -192,7 +213,8 @@ function KmLine({ row }) {
 
 function canPass(row) {
   if (!row.out) return false;
-  return row.kind === "auto" ? row.place === "En uso" : row.place === "Prestado";
+  if (row.kind === "auto") return row.place === "En uso";
+  return row.place === "Prestado" || (row.place || "").startsWith("En la obra");
 }
 
 function webHref(value) {
@@ -858,7 +880,11 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                     {use.with_transport_id === row.id ? (
                       <div>Se sumó el carro {use.vehicle_name} {formatWhen(use.left_at)} · {use.person}</div>
                     ) : (
-                      <div>Salió {formatWhen(use.left_at)} · {use.person}</div>
+                      <div>
+                        Salió {formatWhen(use.left_at)}
+                        {use.person ? ` · ${use.person}` : ""}
+                        {use.obra ? ` · En la obra · ${use.obra}` : ""}
+                      </div>
                     )}
                     {use.cart_name && <div className="small">Con el carro {use.cart_name}</div>}
                     {use.with_transport_name && use.with_transport_id !== row.id && (
@@ -1083,12 +1109,30 @@ function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
   const [external, setExternal] = useState("");
   const [vehicle, setVehicle] = useState(autosOut.length ? "nuestro" : "afuera");
   const [autoId, setAutoId] = useState("");
+  const [obra, setObra] = useState("");
+  const [obras, setObras] = useState([]);
   const [cartToo, setCartToo] = useState(true);
   const [saving, setSaving] = useState(false);
   const leaving = move.action === "leave";
   const passing = move.action === "handover";
   const cartLeaving = leaving && move.kind === "carro";
   const withOurs = cartLeaving && vehicle === "nuestro";
+  const soloObra = cartLeaving && vehicle === "obra";
+
+  useEffect(() => {
+    if (!cartLeaving) return undefined;
+    let cancelled = false;
+    getObras()
+      .then((data) => {
+        if (!cancelled) setObras(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setObras([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cartLeaving]);
   const chosenAuto = autosOut.find((row) => String(row.id) === autoId);
   const returnRow = move.action === "return" && move.kind === "auto" ? move.row : null;
   const passRow = passing ? move.row : null;
@@ -1107,8 +1151,12 @@ function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
 
   const submit = async (event) => {
     event.preventDefault();
-    if ((leaving || passing) && !person.trim()) {
+    if ((leaving || passing) && !soloObra && !person.trim()) {
       onError(passing ? "Indicá quién lo agarra" : "Indicá quién lo lleva");
+      return;
+    }
+    if (soloObra && !obra.trim()) {
+      onError("Elegí la obra");
       return;
     }
     if (withOurs && !chosenAuto) {
@@ -1127,14 +1175,16 @@ function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
       const kilometers = optionalKm(km);
       if (leaving) {
         await leaveTransporte(move.id, {
-          person: person.trim(),
+          person: soloObra ? "" : person.trim(),
           left_at: when,
           km: kilometers,
           ...(move.kind === "auto" && cartId ? { cart_id: Number(cartId) } : {}),
           ...(cartLeaving && withOurs ? { with_transport_id: chosenAuto.id } : {}),
-          ...(cartLeaving && !withOurs ? { external_vehicle: external.trim() } : {}),
+          ...(cartLeaving && !withOurs && !soloObra ? { external_vehicle: external.trim() } : {}),
+          ...(soloObra ? { obra: obra.trim() } : {}),
         });
         if (move.kind === "auto") await onDone("Salió.");
+        else if (soloObra) await onDone(`Quedó en ${obra.trim()}.`);
         else await onDone(withOurs ? `Salió con ${chosenAuto.plate || chosenAuto.name}.` : "Salió con el auto de afuera.");
       } else if (passing) {
         const result = await handOverTransporte(move.id, {
@@ -1182,6 +1232,10 @@ function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
                   <input id="carro-afuera" type="radio" className="form-check-input" checked={vehicle === "afuera"} onChange={() => setVehicle("afuera")} />
                   <label className="form-check-label" htmlFor="carro-afuera">Un auto de afuera</label>
                 </div>
+                <div className="form-check">
+                  <input id="carro-obra" type="radio" className="form-check-input" checked={vehicle === "obra"} onChange={() => setVehicle("obra")} />
+                  <label className="form-check-label" htmlFor="carro-obra">Solo la obra</label>
+                </div>
                 {!autosOut.length && (
                   <div className="form-text">No hay autos nuestros afuera sin carro. Si sale junto con un auto, usá Salir en el auto y elegí el carro.</div>
                 )}
@@ -1195,8 +1249,13 @@ function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
                     ))}
                   </select>
                 )}
-                {!withOurs && (
+                {!withOurs && !soloObra && (
                   <input className="form-control mt-2" value={external} onChange={(e) => setExternal(e.target.value)} placeholder="Patente o de quién es" required />
+                )}
+                {soloObra && (
+                  <div className="mt-2">
+                    <ObraPicker obras={obras} value={obra} onChange={setObra} />
+                  </div>
                 )}
               </div>
             )}
@@ -1206,7 +1265,7 @@ function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
                 {passRow.open_left_at ? ` desde ${formatWhen(passRow.open_left_at)}` : ""}. No hace falta devolverlo: se lo pasa a otro.
               </p>
             )}
-            {(leaving || passing) && (
+            {(leaving || passing) && !soloObra && (
               <div className="mb-3">
                 <label className="form-label">{passing ? "Quién lo agarra" : "Quién lo lleva"}</label>
                 <PersonPicker value={person} onChange={setPerson} />

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user, get_user_name_by_id, has_admin_access
 from database import get_db
+from obras import require_active_obra
 from item_images import (
     MAX_BYTES,
     MEDIA_TYPES,
@@ -92,6 +93,7 @@ def _use_row(use: models.TransportUse, names: dict) -> dict:
         "vehicle_name": names.get(use.transport_id) or "",
         "with_transport_id": use.with_transport_id,
         "with_transport_name": names.get(use.with_transport_id) or "",
+        "obra": use.obra or "",
     }
 
 
@@ -114,6 +116,8 @@ def _summary(row: models.Transport, open_use, names: dict, joined_cart=None) -> 
         elif open_use.with_transport_id:
             place = "Con un auto"
             with_name = names.get(open_use.with_transport_id) or ""
+        elif (open_use.obra or "").strip():
+            place = f"En la obra · {open_use.obra.strip()}"
         else:
             place = "Prestado"
             with_name = open_use.external_vehicle or ""
@@ -145,12 +149,13 @@ class CreateBody(BaseModel):
 
 
 class LeaveBody(BaseModel):
-    person: str
+    person: Optional[str] = None
     left_at: str
     cart_id: Optional[int] = None
     km: Optional[int] = None
     external_vehicle: Optional[str] = None
     with_transport_id: Optional[int] = None
+    obra: Optional[str] = None
 
 
 class ReturnBody(BaseModel):
@@ -272,7 +277,14 @@ def _busy(db: Session, transport_id: int, start: datetime, end: datetime):
 
 
 def _busy_detail(use: models.TransportUse, label: str) -> str:
-    return f"En esas fechas {label} lo tenía {use.person} (salió {use.left_at.strftime('%d/%m/%Y %H:%M')})"
+    when = use.left_at.strftime("%d/%m/%Y %H:%M")
+    who = (use.person or "").strip()
+    where = (use.obra or "").strip()
+    if who:
+        return f"En esas fechas {label} lo tenía {who} (salió {when})"
+    if where:
+        return f"En esas fechas {label} estaba en {where} (salió {when})"
+    return f"En esas fechas {label} estaba afuera (salió {when})"
 
 
 def _joined_cart(db: Session, auto_id: int):
@@ -477,7 +489,12 @@ def leave_transporte(
     if _open_for(db, row.id):
         raise HTTPException(status_code=400, detail="Ya está afuera")
     person = (body.person or "").strip()
-    if not person:
+    obra_name = (body.obra or "").strip()
+    external_text = (body.external_vehicle or "").strip()
+    obra_only = row.kind == "carro" and bool(obra_name) and not body.with_transport_id and not external_text
+    if obra_only:
+        obra_name = require_active_obra(db, obra_name)
+    elif not person:
         raise HTTPException(status_code=400, detail="Indicá quién lo lleva")
     left_at = _moment(body.left_at)
     km = _km(body.km)
@@ -485,6 +502,8 @@ def leave_transporte(
     external = None
     with_transport_id = None
     if row.kind == "auto":
+        if obra_name:
+            raise HTTPException(status_code=400, detail="La obra sola es para un carro")
         if body.cart_id:
             cart = _get(db, body.cart_id)
             if cart.kind != "carro":
@@ -505,10 +524,14 @@ def leave_transporte(
             raise HTTPException(status_code=400, detail="El carro no puede salir antes que el auto")
         with_transport_id = auto.id
         km = None
+        obra_name = ""
+    elif obra_only:
+        km = None
     else:
-        external = (body.external_vehicle or "").strip()
+        external = external_text
         if not external:
             raise HTTPException(status_code=400, detail="Indicá con qué auto de afuera sale")
+        obra_name = ""
     use = models.TransportUse(
         transport_id=row.id,
         cart_id=cart_id,
@@ -517,6 +540,7 @@ def leave_transporte(
         km=km,
         external_vehicle=external,
         with_transport_id=with_transport_id,
+        obra=obra_name or None,
     )
     db.add(use)
     _apply_km(row, km)
@@ -592,6 +616,7 @@ def hand_over_transporte(
         left_at=at,
         km=km,
         external_vehicle=use.external_vehicle,
+        obra=use.obra,
     ))
     if joined:
         joined.returned_at = at
