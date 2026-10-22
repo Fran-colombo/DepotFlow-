@@ -134,6 +134,7 @@ import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
 import PersonPicker from "./PersonPicker";
 import FeedbackModal from "./FeedbackModal";
+import NumberInput from "./NumberInput";
 
 const RetirarItemModal = ({ 
   itemId, 
@@ -277,8 +278,7 @@ const RetirarItemModal = ({
                 {!item?.track_units && (
                 <div className="mb-3">
                   <label className="form-label">{item?.unit === "metro" ? "Metros a retirar" : "Cantidad a retirar"}</label>
-                  <input
-                    type="number"
+                  <NumberInput
                     className="form-control"
                     value={form.amount}
                     onChange={(e) => setForm({ ...form, amount: e.target.value })}
@@ -340,8 +340,7 @@ const RetirarItemModal = ({
                       <label className="form-check-label" htmlFor="retire-total">Total</label>
                     </div>
                     {form.scope === "parcial" ? (
-                      <input
-                        type="number"
+                      <NumberInput
                         min="1"
                         className="form-control"
                         value={form.amount}

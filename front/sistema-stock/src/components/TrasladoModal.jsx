@@ -7,6 +7,7 @@ import {
 import { getObras } from "../api/obras";
 import FeedbackModal from "./FeedbackModal";
 import PersonPicker from "./PersonPicker";
+import NumberInput from "./NumberInput";
 
 const TrasladoModal = ({
   itemId,
@@ -252,8 +253,7 @@ const TrasladoModal = ({
 
               <div className="mb-3">
                 <label className="form-label">Cantidad a trasladar</label>
-                <input
-                  type="number"
+                <NumberInput
                   className="form-control"
                   value={form.amount}
                   min={1}

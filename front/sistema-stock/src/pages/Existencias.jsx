@@ -6,6 +6,7 @@ import { getZones } from "../api/zones";
 import PersonPicker from "../components/PersonPicker";
 import useAuth from "../hooks/useAuth";
 import Dashboard from "./Dashboard";
+import NumberInput from "../components/NumberInput";
 
 const rowKey = (row) => `${row.itemId}:${row.code || ""}:${row.description || ""}`;
 
@@ -422,8 +423,7 @@ const Existencias = () => {
                     {selectedRows.filter((row) => asksQuantity(row, action)).map((row) => (
                       <div className="d-flex align-items-center gap-2 mb-2" key={rowKey(row)}>
                         <span className="flex-grow-1">{row.code || row.description}</span>
-                        <input
-                          type="number"
+                        <NumberInput
                           min="1"
                           max={row.quantity}
                           className="form-control"

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { moveItem } from "../api/movements";
 import { getItemUnits } from "../api/items";
 import { getZones } from "../api/zones";
+import NumberInput from "./NumberInput";
 
 const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, onlyCode = "" }) => {
   const [formData, setFormData] = useState({
@@ -333,8 +334,7 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, on
               ) : (
               <div className="mb-3">
                 <label className="form-label fw-semibold text-primary">Cantidad a mover:</label>
-                <input
-                  type="number"
+                <NumberInput
                   name="quantity"
                   className="form-control"
                   min="1"

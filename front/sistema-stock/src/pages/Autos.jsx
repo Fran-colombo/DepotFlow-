@@ -3,6 +3,7 @@ import Dashboard from "./Dashboard";
 import useAuth from "../hooks/useAuth";
 import PersonPicker from "../components/PersonPicker";
 import ObraPicker from "../components/ObraPicker";
+import NumberInput from "../components/NumberInput";
 import { getObras } from "../api/obras";
 import FeedbackModal from "../components/FeedbackModal";
 import {
@@ -726,9 +727,8 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                   </div>
                 ) : (
                   <div className="d-flex align-items-center gap-2 my-1" style={{ maxWidth: 360 }}>
-                    <input
+                    <NumberInput
                       className="form-control form-control-sm"
-                      inputMode="numeric"
                       autoFocus
                       value={kmEdit}
                       placeholder="Km que tiene ahora"
@@ -776,8 +776,8 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                 <input className="form-control mb-2" value={profile.plate} onChange={(e) => setProfile({ ...profile, plate: e.target.value })} placeholder="Patente" />
                 <label className="form-label mb-1">Último service</label>
                 <input type="date" className="form-control mb-2" value={profile.last_service_at} onChange={(e) => setProfile({ ...profile, last_service_at: e.target.value })} />
-                <input className="form-control mb-2" inputMode="numeric" value={profile.last_service_km} onChange={(e) => setProfile({ ...profile, last_service_km: e.target.value })} placeholder="Km del service" />
-                <input className="form-control mb-2" inputMode="numeric" value={profile.next_service_km} onChange={(e) => setProfile({ ...profile, next_service_km: e.target.value })} placeholder="Km del próximo service" />
+                <NumberInput className="form-control mb-2" value={profile.last_service_km} onChange={(e) => setProfile({ ...profile, last_service_km: e.target.value })} placeholder="Km del service" />
+                <NumberInput className="form-control mb-2" value={profile.next_service_km} onChange={(e) => setProfile({ ...profile, next_service_km: e.target.value })} placeholder="Km del próximo service" />
                 <div className="form-check">
                   <input id="auto-roto" type="checkbox" className="form-check-input" checked={profile.is_broken} onChange={(e) => setProfile({ ...profile, is_broken: e.target.checked })} />
                   <label className="form-check-label" htmlFor="auto-roto">Roto</label>
@@ -1277,7 +1277,7 @@ function MoveModal({ move, carts, autosOut, onClose, onDone, onError }) {
             {move.kind === "auto" && (
               <div className="mb-3">
                 <label className="form-label">Kilómetros</label>
-                <input className="form-control" inputMode="numeric" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Opcional" />
+                <NumberInput className="form-control" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Opcional" />
                 <div className="form-text">Si los ponés, quedan como los km que tiene el auto.</div>
               </div>
             )}
@@ -1417,7 +1417,7 @@ function PastUseModal({ row, carts, autos, onClose, onDone, onError }) {
               <>
                 <div className="mb-3">
                   <label className="form-label">Kilómetros al volver</label>
-                  <input className="form-control" inputMode="numeric" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Opcional" />
+                  <NumberInput className="form-control" value={km} onChange={(e) => setKm(e.target.value)} placeholder="Opcional" />
                   <div className="form-text">Solo cambian los km del auto si son más de los que tiene.</div>
                 </div>
                 <div className="mb-3">

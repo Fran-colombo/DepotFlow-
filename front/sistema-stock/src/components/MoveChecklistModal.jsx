@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import logoConkreto from "../assets/logo-conkreto.png";
+import NumberInput from "./NumberInput";
 
 const todayInputValue = () => {
   const now = new Date();
@@ -371,8 +372,7 @@ export default function MoveChecklistModal({ isOpen, items, defaultOrigin = "", 
                       <td>{item.type}</td>
                       <td>{item.location}</td>
                       <td className="text-end" style={{ width: 120 }}>
-                        <input
-                          type="number"
+                        <NumberInput
                           min="0"
                           className="form-control form-control-sm text-end"
                           value={item.moveAmount}

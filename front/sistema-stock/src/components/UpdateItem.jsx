@@ -12,6 +12,7 @@ import FeedbackModal from "./FeedbackModal";
 import CodePreview from "./CodePreview";
 import { cleanPrefix, prefixProblem, useCodePreview } from "./pieceCodes";
 import useAuth from "../hooks/useAuth";
+import NumberInput from "./NumberInput";
 
 const UpdateItemModal = ({
   isOpen,
@@ -887,13 +888,9 @@ const UpdateItemModal = ({
             <form onSubmit={handleSubmit}>
               {mode === "create" && createStep === "piece" ? (
                 <>
-                  <div className="mb-3">
-                    <label className="form-label fw-bold">Subcategoría:</label>
-                    <div className="form-control-plaintext fw-semibold px-0">{createdSub?.name}</div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="form-label fw-bold">Categoría:</label>
-                    <div className="form-control-plaintext px-0">{createdSub?.category || formData.category}</div>
+                  <div className="mb-3 text-truncate">
+                    <span className="fw-semibold">{createdSub?.name}</span>
+                    <span className="text-secondary"> · {createdSub?.category || formData.category}</span>
                   </div>
                   <div className="mb-3">
                     <label className="form-label fw-bold" htmlFor="piece-code">Tipo de pieza:</label>
@@ -926,9 +923,8 @@ const UpdateItemModal = ({
                   {createdSub?.inner_quantity && (
                     <div className="mb-3">
                       <label className="form-label fw-bold" htmlFor="piece-inside">{categories.find((cat) => cat.name === (createdSub?.category || formData.category))?.unit === "metro" ? "Cuántos metros hay:" : "Cuántos hay adentro:"}</label>
-                      <input
+                      <NumberInput
                         id="piece-inside"
-                        type="number"
                         min="1"
                         className="form-control"
                         value={pieceContent}
@@ -1040,8 +1036,7 @@ const UpdateItemModal = ({
                   {formData.quantityOnly && (
                   <div className="mb-3">
                     <label className="form-label fw-bold">Cantidad:</label>
-                    <input
-                      type="number"
+                    <NumberInput
                       className="form-control"
                       min="1"
                       value={formData.quantity}
@@ -1340,8 +1335,7 @@ const UpdateItemModal = ({
                                 />
                               </div>
                               <div className="col-3">
-                                <input
-                                  type="number"
+                                <NumberInput
                                   min="0"
                                   className="form-control"
                                   aria-label={`Cantidad de ${piece.code}`}
@@ -1418,8 +1412,7 @@ const UpdateItemModal = ({
                           </div>
                         </div>
                         <label className="form-label">{selectedUpdateItem?.unit === "metro" ? "Cuántos metros hay" : "Cuántos hay adentro"}</label>
-                        <input
-                          type="number"
+                        <NumberInput
                           min="1"
                           className="form-control"
                           value={newPieces[0]?.quantity || ""}
@@ -1436,8 +1429,7 @@ const UpdateItemModal = ({
                   <>
                   <div className="mb-3">
                     <label className="form-label fw-bold">Cantidad:</label>
-                    <input
-                      type="number"
+                    <NumberInput
                       className="form-control"
                       min="1"
                       value={updateData.quantity}
@@ -1606,8 +1598,7 @@ const UpdateItemModal = ({
                   {(!updateTracksUnits || updateInner) && (
                     <div className="mb-2">
                       <label className="form-label">{selectedUpdateItem.unit === "metro" ? "Metros" : "Cantidad"}</label>
-                      <input
-                        type="number"
+                      <NumberInput
                         min="1"
                         className="form-control"
                         value={retireAmount}

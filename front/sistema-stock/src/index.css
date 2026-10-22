@@ -357,3 +357,15 @@ textarea {
 button {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+.modal .modal-body input,
+.modal .modal-body textarea {
+  scroll-margin-top: 1rem;
+  scroll-margin-bottom: 6rem;
+}
+
+@supports (height: 100dvh) {
+  .modal .modal-dialog.modal-dialog-scrollable {
+    height: calc(100dvh - var(--bs-modal-margin) * 2);
+  }
+}

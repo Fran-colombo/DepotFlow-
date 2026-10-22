@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { exportTransferChecklist } from "../api/items";
+import NumberInput from "./NumberInput";
 
 const TransferExportModal = ({ isOpen, items, onClose, onExported }) => {
   const [quantities, setQuantities] = useState({});
@@ -143,8 +144,7 @@ const TransferExportModal = ({ isOpen, items, onClose, onExported }) => {
                         </td>
                         <td className="text-end">{item.actualAmount}</td>
                         <td>
-                          <input
-                            type="number"
+                          <NumberInput
                             className="form-control form-control-sm"
                             min="1"
                             max={item.actualAmount}

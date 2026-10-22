@@ -33,6 +33,7 @@ import { getSheds } from "../api/sheds";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
 import { isMetro, measureMark, measureNoun } from "../measure";
+import NumberInput from "./NumberInput";
 
 const ACTION_LABEL = {
   retiro: "Retiro",
@@ -440,8 +441,7 @@ const PieceCard = ({
                   </div>
                   {depotHere > 1 && (
                     <div className="col-3">
-                      <input
-                        type="number"
+                      <NumberInput
                         min="1"
                         className="form-control"
                         value={row.quantity}
@@ -1557,8 +1557,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                         {innerQuantity && (
                           <div className="mb-2">
                             <label className="form-label mb-1">{isMetro(measureUnit) ? "Cuántos metros hay" : "Cuántos hay adentro"}</label>
-                            <input
-                              type="number"
+                            <NumberInput
                               min="1"
                               className="form-control"
                               value={pieceInside}
@@ -1838,8 +1837,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
             >
             <div className="modal-body">
               <label className="form-label">{isMetro(measureUnit) ? "Cuántos metros quedan en este código" : "Cuántos quedan en este código"}</label>
-              <input
-                type="number"
+              <NumberInput
                 min="0"
                 className="form-control"
                 value={qtyValue}
@@ -2041,8 +2039,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     <label className="form-check-label" htmlFor="piece-retire-total">Total</label>
                   </div>
                   {retireScope === "parcial" ? (
-                    <input
-                      type="number"
+                    <NumberInput
                       min="1"
                       className="form-control"
                       value={popupAmount}
@@ -2059,8 +2056,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
               {innerQuantity && actionUnit.kind === "return" && !(returnFromRepair && repairFixed === "no" && repairOutcome === "discard") && (
                 <div className="mb-3">
                   <label className="form-label">{isMetro(measureUnit) ? "Cuántos metros" : "Cuántos"}</label>
-                  <input
-                    type="number"
+                  <NumberInput
                     min="1"
                     className="form-control"
                     value={popupAmount}

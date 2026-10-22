@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { noVolvioItem } from "../api/items";
 import PersonPicker from "./PersonPicker";
+import NumberInput from "./NumberInput";
 
 const REASONS = [
   { id: "gastado", label: "Se gastó" },
@@ -159,8 +160,7 @@ const NoVolvioModal = ({
               {max > 1 && (
                 <div className="mb-3">
                   <label className="form-label">Cantidad (hasta {max})</label>
-                  <input
-                    type="number"
+                  <NumberInput
                     className="form-control"
                     min={1}
                     max={max}

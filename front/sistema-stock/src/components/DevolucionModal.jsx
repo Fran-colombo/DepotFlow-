@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
 import FeedbackModal from "./FeedbackModal";
 import PersonPicker from "./PersonPicker";
+import NumberInput from "./NumberInput";
 
 const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
@@ -165,8 +166,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
 
               <div className="mb-3">
                 <label className="form-label">{item?.unit === "metro" ? "Metros a devolver" : "Cantidad a devolver"}</label>
-                <input
-                  type="number"
+                <NumberInput
                   className="form-control"
                   value={form.amount}
                   min={1}
