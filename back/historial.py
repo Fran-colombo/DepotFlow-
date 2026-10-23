@@ -49,6 +49,7 @@ from unit_service import (
 )
 
 NO_VOLVIO_REASONS = {
+    "usado": "Se usó en la obra",
     "gastado": "Se gastó",
     "perdido": "Se perdió",
     "roto": "Se rompió",
@@ -1065,7 +1066,7 @@ def no_volvio_item(
         raise HTTPException(status_code=400, detail="La cantidad tiene que ser mayor a 0")
     reason = NO_VOLVIO_REASONS.get((dto.reason or "").strip())
     if not reason:
-        raise HTTPException(status_code=400, detail="Indicá si se gastó, se perdió o se rompió")
+        raise HTTPException(status_code=400, detail="Indicá si se usó, se gastó, se perdió o se rompió")
     place = (dto.place or "").strip()
     if not place:
         raise HTTPException(status_code=400, detail="Elegí la obra")
@@ -1220,7 +1221,7 @@ def close_unplaced(
 ):
     reason = NO_VOLVIO_REASONS.get((dto.reason or "").strip())
     if not reason:
-        raise HTTPException(status_code=400, detail="Indicá si se gastó, se perdió o se rompió")
+        raise HTTPException(status_code=400, detail="Indicá si se usó, se gastó, se perdió o se rompió")
     item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")

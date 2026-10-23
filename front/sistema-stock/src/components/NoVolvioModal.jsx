@@ -4,6 +4,7 @@ import PersonPicker from "./PersonPicker";
 import NumberInput from "./NumberInput";
 
 const REASONS = [
+  { id: "usado", label: "Se usó en la obra" },
   { id: "gastado", label: "Se gastó" },
   { id: "perdido", label: "Se perdió" },
   { id: "roto", label: "Se rompió" },
@@ -65,7 +66,7 @@ const NoVolvioModal = ({
       return;
     }
     if (!reason) {
-      setError("Indicá si se gastó, se perdió o se rompió");
+      setError("Indicá si se usó, se gastó, se perdió o se rompió");
       return;
     }
     if (!person.trim()) {
@@ -148,7 +149,7 @@ const NoVolvioModal = ({
               </p>
             ) : (
               <p className="small text-muted mb-3">
-                Cierra lo que se gastó, se perdió o se rompió en la obra. No vuelve al depósito y baja el total.
+                Cierra lo que se usó, se gastó, se perdió o se rompió en la obra. No vuelve al depósito y baja el total.
               </p>
             )}
             {code && (

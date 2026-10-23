@@ -159,7 +159,7 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
                     onClick={() => setShowNoVolvio(true)}
                     disabled={loading}
                   >
-                    No vuelve: se gastó, se perdió o se rompió
+                    No vuelve: se usó, se gastó, se perdió o se rompió
                   </button>
                 )}
               </div>
