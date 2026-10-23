@@ -39,6 +39,7 @@ const UpdateItemModal = ({
   const [retireAmount, setRetireAmount] = useState("");
   const [retirePlace, setRetirePlace] = useState("");
   const [retirePerson, setRetirePerson] = useState("");
+  const [retireInShed, setRetireInShed] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -505,16 +506,19 @@ const UpdateItemModal = ({
     }
   };
 
+  const retireUsedInShed = Boolean(selectedUpdateItem?.is_consumable) && retireInShed;
+
   const handleStockRetire = async () => {
     if (!selectedUpdateItem?.id) return;
     const onePiece = updateTracksUnits && !updateInner;
     const amount = onePiece ? 1 : parseInt(retireAmount, 10);
-    if (!retirePlace.trim()) {
+    const inShed = retireUsedInShed;
+    if (!inShed && !retirePlace.trim()) {
       setError("Elegí una obra");
       return;
     }
     if (!retirePerson.trim()) {
-      setError("Indicá quién lo retira");
+      setError(inShed ? "Indicá quién lo usó" : "Indicá quién lo retira");
       return;
     }
     if (!amount || amount < 1) {
@@ -531,16 +535,17 @@ const UpdateItemModal = ({
       await retirarItem({
         itemId: selectedUpdateItem.id,
         amount,
-        place: retirePlace.trim(),
+        place: inShed ? "" : retirePlace.trim(),
         personWhoTook: retirePerson.trim(),
         ...((updateTracksUnits || updateInner) ? { codes: [retireCode] } : {}),
         noReturn: Boolean(selectedUpdateItem.is_consumable),
+        ...(inShed ? { inShed: true } : {}),
       });
       setRetireAmount("");
       setRetirePerson("");
       refreshItems?.();
       setStockRevision((value) => value + 1);
-      setFeedback({ type: "success", message: "Se retiró." });
+      setFeedback({ type: "success", message: inShed ? "Quedó como usado en el galpón." : "Se retiró." });
     } catch (err) {
       setFeedback({ type: "error", message: err.message || "No se pudo retirar" });
     } finally {
@@ -1606,12 +1611,40 @@ const UpdateItemModal = ({
                       />
                     </div>
                   )}
+                  {selectedUpdateItem.is_consumable && (
+                    <div className="mb-2">
+                      <div className="form-check">
+                        <input
+                          id="stock-retire-obra"
+                          type="radio"
+                          className="form-check-input"
+                          name="stock-retire-where"
+                          checked={!retireInShed}
+                          onChange={() => setRetireInShed(false)}
+                        />
+                        <label className="form-check-label" htmlFor="stock-retire-obra">A una obra</label>
+                      </div>
+                      <div className="form-check">
+                        <input
+                          id="stock-retire-shed"
+                          type="radio"
+                          className="form-check-input"
+                          name="stock-retire-where"
+                          checked={retireInShed}
+                          onChange={() => setRetireInShed(true)}
+                        />
+                        <label className="form-check-label" htmlFor="stock-retire-shed">Se usó en el galpón</label>
+                      </div>
+                    </div>
+                  )}
+                  {!retireUsedInShed && (
+                    <div className="mb-2">
+                      <label className="form-label">Obra</label>
+                      <ObraPicker obras={obras} value={retirePlace} onChange={setRetirePlace} />
+                    </div>
+                  )}
                   <div className="mb-2">
-                    <label className="form-label">Obra</label>
-                    <ObraPicker obras={obras} value={retirePlace} onChange={setRetirePlace} />
-                  </div>
-                  <div className="mb-2">
-                    <label className="form-label">Quién lo retira</label>
+                    <label className="form-label">{retireUsedInShed ? "Quién lo usó" : "Quién lo retira"}</label>
                     <PersonPicker value={retirePerson} onChange={setRetirePerson} disabled={isLoading} />
                   </div>
                   <button
@@ -1620,7 +1653,7 @@ const UpdateItemModal = ({
                     disabled={isLoading}
                     onClick={handleStockRetire}
                   >
-                    Retirar
+                    {retireUsedInShed ? "Marcar usado" : "Retirar"}
                   </button>
                 </div>
                 ) : (

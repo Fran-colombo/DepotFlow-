@@ -146,7 +146,7 @@ const RetirarItemModal = ({
   const [item, setItem] = useState(null);
   const [stockUnits, setStockUnits] = useState([]);
   const [innerQuantity, setInnerQuantity] = useState(false);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '' });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false });
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -156,10 +156,11 @@ const RetirarItemModal = ({
   const [obras, setObras] = useState([]);
 
   const selectedUnit = stockUnits.find((unit) => unit.code === form.code);
+  const inShed = Boolean(item?.is_consumable) && form.inShed;
 
   useEffect(() => {
     if (isOpen && itemId) {
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '' });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false });
       setRetiredCodes([]);
       setStockUnits([]);
       setInnerQuantity(false);
@@ -179,7 +180,7 @@ const RetirarItemModal = ({
     setLoading(true);
     setError("");
     try {
-      if (!form.place.trim()) {
+      if (!inShed && !form.place.trim()) {
         setError("Elegí una obra");
         setLoading(false);
         return;
@@ -212,22 +213,23 @@ const RetirarItemModal = ({
       const result = await retirarItem({
         itemId,
         amount,
-        place: form.place,
+        place: inShed ? "" : form.place,
         ...(form.personWhoTook && { personWhoTook: form.personWhoTook }),
         ...(codes ? { codes } : {}),
         noReturn: Boolean(item?.is_consumable) || form.noReturn,
+        ...(inShed ? { inShed: true } : {}),
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
       });
       setRetiredCodes(result?.unit_codes || []);
-      setRemitoDraft({
+      setRemitoDraft(inShed ? null : {
         item,
         amount,
         place: form.place,
         personWhoTook: form.personWhoTook || "Usuario actual",
       });
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '' });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false });
       onSuccess?.();
-      setFeedback({ type: "success", message: "Se retiró." });
+      setFeedback({ type: "success", message: inShed ? "Quedó como usado en el galpón." : "Se retiró." });
     } catch (error) {
       setFeedback({
         type: "error",
@@ -287,6 +289,34 @@ const RetirarItemModal = ({
                 </div>
                 )}
 
+                {item?.is_consumable && (
+                  <div className="mb-3">
+                    <div className="form-check">
+                      <input
+                        id="retire-to-obra"
+                        type="radio"
+                        className="form-check-input"
+                        name="retire-where"
+                        checked={!form.inShed}
+                        onChange={() => setForm({ ...form, inShed: false })}
+                      />
+                      <label className="form-check-label" htmlFor="retire-to-obra">A una obra</label>
+                    </div>
+                    <div className="form-check">
+                      <input
+                        id="retire-in-shed"
+                        type="radio"
+                        className="form-check-input"
+                        name="retire-where"
+                        checked={form.inShed}
+                        onChange={() => setForm({ ...form, inShed: true })}
+                      />
+                      <label className="form-check-label" htmlFor="retire-in-shed">Se usó en el galpón</label>
+                    </div>
+                  </div>
+                )}
+
+                {!inShed && (
                 <div className="mb-3">
                   <label className="form-label">Obra de destino</label>
                   <ObraPicker
@@ -295,6 +325,7 @@ const RetirarItemModal = ({
                     onChange={(place) => setForm({ ...form, place })}
                   />
                 </div>
+                )}
 
                 {item?.track_units && (
                   <div className="mb-3">
@@ -372,18 +403,18 @@ const RetirarItemModal = ({
                 )}
 
                 <div className="mb-3">
-                  <label className="form-label">Quién lo retira</label>
+                  <label className="form-label">{inShed ? "Quién lo usó" : "Quién lo retira"}</label>
                   <PersonPicker
                     value={form.personWhoTook}
                     onChange={(personWhoTook) => setForm({ ...form, personWhoTook })}
                   />
                 </div>
                 <div className="mb-3">
-                  <label className="form-label">Nota</label>
+                  <label className="form-label">{inShed ? "Para qué" : "Nota"}</label>
                   <textarea
                     className="form-control"
                     rows="2"
-                    placeholder="Opcional"
+                    placeholder={inShed ? "Opcional, por ejemplo: cortar caños" : "Opcional"}
                     value={form.note}
                     onChange={(e) => setForm({ ...form, note: e.target.value })}
                   />
@@ -408,6 +439,8 @@ const RetirarItemModal = ({
                         <span className="spinner-border spinner-border-sm me-2"></span>
                         Procesando...
                       </>
+                    ) : inShed ? (
+                      "Marcar usado"
                     ) : (
                       "Confirmar Retiro"
                     )}
@@ -475,7 +508,8 @@ const RetirarItemModal = ({
         onClose={() => {
           const done = feedback?.type === "success";
           setFeedback(null);
-          if (done) setShowRemitoConfirmation(true);
+          if (done && remitoDraft) setShowRemitoConfirmation(true);
+          else if (done) onClose();
         }}
       />
     </>

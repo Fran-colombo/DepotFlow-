@@ -267,6 +267,7 @@ const selectedItems = historial.filter(item => selectedIds.includes(item.id));
                   <option value="carga">Cargas</option>
                   <option value="descarte">Tirado</option>
                   <option value="no_volvio">No volvió</option>
+                  <option value="uso_galpon">Usado en el galpón</option>
                 </select>
               </div>
               <div className="col-md-5">

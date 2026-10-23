@@ -565,7 +565,14 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
         raise HTTPException(404, "Item not found")
 
     repair = bool(dto.repair)
-    if repair:
+    in_shed = bool(dto.inShed)
+    if in_shed:
+        if repair:
+            raise HTTPException(400, "Elegí reparar o usado en el galpón, no las dos")
+        if not category_is_consumable(db, item.category):
+            raise HTTPException(400, "Solo los insumos que se gastan se marcan usados en el galpón")
+        dto.place = item.shed.name if item.shed and item.shed.name else "Galpón"
+    elif repair:
         dto.place = REPAIR_PLACE
     else:
         from obras import require_active_obra
@@ -579,7 +586,7 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     if dto.personWhoTook and dto.personWhoTook.strip():  
         quien_tomo = dto.personWhoTook.strip()
 
-    no_return = (category_is_consumable(db, item.category) or bool(dto.noReturn)) and not repair
+    no_return = in_shed or ((category_is_consumable(db, item.category) or bool(dto.noReturn)) and not repair)
     units = []
     if item.inner_quantity:
         if not dto.codes or len(dto.codes) != 1:
@@ -611,7 +618,7 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
             itemId=dto.itemId,
             userId=user_id,
             userName=user_name,
-            action=models.ActionEnum.retiro,
+            action=models.ActionEnum.uso_galpon if in_shed else models.ActionEnum.retiro,
             personWhoTook=quien_tomo,  
             amountRetired=dto.amount,
             amountNotReturned=None ,

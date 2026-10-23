@@ -8,6 +8,7 @@ const actionLabel = (action) => {
   if (action === "carga") return "Carga";
   if (action === "descarte") return "Tirado";
   if (action === "no_volvio") return "No volvió";
+  if (action === "uso_galpon") return "Usado en el galpón";
   return action || "—";
 };
 

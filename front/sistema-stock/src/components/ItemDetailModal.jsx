@@ -42,6 +42,7 @@ const ACTION_LABEL = {
   traslado: "Traslado",
   descarte: "Tirado",
   no_volvio: "No volvió",
+  uso_galpon: "Usado en el galpón",
 };
 
 const REPAIR_PLACE = "Reparación";
@@ -765,6 +766,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [popupAmount, setPopupAmount] = useState(1);
   const [retireScope, setRetireScope] = useState("parcial");
   const [retireRepair, setRetireRepair] = useState(false);
+  const [retireInShed, setRetireInShed] = useState(false);
   const [returnFromRepair, setReturnFromRepair] = useState(false);
   const [repairFixed, setRepairFixed] = useState("");
   const [repairFix, setRepairFix] = useState("");
@@ -1016,6 +1018,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setPopupAmount("");
     setRetireScope("parcial");
     setRetireRepair(false);
+    setRetireInShed(false);
     setActionUnit({ unit, kind: "retire" });
   };
 
@@ -1035,15 +1038,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setActionUnit({ unit, kind: "return" });
   };
 
+  const retireUsedInShed = actionUnit?.kind === "retire" && consumable && retireInShed && !retireRepair;
+
   const handleRetiro = async () => {
     const unit = actionUnit?.unit;
     if (!unit) return;
-    if (!retireRepair && !popupPlace.trim()) {
+    const inShed = retireUsedInShed;
+    if (!retireRepair && !inShed && !popupPlace.trim()) {
       setPopupError("Elegí una obra");
       return;
     }
     if (!popupPerson.trim()) {
-      setPopupError("Indicá quién lo retira");
+      setPopupError(inShed ? "Indicá quién lo usó" : "Indicá quién lo retira");
       return;
     }
     const max = actionUnit.unit.quantity || 0;
@@ -1062,17 +1068,18 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       await retirarItem({
         itemId: item.id,
         amount,
-        place: retireRepair ? REPAIR_PLACE : popupPlace.trim(),
+        place: retireRepair ? REPAIR_PLACE : inShed ? "" : popupPlace.trim(),
         personWhoTook: popupPerson.trim(),
         codes: [unit.code],
         noReturn: retireRepair ? false : consumable,
         repair: retireRepair,
+        ...(inShed ? { inShed: true } : {}),
         ...(popupNote.trim() ? { note: popupNote.trim() } : {}),
       });
       setActionUnit(null);
       setFeedback({
         type: "success",
-        message: retireRepair ? "Se mandó a reparación." : "Se retiró.",
+        message: retireRepair ? "Se mandó a reparación." : inShed ? "Quedó como usado en el galpón." : "Se retiró.",
       });
       await reload();
       onChanged?.();
@@ -1912,7 +1919,33 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     </label>
                     <div className="form-text">No es una obra. La pieza queda fuera de servicio.</div>
                   </div>
-                  {!retireRepair && (
+                  {!retireRepair && consumable && (
+                    <div className="mb-3">
+                      <div className="form-check">
+                        <input
+                          id="piece-retire-obra"
+                          type="radio"
+                          className="form-check-input"
+                          name="piece-retire-where"
+                          checked={!retireInShed}
+                          onChange={() => setRetireInShed(false)}
+                        />
+                        <label className="form-check-label" htmlFor="piece-retire-obra">A una obra</label>
+                      </div>
+                      <div className="form-check">
+                        <input
+                          id="piece-retire-shed"
+                          type="radio"
+                          className="form-check-input"
+                          name="piece-retire-where"
+                          checked={retireInShed}
+                          onChange={() => setRetireInShed(true)}
+                        />
+                        <label className="form-check-label" htmlFor="piece-retire-shed">Se usó en el galpón</label>
+                      </div>
+                    </div>
+                  )}
+                  {!retireRepair && !retireUsedInShed && (
                     <div className="mb-3">
                       <label className="form-label">Obra de destino</label>
                       <ObraPicker obras={obras} value={popupPlace} onChange={setPopupPlace} />
@@ -2073,16 +2106,20 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
               )}
               <div className="mb-3">
                 <label className="form-label">
-                  {actionUnit.kind === "retire" ? "Quién lo retira" : "Quién lo devuelve"}
+                  {actionUnit.kind !== "retire"
+                    ? "Quién lo devuelve"
+                    : retireUsedInShed
+                      ? "Quién lo usó"
+                      : "Quién lo retira"}
                 </label>
                 <PersonPicker value={popupPerson} onChange={setPopupPerson} disabled={busy} />
               </div>
               <div className="mb-3">
-                <label className="form-label">Nota</label>
+                <label className="form-label">{retireUsedInShed ? "Para qué" : "Nota"}</label>
                 <textarea
                   className="form-control"
                   rows="2"
-                  placeholder="Opcional"
+                  placeholder={retireUsedInShed ? "Opcional, por ejemplo: cortar caños" : "Opcional"}
                   value={popupNote}
                   onChange={(e) => setPopupNote(e.target.value)}
                 />
@@ -2106,9 +2143,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 {actionUnit.kind === "retire"
                   ? retireRepair
                     ? "Llevar a reparar"
-                    : consumable
-                      ? "Retirar y marcar usada"
-                      : "Retirar"
+                    : retireUsedInShed
+                      ? "Marcar usado"
+                      : consumable
+                        ? "Retirar y marcar usada"
+                        : "Retirar"
                   : returnFromRepair
                     ? repairOutcome === "discard"
                       ? "Tirar"

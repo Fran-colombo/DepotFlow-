@@ -108,6 +108,7 @@ useEffect(() => {
       case 'carga': return 'bg-primary text-white';
       case 'descarte': return 'bg-dark text-white';
       case 'no_volvio': return 'bg-secondary text-white';
+      case 'uso_galpon': return 'bg-secondary text-white';
       default: return 'bg-secondary text-white';
     }
   };
@@ -119,6 +120,7 @@ useEffect(() => {
     if (action === 'devolucion') return 'Devolución';
     if (action === 'descarte') return 'Tirado';
     if (action === 'no_volvio') return 'No volvió';
+    if (action === 'uso_galpon') return 'Usado en el galpón';
     return action || '—';
   };
 
@@ -141,6 +143,9 @@ useEffect(() => {
     }
     if (registro.action === 'no_volvio') {
       return { className: 'bg-secondary text-white', label: 'No volvió' };
+    }
+    if (registro.action === 'uso_galpon') {
+      return { className: 'bg-secondary text-white', label: 'Usado' };
     }
     if (registro.turnback) {
       return { className: 'bg-success text-white', label: 'Devuelto' };
@@ -283,6 +288,7 @@ useEffect(() => {
                 <option value="carga">Cargas</option>
                 <option value="descarte">Tirado</option>
                 <option value="no_volvio">No volvió</option>
+                <option value="uso_galpon">Usado en el galpón</option>
               </select>
             </div>
 
