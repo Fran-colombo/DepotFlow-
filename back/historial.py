@@ -26,7 +26,7 @@ import pytz
 from item_categories import category_is_consumable
 from item_images import stored_image_path
 from obras import require_active_obra
-from item_service import ItemServiceError
+from item_service import ItemServiceError, item_unplaced_amount
 from unit_service import (
     REPAIR_PLACE,
     STATUS_FUERA_DE_SERVICIO,
@@ -1207,6 +1207,67 @@ def no_volvio_item(
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     return {"ok": True, "amount": dto.amount, "reason": reason, "codes": [unit.code for unit in units]}
+
+
+UNPLACED_PLACE = "Sin ubicar"
+
+
+@router.post("/sin-ubicar")
+def close_unplaced(
+    dto: devolucionDTO.SinUbicarDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    reason = NO_VOLVIO_REASONS.get((dto.reason or "").strip())
+    if not reason:
+        raise HTTPException(status_code=400, detail="Indicá si se gastó, se perdió o se rompió")
+    item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.track_units or item.inner_quantity:
+        raise HTTPException(status_code=400, detail="Los productos con códigos se cierran pieza por pieza")
+    missing = item_unplaced_amount(db, item)
+    if missing < 1:
+        raise HTTPException(status_code=400, detail="No hay nada sin ubicar")
+
+    user_id = current_user["user_id"]
+    user_name = get_user_name_by_id(db, user_id)
+    who = (dto.personWhoConfirmed or "").strip() or user_name
+    moment = now()
+
+    _lower_total(item, missing)
+    stale = (
+        db.query(models.History)
+        .filter(
+            models.History.itemId == item.id,
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            or_(models.History.amountNotReturned == None, models.History.amountNotReturned <= 0),
+        )
+        .all()
+    )
+    for row in stale:
+        row.amountNotReturned = 0
+        row.turnback = True
+        row.turnbackDate = moment
+
+    db.add(models.History(
+        itemId=item.id,
+        userId=user_id,
+        userName=user_name,
+        personWhoTook=who,
+        action=models.ActionEnum.no_volvio,
+        amountRetired=missing,
+        amountNotReturned=0,
+        date=moment,
+        place=UNPLACED_PLACE,
+        note=reason,
+        turnback=True,
+        turnbackDate=moment,
+        lastNotification=None,
+    ))
+    db.commit()
+    return {"ok": True, "amount": missing, "reason": reason}
 
 
 @router.post("/trasladar")

@@ -3,6 +3,7 @@ import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
 import FeedbackModal from "./FeedbackModal";
 import PersonPicker from "./PersonPicker";
 import NumberInput from "./NumberInput";
+import NoVolvioModal from "./NoVolvioModal";
 
 const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
@@ -12,9 +13,11 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState(null);
+  const [showNoVolvio, setShowNoVolvio] = useState(false);
 
   useEffect(() => {
     if (!isOpen || !itemId) return;
+    setShowNoVolvio(false);
 
     setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '', codesText: '', note: '' });
     setError("");
@@ -149,6 +152,16 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
                     No hay retiros pendientes para este ítem
                   </div>
                 )}
+                {!noPending && !loadingPlaces && (
+                  <button
+                    type="button"
+                    className="btn btn-link btn-sm px-0"
+                    onClick={() => setShowNoVolvio(true)}
+                    disabled={loading}
+                  >
+                    No vuelve: se gastó, se perdió o se rompió
+                  </button>
+                )}
               </div>
 
               {item?.track_units && (
@@ -234,6 +247,15 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
         </div>
       </div>
     </div>
+    <NoVolvioModal
+      isOpen={showNoVolvio}
+      onClose={() => setShowNoVolvio(false)}
+      onSuccess={onSuccess}
+      onFinished={setFeedback}
+      itemId={itemId}
+      itemName={item?.name || ""}
+      places={pendingPlaces}
+    />
     <FeedbackModal
       open={Boolean(feedback)}
       type={feedback?.type}

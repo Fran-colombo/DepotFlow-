@@ -106,6 +106,7 @@ export const MANUAL_SECTIONS = [
           { type: "p", text: "Los discos se retiran como herramienta. Si salen 5 y vuelven 2, esos 2 se devuelven y los otros 3 se cierran con **No volvió: se gastó**. Si la categoría fuera insumo, los 2 no podrían volver." },
           { type: "p", text: "Los baldes salen pendientes. Los que vuelven se devuelven. Si uno vuelve roto, se devuelve y se marca rota. Los que se deshicieron o no aparecen se cierran con **se rompió** o **se perdió**." },
           { type: "p", text: "Una cámara queda pendiente todo el tiempo que está en la obra. Cuando se van, se devuelve. No es una deuda ni un insumo: está instalada hasta que la obra termina." },
+          { type: "warn", text: "Cambiar la categoría a insumo no cierra lo que ya salió. Si salieron como herramienta y se usaron, se cierran con **No volvió: se gastó**. No pongas el pendiente en 0 a mano: el total no baja y quedan **sin ubicar**." },
         ],
         related: ["retirar", "estados", "pendientes"],
       },
@@ -236,7 +237,7 @@ export const MANUAL_SECTIONS = [
         id: "devolver",
         title: "Devolver un producto",
         summary: "Lo que vuelve de una obra al depósito.",
-        keywords: ["devolver", "devolución", "volver", "regresar", "obra", "pendiente"],
+        keywords: ["devolver", "devolución", "volver", "regresar", "obra", "pendiente", "no vuelve", "sin ubicar", "resolver"],
         body: [
           { type: "steps", items: [
             "En la fila tocá **Devolver** (se habilita si hay algo afuera).",
@@ -248,7 +249,8 @@ export const MANUAL_SECTIONS = [
           ] },
           { type: "warn", text: "Lo que está en reparación no aparece acá. Eso se devuelve desde el detalle, con **Movimientos → Volver al depósito**." },
           { type: "p", text: "También podés devolver desde **Pendientes** o desde **Existencias**." },
-          { type: "p", text: "Si una parte no volvió porque se gastó, se perdió o se rompió, no se devuelve: se cierra con **No volvió** desde Pendientes o desde la pieza que está en obra." },
+          { type: "p", text: "Si una parte no volvió porque se gastó, se perdió o se rompió, no se devuelve: en la ventana de Devolver tocá **No vuelve: se gastó, se perdió o se rompió**. También está en Pendientes y en la pieza que está en obra." },
+          { type: "p", text: "Si en Productos aparece **N sin ubicar**, hay cantidad que no está en depósito ni pendiente en ninguna obra (por ejemplo, porque se tocó un número a mano). Tocá **Resolver**, elegí si se gastó, se perdió o se rompió, y baja el total. En el Historial queda como No volvió, con lugar Sin ubicar." },
         ],
         related: ["devolver-pieza", "pendientes", "existencias-acciones"],
       },

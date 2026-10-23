@@ -755,6 +755,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [codeFilter, setCodeFilter] = useState(focusCode || "");
   const [trackUnits, setTrackUnits] = useState(false);
   const [consumable, setConsumable] = useState(false);
+  const [missingAmount, setMissingAmount] = useState(0);
+  const [showUnplaced, setShowUnplaced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [historyUnit, setHistoryUnit] = useState(null);
@@ -860,6 +862,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
       setTrackUnits(Boolean(data.track_units));
       setConsumable(Boolean(data.is_consumable));
       setInnerQuantity(Boolean(data.inner_quantity));
+      setMissingAmount(Number(data.missing_amount) || 0);
       if (data.unit) setMeasureUnit(data.unit);
     });
   };
@@ -891,6 +894,8 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setMeasureUnit(item.unit || "unidad");
     setPiecePrefixChoice(item.code_prefix || "");
     setOpenGroups({});
+    setMissingAmount(Number(item.missing_amount) || 0);
+    setShowUnplaced(false);
     let cancelled = false;
     setLoading(true);
     getItemUnits(item.id, "all")
@@ -900,6 +905,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         setTrackUnits(Boolean(data.track_units));
         setConsumable(Boolean(data.is_consumable));
         setInnerQuantity(Boolean(data.inner_quantity ?? item.inner_quantity));
+        setMissingAmount(Number(data.missing_amount) || 0);
         if (data.unit) setMeasureUnit(data.unit);
       })
       .catch((err) => {
@@ -1396,7 +1402,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                     }}
                     onRetire={openRetire}
                     onDevolver={place === "repair" ? (unit) => openReturn(unit, true) : (unit) => openReturn(unit, false)}
-                    onNoVolvio={place === "obra" && !consumable ? openNoVolvio : undefined}
+                    onNoVolvio={place === "obra" ? openNoVolvio : undefined}
                     onTransfer={place === "obra" && !consumable ? openTransfer : undefined}
                     onShowHistory={setHistoryUnit}
                     onChangeCategory={openCategoryMove}
@@ -1455,6 +1461,16 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
               </div>
             ) : !trackUnits ? (
               <div>
+                {missingAmount > 0 && (
+                  <div className="alert alert-warning py-2 d-flex justify-content-between align-items-center gap-2">
+                    <span>
+                      {missingAmount}{measureMark(measureUnit)} sin ubicar: no {missingAmount === 1 ? "está" : "están"} en depósito ni pendientes en una obra.
+                    </span>
+                    <button type="button" className="btn btn-sm btn-outline-dark" onClick={() => setShowUnplaced(true)}>
+                      Resolver
+                    </button>
+                  </div>
+                )}
                 <p className="mb-2">
                   <strong>{item.actualAmount ?? 0}{measureMark(measureUnit)} en depósito.</strong> Este grupo se lleva por cantidad.
                   El retiro sigue siendo un número, no una pieza.
@@ -2237,6 +2253,20 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         </div>
       </div>
     )}
+    <NoVolvioModal
+      itemId={item.id}
+      itemName={item.name || ""}
+      unplaced={missingAmount}
+      isOpen={showUnplaced}
+      onClose={() => setShowUnplaced(false)}
+      onSuccess={async () => {
+        await reload();
+        onChanged?.();
+      }}
+      onFinished={(result) => {
+        if (result?.type === "success") setFeedback(result);
+      }}
+    />
     {noVolvioUnit && (
       <NoVolvioModal
         itemId={item.id}

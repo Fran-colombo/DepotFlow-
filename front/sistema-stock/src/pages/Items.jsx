@@ -23,6 +23,7 @@ import ItemImageModal from "../components/ItemImageModal";
 import ItemDetailModal from "../components/ItemDetailModal";
 import { measureMark } from "../measure";
 import FeedbackModal from "../components/FeedbackModal";
+import NoVolvioModal from "../components/NoVolvioModal";
 
 const isConsumable = (item) => Boolean(item?.is_consumable);
 
@@ -57,6 +58,7 @@ const Items = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [detailCode, setDetailCode] = useState("");
   const [feedback, setFeedback] = useState(null);
+  const [unplacedItem, setUnplacedItem] = useState(null);
   const [codeHit, setCodeHit] = useState(null);
 
   const [openMenuId, setOpenMenuId] = useState(null);
@@ -547,6 +549,14 @@ const Items = () => {
                       {item.actualAmount}{measureMark(item.unit)} en depósito
                       {item.totalAmount !== item.actualAmount ? ` · ${item.totalAmount}${measureMark(item.unit)} en total` : ""}
                     </div>
+                    {item.missing_amount > 0 && (
+                      <div className="small text-warning-emphasis mb-2">
+                        {item.missing_amount}{measureMark(item.unit)} sin ubicar{" "}
+                        <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={() => setUnplacedItem(item)}>
+                          Resolver
+                        </button>
+                      </div>
+                    )}
                     <button
                       type="button"
                       className="btn btn-link btn-sm p-0 mb-2"
@@ -744,6 +754,14 @@ const Items = () => {
                         </div>
                         {item.totalAmount !== item.actualAmount && (
                           <div className="app-muted small">{item.totalAmount}{measureMark(item.unit)} en total</div>
+                        )}
+                        {item.missing_amount > 0 && (
+                          <div className="small text-warning-emphasis">
+                            {item.missing_amount}{measureMark(item.unit)} sin ubicar{" "}
+                            <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={() => setUnplacedItem(item)}>
+                              Resolver
+                            </button>
+                          </div>
                         )}
                         <button
                           type="button"
@@ -1066,6 +1084,16 @@ const Items = () => {
           }}
         />
       )}
+
+      <NoVolvioModal
+        isOpen={Boolean(unplacedItem)}
+        onClose={() => setUnplacedItem(null)}
+        onSuccess={refreshCurrentPage}
+        onFinished={setFeedback}
+        itemId={unplacedItem?.id}
+        itemName={unplacedItem?.name || ""}
+        unplaced={unplacedItem?.missing_amount || 0}
+      />
 
       {showTrasladoModal && selectedItem && (
         <TrasladoModal

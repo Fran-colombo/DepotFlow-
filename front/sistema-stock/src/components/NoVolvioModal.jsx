@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { noVolvioItem } from "../api/items";
+import { closeUnplaced, noVolvioItem } from "../api/items";
 import PersonPicker from "./PersonPicker";
 import NumberInput from "./NumberInput";
 
@@ -20,7 +20,9 @@ const NoVolvioModal = ({
   place = "",
   places = null,
   maxAmount = 0,
+  unplaced = 0,
 }) => {
+  const unplacedMode = unplaced > 0;
   const options = useMemo(() => {
     if (Array.isArray(places) && places.length) {
       return places
@@ -58,7 +60,7 @@ const NoVolvioModal = ({
 
   const submit = async (event) => {
     event.preventDefault();
-    if (!chosenPlace) {
+    if (!unplacedMode && !chosenPlace) {
       setError("Elegí la obra");
       return;
     }
@@ -68,6 +70,21 @@ const NoVolvioModal = ({
     }
     if (!person.trim()) {
       setError("Indicá quién lo confirma");
+      return;
+    }
+    if (unplacedMode) {
+      setLoading(true);
+      setError("");
+      try {
+        await closeUnplaced({ itemId, reason, personWhoConfirmed: person.trim() });
+        onFinished?.({ type: "success", message: `Quedó cerrado: ${reasonLabel.toLowerCase()}.` });
+        onSuccess?.();
+        onClose();
+      } catch (err) {
+        setError(err.message || "No se pudo cerrar");
+      } finally {
+        setLoading(false);
+      }
       return;
     }
     const qty = max === 1 ? 1 : parseInt(amount, 10);
@@ -124,15 +141,23 @@ const NoVolvioModal = ({
             />
           </div>
           <div className="modal-body">
-            <p className="small text-muted mb-3">
-              Cierra lo que se gastó, se perdió o se rompió en la obra. No vuelve al depósito y baja el total.
-            </p>
+            {unplacedMode ? (
+              <p className="mb-3">
+                Hay {unplaced} que no {unplaced === 1 ? "está" : "están"} en depósito ni pendientes en una obra.
+                Se cierran y baja el total.
+              </p>
+            ) : (
+              <p className="small text-muted mb-3">
+                Cierra lo que se gastó, se perdió o se rompió en la obra. No vuelve al depósito y baja el total.
+              </p>
+            )}
             {code && (
               <p className="mb-3">
                 Código: <span className="fw-semibold">{code}</span>
               </p>
             )}
             <form onSubmit={submit}>
+              {!unplacedMode && (
               <div className="mb-3">
                 <label className="form-label">Obra</label>
                 {options.length <= 1 ? (
@@ -157,7 +182,8 @@ const NoVolvioModal = ({
                   </select>
                 )}
               </div>
-              {max > 1 && (
+              )}
+              {!unplacedMode && max > 1 && (
                 <div className="mb-3">
                   <label className="form-label">Cantidad (hasta {max})</label>
                   <NumberInput
@@ -199,7 +225,7 @@ const NoVolvioModal = ({
                 <button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={loading}>
                   Cancelar
                 </button>
-                <button type="submit" className="btn btn-secondary" disabled={loading || max < 1}>
+                <button type="submit" className="btn btn-secondary" disabled={loading || (!unplacedMode && max < 1)}>
                   {loading ? "Cerrando..." : "Confirmar"}
                 </button>
               </div>

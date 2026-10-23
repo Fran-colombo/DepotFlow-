@@ -15,6 +15,12 @@ class DevolucionDTO(BaseModel):
     authorized_by: Optional[str] = None
 
 
+class SinUbicarDTO(BaseModel):
+    itemId: int
+    reason: str
+    personWhoConfirmed: Optional[str] = None
+
+
 class NoVolvioDTO(BaseModel):
     itemId: int
     amount: int

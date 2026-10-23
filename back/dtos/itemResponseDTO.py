@@ -21,6 +21,7 @@ class ItemResponseDTO(BaseModel):
     is_consumable: bool = False
     unit: str = "unidad"
     code_prefix: Optional[str] = None
+    missing_amount: int = 0
 
     class Config:
         from_attributes = True

@@ -28,7 +28,7 @@ from auth import get_current_user, get_user_name_by_id, has_admin_access, router
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
 from seed_admin import seed_admin_from_env
-from item_service import ItemServiceError, adjust_item_stock, create_item
+from item_service import ItemServiceError, adjust_item_stock, create_item, item_unplaced_amount, pending_amounts, unplaced_amount
 from item_import import build_import_template, import_items_from_excel
 from item_transfer import (
     ExportChecklistRequest,
@@ -232,10 +232,12 @@ def read_items(
             for category in db.query(models.Category).filter(models.Category.is_consumable == True).all()
         }
         unit_by_category = category_units_by_name(db)
+        pending_by_item = pending_amounts(db, [item.id for item in items])
 
         data = []
         for item in items:
             dto = ItemResponseDTO.model_validate(item)
+            dto.missing_amount = unplaced_amount(item, pending_by_item.get(item.id, 0))
             dto.zone_name = item.zone.name if item.zone else None
             dto.has_image = bool(item.image_filename)
             dto.track_units = bool(item.track_units)
@@ -637,6 +639,7 @@ def get_item_details(
         }
         item_data["is_consumable"] = category_is_consumable(db, item.category)
         item_data["unit"] = category_units_by_name(db).get(normalize_lookup(item.category), "unidad")
+        item_data["missing_amount"] = item_unplaced_amount(db, item)
 
         response_data = {
             "item": item_data,
@@ -1256,6 +1259,7 @@ def list_item_units(
         "inner_quantity": bool(item.inner_quantity),
         "is_consumable": category_is_consumable(db, item.category),
         "unit": category_units_by_name(db).get(normalize_lookup(item.category), "unidad"),
+        "missing_amount": item_unplaced_amount(db, item),
         "units": payload,
     }
 

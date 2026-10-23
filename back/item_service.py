@@ -17,6 +17,35 @@ class ItemServiceError(Exception):
         self.status_code = status_code
 
 
+def pending_amounts(db: Session, item_ids) -> dict:
+    ids = list(item_ids)
+    if not ids:
+        return {}
+    rows = (
+        db.query(models.History.itemId, func.coalesce(func.sum(models.History.amountNotReturned), 0))
+        .filter(
+            models.History.itemId.in_(ids),
+            models.History.action == models.ActionEnum.retiro,
+            models.History.turnback == False,
+            models.History.amountNotReturned > 0,
+        )
+        .group_by(models.History.itemId)
+        .all()
+    )
+    return {item_id: int(total or 0) for item_id, total in rows}
+
+
+def unplaced_amount(item: models.Item, pending: int) -> int:
+    if item.track_units or item.inner_quantity:
+        return 0
+    missing = int(item.totalAmount or 0) - int(item.actualAmount or 0) - int(pending or 0)
+    return max(missing, 0)
+
+
+def item_unplaced_amount(db: Session, item: models.Item) -> int:
+    return unplaced_amount(item, pending_amounts(db, [item.id]).get(item.id, 0))
+
+
 def normalize_item_name(name: str) -> str:
     return (name or "").strip().lower().capitalize()
 

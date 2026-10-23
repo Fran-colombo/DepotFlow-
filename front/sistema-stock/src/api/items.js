@@ -103,6 +103,14 @@ export async function noVolvioItem(data) {
   });
 }
 
+export async function closeUnplaced(data) {
+  return apiFetch("/historical/sin-ubicar", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function getPendingPlaces(itemId) {
   return apiFetch(`/historical/pending-places/${itemId}`, {
     method: "GET",
