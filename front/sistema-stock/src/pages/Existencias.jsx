@@ -404,7 +404,7 @@ const Existencias = () => {
           style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1070 }}
           onClick={() => { if (!saving) setAction(null); }}
         >
-          <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable" onClick={(event) => event.stopPropagation()}>
+          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" onClick={(event) => event.stopPropagation()}>
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title">

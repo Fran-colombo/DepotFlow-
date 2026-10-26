@@ -261,6 +261,12 @@ body {
   box-shadow: 0 12px 24px rgba(16, 24, 40, 0.14);
 }
 
+.modal-body .obra-picker-panel {
+  position: static;
+  margin-top: 0.35rem;
+  box-shadow: none;
+}
+
 .obra-picker-list {
   display: flex;
   flex-direction: column;

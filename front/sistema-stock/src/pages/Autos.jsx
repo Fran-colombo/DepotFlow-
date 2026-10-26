@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Dashboard from "./Dashboard";
 import useAuth from "../hooks/useAuth";
 import PersonPicker from "../components/PersonPicker";
@@ -598,6 +598,207 @@ const Autos = () => {
   );
 };
 
+const USES_PER_PAGE = 8;
+
+function dayKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function formatDay(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Sin fecha";
+  const text = date.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function formatTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
+function formatShortWhen(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+}
+
+function formatDuration(from, to) {
+  const start = new Date(from).getTime();
+  const end = new Date(to).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return "";
+  const minutes = Math.round((end - start) / 60000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const rest = minutes % 60;
+  if (days) return hours ? `${days} d ${hours} h` : `${days} d`;
+  if (hours) return rest ? `${hours} h ${rest} min` : `${hours} h`;
+  return `${rest} min`;
+}
+
+function UseEntry({ use, row }) {
+  const joined = use.with_transport_id === row.id;
+  const back = Boolean(use.returned_at);
+  const sameDay = back && dayKey(use.left_at) === dayKey(use.returned_at);
+  const duration = back ? formatDuration(use.left_at, use.returned_at) : "";
+  const tags = [
+    joined && use.person,
+    use.obra && `Obra ${use.obra}`,
+    use.cart_name && `Carro ${use.cart_name}`,
+    use.with_transport_name && !joined && `Con ${use.with_transport_name}`,
+    use.external_vehicle && `Auto de afuera: ${use.external_vehicle}`,
+    use.km != null && `${formatKm(use.km)} km`,
+  ].filter(Boolean);
+  return (
+    <li className="list-group-item">
+      <div className="d-flex justify-content-between align-items-start gap-2">
+        <div style={{ minWidth: 0 }}>
+          <div className="fw-semibold text-truncate">
+            {joined ? `Se sumó el carro ${use.vehicle_name}` : use.person || "Sin persona"}
+          </div>
+          <div className="small">
+            {formatTime(use.left_at)}
+            {back ? ` a ${sameDay ? formatTime(use.returned_at) : formatShortWhen(use.returned_at)}` : " · sigue afuera"}
+            {duration && <span className="app-muted"> · {duration}</span>}
+          </div>
+          {tags.length > 0 && (
+            <div className="d-flex flex-wrap gap-1 mt-1">
+              {tags.map((text) => (
+                <span key={text} className="badge rounded-pill text-bg-light border fw-normal">{text}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        <span className={`badge ${back ? "text-bg-success" : "text-bg-warning"}`}>{back ? "Volvió" : "Afuera"}</span>
+      </div>
+    </li>
+  );
+}
+
+function UseHistory({ row }) {
+  const uses = useMemo(() => (Array.isArray(row.uses) ? row.uses : []), [row.uses]);
+  const [person, setPerson] = useState("");
+  const [state, setState] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [page, setPage] = useState(1);
+
+  const people = useMemo(
+    () => [...new Set(uses.map((use) => (use.person || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es")),
+    [uses],
+  );
+
+  const filtered = useMemo(() => uses.filter((use) => {
+    if (person && (use.person || "").trim() !== person) return false;
+    if (state === "out" && use.returned_at) return false;
+    if (state === "back" && !use.returned_at) return false;
+    const day = dayKey(use.left_at);
+    if (from && day < from) return false;
+    if (to && day > to) return false;
+    return true;
+  }), [uses, person, state, from, to]);
+
+  const pages = Math.max(1, Math.ceil(filtered.length / USES_PER_PAGE));
+  const current = Math.min(page, pages);
+  const groups = [];
+  filtered.slice((current - 1) * USES_PER_PAGE, current * USES_PER_PAGE).forEach((use) => {
+    const key = dayKey(use.left_at);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.items.push(use);
+    else groups.push({ key, label: formatDay(use.left_at), items: [use] });
+  });
+  const filtering = Boolean(person || state || from || to);
+  const change = (setter) => (event) => {
+    setter(event.target.value);
+    setPage(1);
+  };
+  const clear = () => {
+    setPerson("");
+    setState("");
+    setFrom("");
+    setTo("");
+    setPage(1);
+  };
+
+  return (
+    <div className="border rounded p-3">
+      <div className="d-flex justify-content-between align-items-baseline mb-2">
+        <div className="fw-semibold">Historial de uso</div>
+        {uses.length > 0 && (
+          <div className="app-muted small">
+            {filtered.length} {filtered.length === 1 ? "salida" : "salidas"}{filtering ? ` de ${uses.length}` : ""}
+          </div>
+        )}
+      </div>
+      {uses.length === 0 ? (
+        <div className="app-muted small">Todavía no salió.</div>
+      ) : (
+        <>
+          <div className="row g-2 mb-2">
+            <div className="col-6 col-md-3">
+              <label className="form-label small mb-1" htmlFor="uses-person">Quién</label>
+              <select id="uses-person" className="form-select form-select-sm" value={person} onChange={change(setPerson)}>
+                <option value="">Todos</option>
+                {people.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-6 col-md-3">
+              <label className="form-label small mb-1" htmlFor="uses-state">Estado</label>
+              <select id="uses-state" className="form-select form-select-sm" value={state} onChange={change(setState)}>
+                <option value="">Todos</option>
+                <option value="out">Sigue afuera</option>
+                <option value="back">Volvió</option>
+              </select>
+            </div>
+            <div className="col-6 col-md-3">
+              <label className="form-label small mb-1" htmlFor="uses-from">Desde</label>
+              <input id="uses-from" type="date" className="form-control form-control-sm" value={from} max={to || undefined} onChange={change(setFrom)} />
+            </div>
+            <div className="col-6 col-md-3">
+              <label className="form-label small mb-1" htmlFor="uses-to">Hasta</label>
+              <input id="uses-to" type="date" className="form-control form-control-sm" value={to} min={from || undefined} onChange={change(setTo)} />
+            </div>
+          </div>
+          {filtering && (
+            <button type="button" className="btn btn-link btn-sm p-0 mb-2" onClick={clear}>Limpiar filtros</button>
+          )}
+          {filtered.length === 0 ? (
+            <div className="app-muted small">No hay salidas con esos filtros.</div>
+          ) : (
+            groups.map((group) => (
+              <div key={group.key || "sin-fecha"} className="mb-3">
+                <div className="small fw-semibold text-secondary mb-1">{group.label}</div>
+                <ul className="list-group">
+                  {group.items.map((use) => (
+                    <UseEntry key={use.id} use={use} row={row} />
+                  ))}
+                </ul>
+              </div>
+            ))
+          )}
+          {pages > 1 && (
+            <div className="d-flex justify-content-between align-items-center">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={current <= 1} onClick={() => setPage(current - 1)}>
+                Anterior
+              </button>
+              <span className="small">Página {current} de {pages}</span>
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={current >= pages} onClick={() => setPage(current + 1)}>
+                Siguiente
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, onFine, onSaved, onError }) {
   const [shownNotes, setShownNotes] = useState(3);
   const [note, setNote] = useState("");
@@ -871,35 +1072,7 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
               </div>
             )}
 
-            <div>
-              <div className="fw-semibold">Historial</div>
-              {(row.uses || []).length === 0 && <div className="app-muted small">Todavía no salió.</div>}
-              <ul className="list-unstyled mb-0">
-                {(row.uses || []).map((use) => (
-                  <li key={use.id} className="mb-2">
-                    {use.with_transport_id === row.id ? (
-                      <div>Se sumó el carro {use.vehicle_name} {formatWhen(use.left_at)} · {use.person}</div>
-                    ) : (
-                      <div>
-                        Salió {formatWhen(use.left_at)}
-                        {use.person ? ` · ${use.person}` : ""}
-                        {use.obra ? ` · En la obra · ${use.obra}` : ""}
-                      </div>
-                    )}
-                    {use.cart_name && <div className="small">Con el carro {use.cart_name}</div>}
-                    {use.with_transport_name && use.with_transport_id !== row.id && (
-                      <div className="small">Con el auto {use.with_transport_name}</div>
-                    )}
-                    {use.external_vehicle && <div className="small">Auto de afuera: {use.external_vehicle}</div>}
-                    {use.returned_at ? (
-                      <div className="small">Volvió {formatWhen(use.returned_at)}{use.km != null ? ` · ${use.km} km` : ""}</div>
-                    ) : (
-                      <div className="small">Sigue afuera{use.km != null ? ` · ${use.km} km` : ""}</div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <UseHistory row={row} />
           </div>
         </div>
       </div>
