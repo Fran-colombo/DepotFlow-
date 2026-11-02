@@ -937,7 +937,7 @@ def _assert_all_home(db: Session, item: models.Item) -> list:
 
 
 def _drop_units(db: Session, units: list) -> None:
-    from item_images import stored_image_path
+    from item_images import delete_all_unit_photos
 
     ids = [unit.id for unit in units]
     if not ids:
@@ -953,13 +953,7 @@ def _drop_units(db: Session, units: list) -> None:
         .update({models.Observation.unit_id: None}, synchronize_session=False)
     )
     for unit in units:
-        if unit.image_filename:
-            path = stored_image_path(unit.image_filename)
-            try:
-                if path.is_file():
-                    path.unlink()
-            except OSError:
-                pass
+        delete_all_unit_photos(db, unit)
         db.delete(unit)
     db.flush()
 

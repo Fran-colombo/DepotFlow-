@@ -20,6 +20,7 @@ const Historial = () => {
   const [viajeModal, setViajeModal] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [productQuery, setProductQuery] = useState("");
+  const [productsOpen, setProductsOpen] = useState(false);
   const [filters, setFilters] = useState({
     itemName: "",
     userName: "",
@@ -176,6 +177,7 @@ useEffect(() => {
 
   const clearFilters = () => {
     setProductQuery("");
+    setProductsOpen(false);
     setFilters({
       itemName: "",
       userName: "",
@@ -365,8 +367,17 @@ useEffect(() => {
 
             <div className="col-md-6">
               <label className="form-label">Subcategorías</label>
+              <button
+                type="button"
+                className="form-select text-start"
+                onClick={() => setProductsOpen((open) => !open)}
+              >
+                {filters.itemIds.length === 0
+                  ? "Todas"
+                  : `${filters.itemIds.length} elegida${filters.itemIds.length === 1 ? "" : "s"}`}
+              </button>
               {filters.itemIds.length > 0 && (
-                <div className="d-flex flex-wrap gap-1 mb-2">
+                <div className="d-flex flex-wrap gap-1 mt-2">
                   {filters.itemIds.map((id) => {
                     const product = products.find((row) => row.id === id);
                     if (!product) return null;
@@ -383,39 +394,43 @@ useEffect(() => {
                   })}
                 </div>
               )}
-              <input
-                type="text"
-                className="form-control mb-2"
-                value={productQuery}
-                onChange={(e) => setProductQuery(e.target.value)}
-                placeholder="Buscar subcategoría..."
-              />
-              <div className="border rounded" style={{ maxHeight: 180, overflowY: "auto" }}>
-                {products.filter((product) => {
-                  const term = productQuery.trim().toLowerCase();
-                  return !term || product.name.toLowerCase().includes(term);
-                }).length === 0 ? (
-                  <div className="text-secondary small p-2">Ninguna subcategoría con ese nombre.</div>
-                ) : (
-                  products
-                    .filter((product) => {
+              {productsOpen && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    className="form-control mb-2"
+                    value={productQuery}
+                    onChange={(e) => setProductQuery(e.target.value)}
+                    placeholder="Buscar subcategoría..."
+                  />
+                  <div className="border rounded bg-white" style={{ maxHeight: 180, overflowY: "auto" }}>
+                    {products.filter((product) => {
                       const term = productQuery.trim().toLowerCase();
                       return !term || product.name.toLowerCase().includes(term);
-                    })
-                    .map((product) => (
-                      <label key={product.id} className="d-flex align-items-center gap-2 px-2 py-1 mb-0 border-bottom">
-                        <input
-                          type="checkbox"
-                          className="form-check-input m-0"
-                          checked={filters.itemIds.includes(product.id)}
-                          onChange={() => toggleProduct(product.id)}
-                        />
-                        <span>{product.name}</span>
-                      </label>
-                    ))
-                )}
-              </div>
-              <div className="form-text">Sin elección se ven todas.</div>
+                    }).length === 0 ? (
+                      <div className="text-secondary small p-2">Ninguna subcategoría con ese nombre.</div>
+                    ) : (
+                      products
+                        .filter((product) => {
+                          const term = productQuery.trim().toLowerCase();
+                          return !term || product.name.toLowerCase().includes(term);
+                        })
+                        .map((product) => (
+                          <label key={product.id} className="d-flex align-items-center gap-2 px-2 py-1 mb-0 border-bottom">
+                            <input
+                              type="checkbox"
+                              className="form-check-input m-0"
+                              checked={filters.itemIds.includes(product.id)}
+                              onChange={() => toggleProduct(product.id)}
+                            />
+                            <span>{product.name}</span>
+                          </label>
+                        ))
+                    )}
+                  </div>
+                  <div className="form-text">Sin elección se ven todas.</div>
+                </div>
+              )}
             </div>
 
             <div className="col-md-3">

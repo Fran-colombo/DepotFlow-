@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
-import { exportPieces, getItemById, getPiecePlaces, getUnitImageUrl, searchPieces, sharePiecesCatalog } from "../api/items";
+import { exportPieces, getItemById, getPiecePlaces, getUnitImageUrl, searchPieces, setUnitLabeled, sharePiecesCatalog } from "../api/items";
 import { getCategories } from "../api/categories";
 import { getSheds } from "../api/sheds";
 import ItemDetailModal from "../components/ItemDetailModal";
@@ -20,6 +20,7 @@ const Piezas = () => {
   const [query, setQuery] = useState("");
   const [broken, setBroken] = useState(false);
   const [withoutImage, setWithoutImage] = useState(false);
+  const [unlabeled, setUnlabeled] = useState(false);
   const [situation, setSituation] = useState("");
   const [obra, setObra] = useState("");
   const [category, setCategory] = useState("");
@@ -35,8 +36,8 @@ const Piezas = () => {
   const [exporting, setExporting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [chosen, setChosen] = useState([]);
-  const filters = { broken, withoutImage, situation, obra, category, shedId };
-  const filtering = Boolean(query.trim() || broken || withoutImage || situation || obra || category || shedId);
+  const filters = { broken, withoutImage, unlabeled, situation, obra, category, shedId };
+  const filtering = Boolean(query.trim() || broken || withoutImage || unlabeled || situation || obra || category || shedId);
   const canExport = filtering;
 
   useEffect(() => {
@@ -105,7 +106,7 @@ const Piezas = () => {
     let cancelled = false;
     const timer = setTimeout(() => {
       setLoading(true);
-      searchPieces(query, { broken, withoutImage, situation, obra, category, shedId })
+      searchPieces(query, { broken, withoutImage, unlabeled, situation, obra, category, shedId })
         .then((res) => {
           if (!cancelled) setPieces(Array.isArray(res?.data) ? res.data : []);
         })
@@ -123,7 +124,7 @@ const Piezas = () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, broken, withoutImage, situation, obra, category, shedId, revision]);
+  }, [query, broken, withoutImage, unlabeled, situation, obra, category, shedId, revision]);
 
   const openPiece = async (piece) => {
     setError("");
@@ -247,6 +248,19 @@ const Piezas = () => {
             />
             <label className="form-check-label" htmlFor="pieces-no-photo">Sin foto</label>
           </div>
+          <div className="form-check mb-0">
+            <input
+              className="form-check-input"
+              type="checkbox"
+              id="pieces-unlabeled"
+              checked={unlabeled}
+              onChange={(e) => {
+                clearError();
+                setUnlabeled(e.target.checked);
+              }}
+            />
+            <label className="form-check-label" htmlFor="pieces-unlabeled">Sin etiquetar</label>
+          </div>
           <button
             type="button"
             className="btn btn-outline-primary btn-sm"
@@ -325,7 +339,7 @@ const Piezas = () => {
                   onClick={() => openPiece(piece)}
                 >
                   <div
-                    className="d-flex align-items-center justify-content-center"
+                    className="position-relative d-flex align-items-center justify-content-center"
                     style={{ height: 200, background: "#f4f6f8" }}
                   >
                     {imageUrl ? (
@@ -337,17 +351,47 @@ const Piezas = () => {
                     ) : (
                       <i className="bi bi-image text-secondary fs-3"></i>
                     )}
+                    {piece.photo_count > 1 && (
+                      <span className="badge bg-dark position-absolute bottom-0 end-0 m-2">
+                        {piece.photo_count} fotos
+                      </span>
+                    )}
                   </div>
                   <div className="card-body">
                     <div className="fw-bold">{piece.code}</div>
                     {piece.name && <div>{piece.name}</div>}
                     {piece.is_broken && <div className="small text-danger">Rota</div>}
+                    {!piece.labeled && <div className="small">Sin etiqueta</div>}
                     <div className="app-muted small">{piece.place}</div>
                     {piece.item_name && (
                       <div className="app-muted small">{piece.item_name}</div>
                     )}
                   </div>
                 </button>
+                <div className="card-footer bg-white border-0 pt-0">
+                  <label className="form-check mb-0">
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={Boolean(piece.labeled)}
+                      onChange={async (event) => {
+                        const next = event.target.checked;
+                        clearError();
+                        try {
+                          await setUnitLabeled(piece.id, next);
+                          setPieces((current) => (
+                            unlabeled && next
+                              ? current.filter((row) => row.id !== piece.id)
+                              : current.map((row) => (row.id === piece.id ? { ...row, labeled: next } : row))
+                          ));
+                        } catch (err) {
+                          setError(err.message || "No se pudo marcar la etiqueta");
+                        }
+                      }}
+                    />
+                    <span className="form-check-label">Etiquetada</span>
+                  </label>
+                </div>
                 </div>
               </div>
             );

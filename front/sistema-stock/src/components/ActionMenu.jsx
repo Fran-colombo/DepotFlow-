@@ -55,6 +55,7 @@ export default function ActionMenu({ label, items, variant = "outline-secondary"
                 <input
                   type="file"
                   accept="image/*"
+                  multiple={Boolean(entry.multiple)}
                   hidden
                   onChange={(event) => {
                     setOpen(false);

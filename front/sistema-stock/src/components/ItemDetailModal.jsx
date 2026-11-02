@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addObservation,
   deleteUnitImage,
+  deleteUnitPhoto,
   devolverItem,
   discardUnit,
   getAllItems,
   getItemUnits,
   getUnitImageUrl,
+  listUnitPhotos,
+  unitPhotoUrl,
   addPiece,
   getNextCodes,
   moveUnitSubcategory,
@@ -16,6 +19,7 @@ import {
   retirarItem,
   updateItem,
   updateUnitProfile,
+  setUnitLabeled,
   uploadUnitImage,
 } from "../api/items";
 import { getObras } from "../api/obras";
@@ -121,10 +125,35 @@ const PieceCard = ({
   const [draftFix, setDraftFix] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [photoOpen, setPhotoOpen] = useState(false);
+  const [photos, setPhotos] = useState([]);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const [photosBusy, setPhotosBusy] = useState(false);
   const [breaksOpen, setBreaksOpen] = useState(false);
   const [zoneRows, setZoneRows] = useState([]);
   const [zoneError, setZoneError] = useState("");
   const [savingZones, setSavingZones] = useState(false);
+  const [labeled, setLabeled] = useState(Boolean(unit.labeled));
+  const [savingLabel, setSavingLabel] = useState(false);
+
+  useEffect(() => {
+    setLabeled(Boolean(unit.labeled));
+  }, [unit.id, unit.labeled]);
+
+  const toggleLabeled = async (event) => {
+    const next = event.target.checked;
+    setLabeled(next);
+    setSavingLabel(true);
+    setLocalError("");
+    try {
+      await setUnitLabeled(unit.id, next);
+      onReload?.();
+    } catch (err) {
+      setLabeled(Boolean(unit.labeled));
+      setLocalError(err.message || "No se pudo marcar la etiqueta");
+    } finally {
+      setSavingLabel(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -270,30 +299,77 @@ const PieceCard = ({
     }
   };
 
-  const onFile = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  const loadPhotos = async () => {
+    const data = await listUnitPhotos(unit.id);
+    const rows = Array.isArray(data?.photos) ? data.photos : [];
+    setPhotos(rows);
+    setPhotoIndex((current) => (rows.length === 0 ? 0 : Math.min(current, rows.length - 1)));
+    return rows;
+  };
+
+  const openPhotos = async () => {
+    setPhotoOpen(true);
+    setPhotoIndex(0);
     setLocalError("");
     try {
-      await uploadUnitImage(unit.id, file);
+      await loadPhotos();
+    } catch (err) {
+      setLocalError(err.message || "No se pudieron ver las fotos");
+    }
+  };
+
+  const addPhotos = async (event) => {
+    const files = [...(event.target.files || [])];
+    event.target.value = "";
+    if (!files.length) return;
+    setPhotosBusy(true);
+    setLocalError("");
+    try {
+      for (const file of files) {
+        await uploadUnitImage(unit.id, file);
+      }
+      await loadPhotos();
       onReload?.();
+      setPhotoOpen(true);
     } catch (err) {
       setLocalError(err.message || "No se pudo cargar la foto");
+      try {
+        await loadPhotos();
+      } catch {
+        /* the error above is the one to show */
+      }
+      onReload?.();
+    } finally {
+      setPhotosBusy(false);
     }
   };
 
   const removePhoto = async () => {
+    const current = photos[photoIndex];
     setLocalError("");
+    setPhotosBusy(true);
     try {
-      await deleteUnitImage(unit.id);
+      if (current?.id) {
+        const data = await deleteUnitPhoto(unit.id, current.id);
+        const rows = Array.isArray(data?.photos) ? data.photos : [];
+        setPhotos(rows);
+        setPhotoIndex((index) => (rows.length === 0 ? 0 : Math.min(index, rows.length - 1)));
+        if (!rows.length) setPhotoOpen(false);
+      } else {
+        await deleteUnitImage(unit.id);
+        setPhotos([]);
+        setPhotoOpen(false);
+      }
       onReload?.();
     } catch (err) {
       setLocalError(err.message || "No se pudo borrar la foto");
+    } finally {
+      setPhotosBusy(false);
     }
   };
 
   const imageUrl = getUnitImageUrl(unit);
+  const photoCount = unit.photo_count ?? (imageUrl ? 1 : 0);
   const inner = Boolean(item.inner_quantity);
   const outPlaces = Array.isArray(unit.out_places) ? unit.out_places.filter((row) => row.quantity > 0) : [];
   const obraPlaces = outPlaces.filter((row) => row.place !== REPAIR_PLACE);
@@ -336,13 +412,13 @@ const PieceCard = ({
             aria-label={`Seleccionar ${unit.code}`}
           />
         )}
-        <div style={{ width: 72, flexShrink: 0 }}>
+        <div className="position-relative" style={{ width: 72, flexShrink: 0 }}>
           {imageUrl ? (
             <button
               type="button"
               className="btn p-0 border-0"
-              title="Agrandar foto"
-              onClick={() => setPhotoOpen(true)}
+              title="Ver fotos"
+              onClick={openPhotos}
             >
               <img
                 src={imageUrl}
@@ -359,6 +435,9 @@ const PieceCard = ({
               <i className="bi bi-camera"></i>
             </div>
           )}
+          {photoCount > 1 && (
+            <span className="badge bg-dark position-absolute bottom-0 end-0">{photoCount}</span>
+          )}
         </div>
         <div className="flex-grow-1">
           <div className="d-flex justify-content-between align-items-start gap-2">
@@ -372,6 +451,7 @@ const PieceCard = ({
                 {place === "obra" && obraLine ? ` · ${obraLine}` : ""}
                 {place === "repair" && inner && repairAmount > 0 ? ` · ${repairAmount}` : ""}
                 {unit.is_broken ? " · Rota" : ""}
+                {labeled ? "" : " · Sin etiqueta"}
                 {Array.isArray(unit.depot_zones) && unit.depot_zones.length > 0
                   ? ` · ${unit.depot_zones.map((row) => `${row.zone_name} ${row.quantity}`).join(" · ")}`
                   : ""}
@@ -400,9 +480,9 @@ const PieceCard = ({
               <ActionMenu
                 label="Foto"
                 items={[
-                  { label: imageUrl ? "Cambiar foto" : "Cargar foto", file: onFile },
-                  imageUrl && { label: "Ver foto", onClick: () => setPhotoOpen(true) },
-                  imageUrl && {
+                  { label: "Agregar foto", file: addPhotos, multiple: true },
+                  photoCount > 0 && { label: photoCount > 1 ? "Ver fotos" : "Ver foto", onClick: openPhotos },
+                  photoCount === 1 && {
                     label: "Quitar foto",
                     danger: true,
                     onClick: () => {
@@ -421,6 +501,17 @@ const PieceCard = ({
               />
             </div>
           </div>
+          <label className="form-check mt-2 mb-0">
+            <input
+              type="checkbox"
+              className="form-check-input"
+              checked={labeled}
+              disabled={savingLabel}
+              onChange={toggleLabeled}
+            />
+            <span className="form-check-label">Etiquetada</span>
+          </label>
+          <div className="form-text">La etiqueta ya está pegada en la máquina o la herramienta.</div>
           {depotHere > 0 && zones.length > 0 && (
             <div className="mt-3">
               <div className="form-label mb-1">En el galpón</div>
@@ -718,28 +809,107 @@ const PieceCard = ({
           </div>
         </div>
       )}
-      {photoOpen && imageUrl && (
+      {photoOpen && (
         <div
           className="modal show d-block"
           style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.72)", zIndex: 1080 }}
           onClick={() => setPhotoOpen(false)}
         >
           <div className="modal-dialog modal-dialog-centered modal-lg" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-content bg-transparent border-0 shadow-none">
-              <div className="d-flex justify-content-end mb-2">
-                <button
-                  type="button"
-                  className="btn-close btn-close-white"
-                  aria-label="Cerrar"
-                  onClick={() => setPhotoOpen(false)}
-                />
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title mb-0">
+                  Fotos de {unit.code}
+                  {photos.length > 1 ? ` · ${photoIndex + 1} de ${photos.length}` : ""}
+                </h5>
+                <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setPhotoOpen(false)} />
               </div>
-              <img
-                src={imageUrl}
-                alt={unit.code}
-                className="img-fluid rounded bg-white"
-                style={{ maxHeight: "80vh", width: "100%", objectFit: "contain" }}
-              />
+              <div className="modal-body">
+                {photos.length > 0 ? (
+                  <img
+                    src={unitPhotoUrl(unit.id, photos[photoIndex] || photos[0])}
+                    alt={unit.code}
+                    className="img-fluid rounded bg-light w-100"
+                    style={{ maxHeight: "60vh", objectFit: "contain" }}
+                  />
+                ) : (
+                  imageUrl && (
+                    <img
+                      src={imageUrl}
+                      alt={unit.code}
+                      className="img-fluid rounded bg-light w-100"
+                      style={{ maxHeight: "60vh", objectFit: "contain" }}
+                    />
+                  )
+                )}
+                {photos.length > 1 && (
+                  <div className="d-flex gap-2 overflow-auto mt-3 pb-1">
+                    {photos.map((photo, index) => (
+                      <button
+                        key={photo.id}
+                        type="button"
+                        className="btn p-0 border-0"
+                        onClick={() => setPhotoIndex(index)}
+                      >
+                        <img
+                          src={unitPhotoUrl(unit.id, photo)}
+                          alt=""
+                          className="rounded border"
+                          style={{
+                            width: 64,
+                            height: 64,
+                            objectFit: "cover",
+                            outline: index === photoIndex ? "2px solid #228BE6" : "none",
+                          }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="form-text mt-2">
+                  La primera es la que se ve en la lista. Podés cargar varias, de distintos lados.
+                </div>
+                {localError && <div className="text-danger small mt-2">{localError}</div>}
+              </div>
+              <div className="modal-footer flex-wrap gap-2">
+                {photos.length > 1 && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    disabled={photoIndex === 0}
+                    onClick={() => setPhotoIndex((index) => Math.max(0, index - 1))}
+                  >
+                    Anterior
+                  </button>
+                )}
+                {photos.length > 1 && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary"
+                    disabled={photoIndex >= photos.length - 1}
+                    onClick={() => setPhotoIndex((index) => Math.min(photos.length - 1, index + 1))}
+                  >
+                    Siguiente
+                  </button>
+                )}
+                <label className={`btn btn-primary mb-0${photosBusy ? " disabled" : ""}`}>
+                  {photosBusy ? "Guardando…" : "Agregar foto"}
+                  <input type="file" accept="image/*" multiple hidden disabled={photosBusy} onChange={addPhotos} />
+                </label>
+                {(photos.length > 0 || imageUrl) && (
+                  <button
+                    type="button"
+                    className="btn btn-outline-danger"
+                    disabled={photosBusy}
+                    onClick={() => {
+                      const which = photos.length > 1 ? "esta foto" : `la foto de ${unit.code}`;
+                      if (window.confirm(`¿Quitar ${which}?`)) removePhoto();
+                    }}
+                  >
+                    Quitar esta
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

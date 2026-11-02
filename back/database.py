@@ -408,6 +408,12 @@ def ensure_inventory_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN description VARCHAR"))
 
+    if _column_exists("item_units", "id") and not _column_exists("item_units", "labeled"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE item_units ADD COLUMN labeled BOOLEAN NOT NULL DEFAULT 0"
+            ))
+
     if _column_exists("item_units", "id") and not _column_exists("item_units", "repair_note"):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE item_units ADD COLUMN repair_note VARCHAR"))
@@ -464,6 +470,31 @@ def ensure_inventory_schema():
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS ix_historal_viaje_id ON historal (viaje_id)"
             ))
+
+    if _column_exists("item_units", "id"):
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS unit_photos (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    unit_id INTEGER NOT NULL,
+                    filename VARCHAR NOT NULL,
+                    position INTEGER NOT NULL DEFAULT 0,
+                    created_at DATETIME,
+                    FOREIGN KEY(unit_id) REFERENCES item_units (id)
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_unit_photos_unit_id ON unit_photos (unit_id)"
+            ))
+            conn.execute(text("""
+                INSERT INTO unit_photos (unit_id, filename, position, created_at)
+                SELECT u.id, u.image_filename, 0, CURRENT_TIMESTAMP
+                FROM item_units u
+                WHERE u.image_filename IS NOT NULL AND u.image_filename != ''
+                  AND NOT EXISTS (
+                    SELECT 1 FROM unit_photos p WHERE p.unit_id = u.id
+                  )
+            """))
 
 
 def ensure_phone_unique_index():

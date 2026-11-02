@@ -555,6 +555,7 @@ function pieceParams(q, options) {
   if (text) params.set("q", text);
   if (options.broken) params.set("broken", "true");
   if (options.withoutImage) params.set("without_image", "true");
+  if (options.unlabeled) params.set("unlabeled", "true");
   if (options.situation) params.set("situation", options.situation);
   if (options.obra) params.set("obra", options.obra);
   if (options.category) params.set("category", options.category);
@@ -589,6 +590,14 @@ export async function exportPieces(q = "", options = {}) {
   await downloadExcelBlob(response, "piezas.xlsx");
 }
 
+export function setUnitLabeled(unitId, labeled) {
+  return apiFetch(`/units/${unitId}/labeled`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ labeled }),
+  });
+}
+
 export function discardUnit(unitId, data) {
   return apiFetch(`/units/${unitId}/discard`, {
     method: "POST",
@@ -601,7 +610,7 @@ export async function searchPieces(q = "", options = {}) {
   const params = pieceParams(q, options);
   const text = (q || "").trim();
   const broad = Boolean(
-    text || options.broken || options.withoutImage || options.situation || options.obra || options.category || options.shedId
+    text || options.broken || options.withoutImage || options.unlabeled || options.situation || options.obra || options.category || options.shedId
   );
   params.set("limit", broad ? "500" : "10");
   return apiFetch(`/units?${params.toString()}`);
@@ -616,6 +625,20 @@ export function getUnitImageUrl(unit) {
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
   const version = encodeURIComponent(unit.image_filename || "1");
   return `${base}/units/${unit.id}/image?v=${version}`;
+}
+
+export function unitPhotoUrl(unitId, photo) {
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const version = encodeURIComponent(photo?.filename || photo?.id || "1");
+  return `${base}/units/${unitId}/photos/${photo.id}?v=${version}`;
+}
+
+export function listUnitPhotos(unitId) {
+  return apiFetch(`/units/${unitId}/photos`);
+}
+
+export function deleteUnitPhoto(unitId, photoId) {
+  return apiFetch(`/units/${unitId}/photos/${photoId}`, { method: "DELETE" });
 }
 
 export async function uploadUnitImage(unitId, file) {

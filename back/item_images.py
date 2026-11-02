@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 MAX_BYTES = 8 * 1024 * 1024
 MAX_SIDE = 1600
+MAX_UNIT_PHOTOS = 12
 MEDIA_TYPES = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -63,6 +64,83 @@ def copy_item_image(source: models.Item, dest: models.Item) -> None:
         return
     dest.image_filename = filename
     logger.info("Imagen copiada de item %s a item %s (%s)", source.id, dest.id, filename)
+
+
+def _unlink(filename: str) -> None:
+    if not filename:
+        return
+    path = stored_image_path(filename)
+    try:
+        if path.is_file():
+            path.unlink()
+    except OSError:
+        pass
+
+
+def unit_photo_rows(db: Session, unit_id: int) -> list:
+    return (
+        db.query(models.UnitPhoto)
+        .filter(models.UnitPhoto.unit_id == unit_id)
+        .order_by(models.UnitPhoto.position.asc(), models.UnitPhoto.id.asc())
+        .all()
+    )
+
+
+def photo_counts(db: Session, unit_ids: list) -> dict:
+    if not unit_ids:
+        return {}
+    from sqlalchemy import func
+    rows = (
+        db.query(models.UnitPhoto.unit_id, func.count(models.UnitPhoto.id))
+        .filter(models.UnitPhoto.unit_id.in_(unit_ids))
+        .group_by(models.UnitPhoto.unit_id)
+        .all()
+    )
+    return {unit_id: int(count) for unit_id, count in rows}
+
+
+def ensure_cover_photo(db: Session, unit: models.ItemUnit) -> None:
+    if not unit.image_filename:
+        return
+    exists = (
+        db.query(models.UnitPhoto.id)
+        .filter(
+            models.UnitPhoto.unit_id == unit.id,
+            models.UnitPhoto.filename == unit.image_filename,
+        )
+        .first()
+    )
+    if exists:
+        return
+    db.add(models.UnitPhoto(unit_id=unit.id, filename=unit.image_filename, position=0))
+    db.flush()
+
+
+def sync_cover(unit: models.ItemUnit, photos: list) -> None:
+    unit.image_filename = photos[0].filename if photos else None
+
+
+def delete_all_unit_photos(db: Session, unit: models.ItemUnit) -> None:
+    rows = unit_photo_rows(db, unit.id)
+    names = {row.filename for row in rows}
+    if unit.image_filename:
+        names.add(unit.image_filename)
+    for name in names:
+        _unlink(name)
+    if rows:
+        (
+            db.query(models.UnitPhoto)
+            .filter(models.UnitPhoto.unit_id == unit.id)
+            .delete(synchronize_session=False)
+        )
+    unit.image_filename = None
+
+
+def _photo_payload(rows: list) -> list:
+    return [
+        {"id": row.id, "filename": row.filename, "position": index}
+        for index, row in enumerate(rows)
+    ]
 
 
 def delete_stored_image(item: models.Item) -> None:
@@ -223,10 +301,91 @@ async def upload_unit_image(
         )
 
     img = _load_image(data)
-    delete_stored_image(unit)
-    unit.image_filename = _save_processed(f"unit{unit_id}", img)
+    return _add_unit_photo(db, unit, img)
+
+
+def _add_unit_photo(db: Session, unit: models.ItemUnit, img: Image.Image) -> dict:
+    ensure_cover_photo(db, unit)
+    photos = unit_photo_rows(db, unit.id)
+    if len(photos) >= MAX_UNIT_PHOTOS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Una pieza puede tener hasta {MAX_UNIT_PHOTOS} fotos",
+        )
+    filename = _save_processed(f"unit{unit.id}", img)
+    position = (photos[-1].position + 1) if photos else 0
+    row = models.UnitPhoto(unit_id=unit.id, filename=filename, position=position)
+    db.add(row)
+    db.flush()
+    photos = unit_photo_rows(db, unit.id)
+    sync_cover(unit, photos)
     db.commit()
-    return {"ok": True, "has_image": True, "image_filename": unit.image_filename}
+    return {
+        "ok": True,
+        "has_image": True,
+        "image_filename": unit.image_filename,
+        "photo_count": len(photos),
+        "photos": _photo_payload(photos),
+    }
+
+
+@router.get("/units/{unit_id}/photos")
+def list_unit_photos(unit_id: int, db: Annotated[Session, Depends(get_db)]):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pieza no encontrada")
+    ensure_cover_photo(db, unit)
+    db.commit()
+    photos = unit_photo_rows(db, unit.id)
+    return {"photos": _photo_payload(photos)}
+
+
+@router.get("/units/{unit_id}/photos/{photo_id}")
+def get_unit_photo(unit_id: int, photo_id: int, db: Annotated[Session, Depends(get_db)]):
+    row = (
+        db.query(models.UnitPhoto)
+        .filter(models.UnitPhoto.id == photo_id, models.UnitPhoto.unit_id == unit_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró la foto")
+    path = stored_image_path(row.filename)
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró el archivo de imagen")
+    media_type = MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type)
+
+
+@router.delete("/units/{unit_id}/photos/{photo_id}")
+def delete_unit_photo(
+    unit_id: int,
+    photo_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pieza no encontrada")
+    row = (
+        db.query(models.UnitPhoto)
+        .filter(models.UnitPhoto.id == photo_id, models.UnitPhoto.unit_id == unit_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No se encontró la foto")
+    _unlink(row.filename)
+    db.delete(row)
+    db.flush()
+    photos = unit_photo_rows(db, unit.id)
+    sync_cover(unit, photos)
+    db.commit()
+    return {
+        "ok": True,
+        "has_image": bool(unit.image_filename),
+        "image_filename": unit.image_filename,
+        "photo_count": len(photos),
+        "photos": _photo_payload(photos),
+    }
 
 
 @router.get("/units/{unit_id}/image")
@@ -250,8 +409,8 @@ def delete_unit_image(
     unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
     if not unit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pieza no encontrada")
-    if not unit.image_filename:
+    if not unit.image_filename and not unit_photo_rows(db, unit.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Esta pieza no tiene imagen")
-    delete_stored_image(unit)
+    delete_all_unit_photos(db, unit)
     db.commit()
-    return {"ok": True, "has_image": False}
+    return {"ok": True, "has_image": False, "photo_count": 0, "photos": []}

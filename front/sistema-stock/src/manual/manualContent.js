@@ -312,7 +312,7 @@ export const MANUAL_SECTIONS = [
             "**Ver imagen** la muestra grande. **Eliminar imagen** la saca (pide confirmar).",
             "La foto puede pesar hasta 8 MB.",
           ] },
-          { type: "p", text: "Cada pieza también puede tener su propia foto, desde el detalle." },
+          { type: "p", text: "Cada pieza puede tener varias fotos propias, desde el detalle. Sirve para una circular, una sensitiva o algo grande: **Agregar foto** suma otra, y la primera es la que se ve en la lista." },
         ],
         related: ["pieza-extra"],
       },
@@ -459,6 +459,7 @@ export const MANUAL_SECTIONS = [
           { type: "list", items: [
             "Después de agregar piezas aparece **Imprimir etiquetas** con los códigos nuevos.",
             "En el detalle de un producto, el botón **Imprimir etiquetas** de arriba imprime las piezas en depósito que se están viendo. Si filtrás por código, imprime solo esas.",
+            "Cuando la etiqueta ya está pegada en la máquina o la herramienta, tildá **Etiquetada**. En Piezas, **Sin etiquetar** muestra las que todavía faltan.",
           ] },
           { type: "p", text: "Se abre una pestaña con las etiquetas y la ventana de impresión. Si dice \"El navegador bloqueó la ventana de etiquetas\", permití las ventanas emergentes para esta página." },
         ],
@@ -690,7 +691,7 @@ export const MANUAL_SECTIONS = [
         keywords: ["foto pieza", "historial pieza", "observación pieza", "anotar", "quitar foto", "cambiar foto"],
         body: [
           { type: "list", items: [
-            "**Foto**: **Cargar foto** o **Cambiar foto**, **Ver foto** (también tocando la miniatura) y **Quitar foto**, que pide confirmación.",
+            "**Foto**: **Agregar foto** (se pueden elegir varias). **Ver fotos** las muestra grandes, con **Agregar foto** y **Quitar esta**. La primera es la de la lista. Si hay una sola, **Quitar foto** la saca.",
             "**Movimientos → Historial**: todos los movimientos de esa pieza (retiros, devoluciones, traslados, cambios de depósito, tirado).",
             "**Observación de esta pieza**: escribila, poné quién la anotó (vacío: fuiste vos) y tocá **Anotar**. Se ven las últimas 3; **Ver más** muestra más.",
           ] },

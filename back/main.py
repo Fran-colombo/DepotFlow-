@@ -38,7 +38,7 @@ from item_transfer import (
 )
 from whatsapp.router import router as whatsapp_router
 from telegram.bot import router as telegram_router, start_telegram_bot
-from item_images import router as item_images_router, delete_stored_image, stored_image_path
+from item_images import router as item_images_router, delete_stored_image, photo_counts, stored_image_path
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.pdfgen import canvas
@@ -704,11 +704,11 @@ def _piece_place(unit: models.ItemUnit, item: models.Item | None, places) -> str
     return " · ".join(names) if names else "En obra"
 
 
-def _pieces_active(text, broken, without_image, situation, obra, category, shed_id):
-    return bool(text or broken or without_image or situation or obra or category or shed_id)
+def _pieces_active(text, broken, without_image, situation, obra, category, shed_id, unlabeled=False):
+    return bool(text or broken or without_image or situation or obra or category or shed_id or unlabeled)
 
 
-def _pieces_query(db, broken, without_image, situation, obra, category, shed_id):
+def _pieces_query(db, broken, without_image, situation, obra, category, shed_id, unlabeled=False):
     query = (
         db.query(models.ItemUnit, models.Item)
         .join(models.Item, models.Item.id == models.ItemUnit.item_id)
@@ -760,6 +760,8 @@ def _pieces_query(db, broken, without_image, situation, obra, category, shed_id)
             models.ItemUnit.image_filename.is_(None),
             models.ItemUnit.image_filename == "",
         ))
+    if unlabeled:
+        query = query.filter(models.ItemUnit.labeled.is_(False))
     return query
 
 
@@ -798,6 +800,7 @@ def list_pieces(
     q: str = "",
     broken: bool = False,
     without_image: bool = False,
+    unlabeled: bool = False,
     situation: str = "",
     obra: str = "",
     category: str = "",
@@ -808,9 +811,9 @@ def list_pieces(
     situation = (situation or "").strip()
     obra = (obra or "").strip()
     category = (category or "").strip()
-    broad = _pieces_active(text, broken, without_image, situation, obra, category, shed_id)
+    broad = _pieces_active(text, broken, without_image, situation, obra, category, shed_id, unlabeled)
     cap = 10 if not broad else min(limit, 500)
-    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id)
+    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id, unlabeled)
     rows = _pieces_rows(query, text, cap)
     away_ids = [
         unit.id
@@ -818,6 +821,7 @@ def list_pieces(
         if unit.status not in ("consumida", "fuera_de_servicio", "en_stock")
     ]
     places_by_unit = pending_places_by_unit(db, away_ids)
+    counts = photo_counts(db, [unit.id for unit, _item in rows])
     data = []
     for unit, item in rows:
         data.append({
@@ -827,7 +831,9 @@ def list_pieces(
             "status": unit.status,
             "place": _piece_place(unit, item, places_by_unit.get(unit.id)),
             "is_broken": bool(unit.is_broken),
+            "labeled": bool(unit.labeled),
             "has_image": bool(unit.image_filename),
+            "photo_count": counts.get(unit.id, 1 if unit.image_filename else 0),
             "image_filename": unit.image_filename,
             "item_id": item.id,
             "item_name": item.name,
@@ -850,6 +856,7 @@ def _pieces_export(rows, places_by_unit) -> BytesIO:
         "Qué le pasó",
         "Diagnóstico",
         "En reparación",
+        "Etiquetada",
     ]
     labels = {
         "en_stock": "En depósito",
@@ -882,10 +889,11 @@ def _pieces_export(rows, places_by_unit) -> BytesIO:
             unit.damage_note or "",
             unit.repair_note or "",
             "Sí" if unit.status == "fuera_de_servicio" else "No",
+            "Sí" if unit.labeled else "No",
         ]
         for col, value in enumerate(values, start=1):
             sheet.cell(row_index, col, value)
-    widths = [22, 36, 36, 22, 32, 12, 40, 40, 16]
+    widths = [22, 36, 36, 22, 32, 12, 40, 40, 16, 14]
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
     buffer = BytesIO()
@@ -1101,6 +1109,7 @@ def export_pieces(
     q: str = "",
     broken: bool = False,
     without_image: bool = False,
+    unlabeled: bool = False,
     situation: str = "",
     obra: str = "",
     category: str = "",
@@ -1110,9 +1119,9 @@ def export_pieces(
     situation = (situation or "").strip()
     obra = (obra or "").strip()
     category = (category or "").strip()
-    if not _pieces_active(text, broken, without_image, situation, obra, category, shed_id):
+    if not _pieces_active(text, broken, without_image, situation, obra, category, shed_id, unlabeled):
         raise HTTPException(status_code=400, detail="Elegí un filtro o un texto para exportar")
-    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id)
+    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id, unlabeled)
     rows = _pieces_rows(query, text)
     away_ids = [
         unit.id
@@ -1181,6 +1190,7 @@ def get_unit_by_code(
         "code": unit.code,
         "name": unit.name,
         "is_broken": bool(unit.is_broken),
+        "labeled": bool(unit.labeled),
         "damage_note": unit.damage_note,
         "repair_note": unit.repair_note,
         "status": unit.status,
@@ -1230,6 +1240,7 @@ def list_item_units(
         "consumida": "Usada",
         "fuera_de_servicio": "Fuera de servicio",
     }
+    counts = photo_counts(db, unit_ids)
     payload = []
     for unit in units:
         places = places_by_unit.get(unit.id, [])
@@ -1244,9 +1255,11 @@ def list_item_units(
             "name": unit.name,
             "description": unit.description,
             "is_broken": bool(unit.is_broken),
+            "labeled": bool(unit.labeled),
             "damage_note": unit.damage_note,
             "repair_note": unit.repair_note,
             "has_image": bool(unit.image_filename),
+            "photo_count": counts.get(unit.id, 1 if unit.image_filename else 0),
             "image_filename": unit.image_filename,
             "created_at": unit.created_at.isoformat() if unit.created_at else None,
             "consumed_at": unit.consumed_at.isoformat() if unit.consumed_at else None,
@@ -1311,6 +1324,7 @@ def _piece_response(unit) -> dict:
         "name": unit.name,
         "description": unit.description,
         "is_broken": bool(unit.is_broken),
+        "labeled": bool(unit.labeled),
         "damage_note": unit.damage_note,
         "repair_note": unit.repair_note,
         "quantity": int(unit.quantity or 0),
@@ -1440,6 +1454,25 @@ def update_piece_zones(
         db.rollback()
         raise HTTPException(status_code=e.status_code, detail=e.message)
     return {"depot_zones": places}
+
+
+class LabeledBody(BaseModel):
+    labeled: bool
+
+
+@app.put("/units/{unit_id}/labeled")
+def set_unit_labeled(
+    unit_id: int,
+    body: LabeledBody,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
+    if not unit:
+        raise HTTPException(status_code=404, detail="Pieza no encontrada")
+    unit.labeled = bool(body.labeled)
+    db.commit()
+    return {"id": unit.id, "labeled": bool(unit.labeled)}
 
 
 @app.put("/units/{unit_id}")

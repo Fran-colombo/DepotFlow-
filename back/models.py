@@ -203,8 +203,19 @@ class ItemUnit(Base):
     name = Column(String, nullable=True)
     description = Column(String, nullable=True)
     is_broken = Column(Boolean, default=False, nullable=False)
+    labeled = Column(Boolean, default=False, nullable=False)
     damage_note = Column(String, nullable=True)
     repair_note = Column(String, nullable=True)
+
+
+class UnitPhoto(Base):
+    __tablename__ = "unit_photos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unit_id = Column(Integer, ForeignKey("item_units.id"), nullable=False, index=True)
+    filename = Column(String, nullable=False)
+    position = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class Rotura(Base):
