@@ -73,6 +73,18 @@ class User(Base):
         telegram_link_token = Column(String, unique=True, index=True, nullable=True)
         telegram_link_expires = Column(DateTime, nullable=True)
 
+class Viaje(Base):
+    __tablename__ = "viajes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    direction = Column(String, nullable=False, index=True)
+    person = Column(String, nullable=False)
+    place = Column(String, nullable=False, index=True)
+    occurred_at = Column(DateTime, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    note = Column(String, nullable=True)
+
+
 class History(Base):
     __tablename__ = "historal"
 
@@ -91,6 +103,7 @@ class History(Base):
     turnbackDate = Column(DateTime, nullable=True)
     lastNotification = Column(DateTime, nullable=True)
     hideFromHistorial = Column(Boolean, default=False)
+    viaje_id = Column(Integer, ForeignKey("viajes.id"), nullable=True, index=True)
     item = relationship("Item") 
 
 class Movement(Base):

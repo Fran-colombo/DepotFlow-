@@ -95,6 +95,33 @@ export async function devolverItem(data) {
   });
 }
 
+export function listViajes({ person, place, direction, day } = {}) {
+  return apiFetch("/historical/viajes", {
+    params: {
+      person: person || undefined,
+      place: place || undefined,
+      direction: direction || undefined,
+      day: day || undefined,
+    },
+  });
+}
+
+export function createViaje(data) {
+  return apiFetch("/historical/viajes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function addViajeLines(viajeId, lines) {
+  return apiFetch(`/historical/viajes/${viajeId}/lineas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lines }),
+  });
+}
+
 export async function noVolvioItem(data) {
   return apiFetch("/historical/no-volvio", {
     method: "POST",
@@ -170,6 +197,7 @@ export async function getPendientes(filters = {}, page = 1, pageSize = 10) {
   const params = {
     person_who_took: filters.personWhoTook || undefined,
     place: filters.place || undefined,
+    item_name: filters.itemName || undefined,
     page,
     page_size: pageSize,
   };

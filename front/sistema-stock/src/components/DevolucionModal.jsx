@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
-import { getItemById, devolverItem, getPendingPlaces } from "../api/items";
+import { getItemById, devolverItem, getPendingPlaces, listViajes } from "../api/items";
 import FeedbackModal from "./FeedbackModal";
 import PersonPicker from "./PersonPicker";
 import NumberInput from "./NumberInput";
 import NoVolvioModal from "./NoVolvioModal";
+import { todayKey, viajeOptionLabel } from "./ViajeModal";
 
 const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = "" }) => {
   const [item, setItem] = useState(null);
   const [pendingPlaces, setPendingPlaces] = useState([]);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '', codesText: '', note: '' });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoReturned: '', codesText: '', note: '', occurredAt: '', viajeId: '' });
+  const [viajes, setViajes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
   const [error, setError] = useState("");
@@ -19,7 +21,8 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
     if (!isOpen || !itemId) return;
     setShowNoVolvio(false);
 
-    setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '', codesText: '', note: '' });
+    setForm({ amount: '', place: defaultPlace || '', personWhoReturned: '', codesText: '', note: '', occurredAt: '', viajeId: '' });
+    setViajes([]);
     setError("");
     setFeedback(null);
     setPendingPlaces([]);
@@ -48,6 +51,37 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
       })
       .finally(() => setLoadingPlaces(false));
   }, [isOpen, itemId, defaultPlace]);
+
+  useEffect(() => {
+    if (!isOpen || !form.place || !form.personWhoReturned.trim()) {
+      setViajes([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const day = form.occurredAt ? form.occurredAt.slice(0, 10) : todayKey();
+    listViajes({
+      person: form.personWhoReturned.trim(),
+      place: form.place,
+      direction: "devolucion",
+      day,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        const list = Array.isArray(rows) ? rows : [];
+        setViajes(list);
+        setForm((prev) => (
+          prev.viajeId && !list.some((row) => String(row.id) === String(prev.viajeId))
+            ? { ...prev, viajeId: "" }
+            : prev
+        ));
+      })
+      .catch(() => {
+        if (!cancelled) setViajes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, form.place, form.personWhoReturned, form.occurredAt]);
 
   const selectedPlace = pendingPlaces.find((p) => p.place === form.place);
   const maxAmount = selectedPlace?.pending_amount ?? 0;
@@ -91,6 +125,8 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
         personWhoReturned: form.personWhoReturned.trim(),
         ...(codes.length ? { codes } : {}),
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
+        ...(form.viajeId ? { viajeId: Number(form.viajeId) } : {}),
+        ...(form.occurredAt && !form.viajeId ? { occurredAt: form.occurredAt } : {}),
       });
       onSuccess?.();
       setFeedback({ type: "success", message: "Se devolvió al depósito." });
@@ -201,6 +237,35 @@ const DevolverItemModal = ({ itemId, isOpen, onClose, onSuccess, defaultPlace = 
                   onChange={(personWhoReturned) => setForm({ ...form, personWhoReturned })}
                 />
               </div>
+              {!form.viajeId && (
+                <div className="mb-3">
+                  <label className="form-label">Fecha y hora</label>
+                  <input
+                    type="datetime-local"
+                    className="form-control"
+                    value={form.occurredAt}
+                    disabled={noPending}
+                    onChange={(e) => setForm({ ...form, occurredAt: e.target.value })}
+                  />
+                  <div className="form-text">Si no ponés nada, el horario es ahora.</div>
+                </div>
+              )}
+              {viajes.length > 0 && (
+                <div className="mb-3">
+                  <label className="form-label">Sumar a este viaje</label>
+                  <select
+                    className="form-select"
+                    value={form.viajeId}
+                    onChange={(e) => setForm({ ...form, viajeId: e.target.value })}
+                  >
+                    <option value="">No, es otro viaje</option>
+                    {viajes.map((viaje) => (
+                      <option key={viaje.id} value={viaje.id}>{viajeOptionLabel(viaje)}</option>
+                    ))}
+                  </select>
+                  {form.viajeId && <div className="form-text">Se usa el horario de ese viaje.</div>}
+                </div>
+              )}
               <div className="mb-3">
                 <label className="form-label">Nota</label>
                 <textarea

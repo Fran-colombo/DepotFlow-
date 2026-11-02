@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import Depends, HTTPException, status, APIRouter
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from auth import get_current_user, get_user_name_by_id
 import dtos.retiroDTO as retiroDTO
 import dtos.turnBackDTO as devolucionDTO
 import dtos.trasladoDTO as trasladoDTO
+import dtos.viajeDTO as viajeDTO
 from dtos.historialDTO import HistoryImageDTO, HistoryResponseWithDetailsDTO
 from sqlalchemy import case, func, or_
 from fastapi import Query
@@ -108,7 +109,7 @@ def split_grouped_returns(db):
     changed = False
     for history_id in grouped_ids:
         history = db.query(models.History).filter(models.History.id == history_id).first()
-        if not history:
+        if not history or history.viaje_id:
             continue
         links = (
             db.query(models.HistoryUnit)
@@ -274,7 +275,11 @@ def read_history(
         total_records = query.count()
         total_pages = ceil(total_records / page_size)
 
-        records = query.order_by(models.History.date.desc()) \
+        records = query.order_by(
+                        models.History.date.desc(),
+                        models.History.viaje_id.desc(),
+                        models.History.id.desc(),
+                      ) \
                       .offset((page - 1) * page_size) \
                       .limit(page_size) \
                       .all()
@@ -320,6 +325,20 @@ def read_history(
                     }
                 )
 
+        viaje_ids = {history.viaje_id for history in history_by_id.values() if history.viaje_id}
+        viaje_size = {}
+        viaje_direction = {}
+        if viaje_ids:
+            counted = (
+                db.query(models.History.viaje_id, func.count(models.History.id))
+                .filter(models.History.viaje_id.in_(viaje_ids))
+                .group_by(models.History.viaje_id)
+                .all()
+            )
+            viaje_size = {viaje_id: count for viaje_id, count in counted}
+            for viaje in db.query(models.Viaje).filter(models.Viaje.id.in_(viaje_ids)).all():
+                viaje_direction[viaje.id] = viaje.direction
+
         data = []
         for history, item_name_db, category, shed_id, shed_name, item_description, item_image in records:
             pieces = pieces_by_history.get(history.id) or []
@@ -331,7 +350,10 @@ def read_history(
                 and sum(int(amount) for amount in amounts) == total
                 and any(int(amount) != total for amount in amounts)
             )
-            shown = pieces if (len(pieces) == 1 or real_split) else [None]
+            if history.viaje_id and len(pieces) > 1:
+                shown = [None]
+            else:
+                shown = pieces if (len(pieces) == 1 or real_split) else [None]
             for piece in shown:
                 label = item_name_db
                 amount = history.amountRetired
@@ -376,6 +398,9 @@ def read_history(
                             for row in row_pieces
                         ],
                         image=image,
+                        viajeId=history.viaje_id,
+                        viajeSize=viaje_size.get(history.viaje_id),
+                        viajeDirection=viaje_direction.get(history.viaje_id),
                     )
                 )
 
@@ -403,6 +428,7 @@ def read_pending_history(
     db: db_dependency,
     person_who_took: Optional[str] = None,
     place: Optional[str] = None,
+    item_name: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, le=MAX_PAGE_SIZE)
 ):
@@ -426,6 +452,9 @@ def read_pending_history(
 
         if place:
             query = query.filter(models.History.place.ilike(f"%{place}%"))
+
+        if item_name and item_name.strip():
+            query = query.filter(models.Item.name.ilike(f"%{item_name.strip()}%"))
 
         total_records = query.count()
         total_pages = ceil(total_records / page_size)
@@ -555,11 +584,191 @@ def get_historial_places(
     return [{"place": place} for (place,) in rows if place]
 
 
+def _as_local(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return TIMEZONE.localize(value)
+    return value.astimezone(TIMEZONE)
+
+
+def _occurred_at(value: Optional[str]) -> datetime:
+    text = (value or "").strip()
+    if not text:
+        return now()
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="La fecha y la hora no son válidas")
+    parsed = _as_local(parsed)
+    if parsed > now() + timedelta(minutes=2):
+        raise HTTPException(status_code=400, detail="El horario no puede ser más adelante que ahora")
+    return parsed
+
+
+def _load_viaje(db, viaje_id: int, direction: str):
+    viaje = db.query(models.Viaje).filter(models.Viaje.id == viaje_id).first()
+    if not viaje:
+        raise HTTPException(status_code=404, detail="No está ese viaje")
+    if viaje.direction != direction:
+        raise HTTPException(status_code=400, detail="Ese viaje es de otra acción")
+    return viaje
+
+
+def _add_history_units(db, history_id: int, units, amounts=None) -> None:
+    amounts = amounts or {}
+    for unit in units or []:
+        raw = amounts.get(unit.id)
+        add = int(raw) if raw is not None else None
+        existing = (
+            db.query(models.HistoryUnit)
+            .filter(
+                models.HistoryUnit.history_id == history_id,
+                models.HistoryUnit.unit_id == unit.id,
+            )
+            .first()
+        )
+        if existing:
+            if add is not None:
+                existing.amount = int(existing.amount or 0) + add
+            continue
+        db.add(models.HistoryUnit(history_id=history_id, unit_id=unit.id, amount=add))
+
+
+def _append_note(history, note: Optional[str]) -> None:
+    extra = (note or "").strip()
+    if not extra:
+        return
+    history.note = f"{history.note}\n{extra}".strip() if history.note else extra
+
+
+def _find_retiro_line(db, viaje_id: int, item_id: int, action, no_return: bool):
+    rows = (
+        db.query(models.History)
+        .filter(
+            models.History.viaje_id == viaje_id,
+            models.History.itemId == item_id,
+            models.History.action == action,
+        )
+        .order_by(models.History.id.asc())
+        .all()
+    )
+    for row in rows:
+        pending = row.amountNotReturned is not None
+        if no_return and not pending:
+            return row
+        if (not no_return) and pending:
+            return row
+    return None
+
+
+def _bind_viaje(db, viaje, direction: str, person: str, place: str, moment: datetime, user_id: int):
+    if viaje is not None:
+        return viaje
+    created = models.Viaje(
+        direction=direction,
+        person=person,
+        place=place,
+        occurred_at=moment,
+        user_id=user_id,
+    )
+    db.add(created)
+    db.flush()
+    return created
+
+
+def _store_retiro_history(db, dto, user_id, user_name, quien, action, no_return, units, moment, viaje):
+    existing = None
+    if viaje is not None:
+        existing = _find_retiro_line(db, viaje.id, dto.itemId, action, no_return)
+    if existing is not None:
+        existing.amountRetired = int(existing.amountRetired or 0) + int(dto.amount)
+        if not no_return:
+            existing.amountNotReturned = int(existing.amountNotReturned or 0) + int(dto.amount)
+            existing.turnback = False
+            existing.turnbackDate = None
+        _append_note(existing, dto.note)
+        _add_history_units(db, existing.id, units)
+        db.flush()
+        return existing
+    history = models.History(
+        itemId=dto.itemId,
+        userId=user_id,
+        userName=user_name,
+        action=action,
+        personWhoTook=quien,
+        amountRetired=dto.amount,
+        amountNotReturned=None if no_return else dto.amount,
+        date=moment,
+        place=dto.place,
+        note=(dto.note or "").strip() or None,
+        turnback=bool(no_return),
+        lastNotification=None,
+    )
+    db.add(history)
+    db.flush()
+    link_history_units(db, history.id, units)
+    viaje = _bind_viaje(db, viaje, "retiro", quien, dto.place, moment, user_id)
+    history.viaje_id = viaje.id
+    db.flush()
+    return history
+
+
+def _find_devolucion_line(db, viaje_id: int, item_id: int):
+    return (
+        db.query(models.History)
+        .filter(
+            models.History.viaje_id == viaje_id,
+            models.History.itemId == item_id,
+            models.History.action == models.ActionEnum.devolucion,
+        )
+        .order_by(models.History.id.asc())
+        .first()
+    )
+
+
+def _store_devolucion_history(db, item_id, user_id, user_name, quien, amount, moment, place, note, units, return_amounts, viaje):
+    existing = _find_devolucion_line(db, viaje.id, item_id) if viaje is not None else None
+    if existing is not None:
+        existing.amountRetired = int(existing.amountRetired or 0) + int(amount)
+        _append_note(existing, note)
+        _add_history_units(db, existing.id, units, return_amounts)
+        db.flush()
+        return existing
+    history = models.History(
+        itemId=item_id,
+        userId=user_id,
+        userName=user_name,
+        action=models.ActionEnum.devolucion,
+        amountRetired=amount,
+        date=moment,
+        turnback=True,
+        turnbackDate=moment,
+        place=place,
+        note=(note or "").strip() or None,
+        personWhoTook=quien,
+        lastNotification=None,
+    )
+    db.add(history)
+    db.flush()
+    if units:
+        link_history_units(db, history.id, units, return_amounts)
+    viaje = _bind_viaje(db, viaje, "devolucion", quien, place, moment, user_id)
+    history.viaje_id = viaje.id
+    db.flush()
+    return history
+
+
 @router.post("/retirar")
-def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency, 
+def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
                 current_user: Annotated[dict, Depends(get_current_user)]):
     user_id = current_user["user_id"]
     user_name = get_user_name_by_id(db, user_id)
+    history, units = _retirar_item(dto, db, user_id, user_name)
+    db.commit()
+    db.refresh(history)
+    return _history_with_codes(history, units)
+
+
+def _retirar_item(dto: retiroDTO.RetiroDTO, db, user_id: int, user_name: str):
 
     item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
     if not item:
@@ -587,6 +796,17 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
     if dto.personWhoTook and dto.personWhoTook.strip():  
         quien_tomo = dto.personWhoTook.strip()
 
+    viaje = None
+    if dto.viajeId:
+        if in_shed or repair:
+            raise HTTPException(400, "Este viaje es de una obra")
+        viaje = _load_viaje(db, dto.viajeId, "retiro")
+        dto.place = viaje.place
+        quien_tomo = (viaje.person or "").strip() or quien_tomo
+        moment = viaje.occurred_at or now()
+    else:
+        moment = _occurred_at(dto.occurredAt)
+
     no_return = in_shed or ((category_is_consumable(db, item.category) or bool(dto.noReturn)) and not repair)
     units = []
     if item.inner_quantity:
@@ -613,56 +833,17 @@ def retirar_item(dto: retiroDTO.RetiroDTO, db: db_dependency,
         except ItemServiceError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
     
+    action = models.ActionEnum.uso_galpon if in_shed else models.ActionEnum.retiro
     if no_return:
-
-        history = models.History(
-            itemId=dto.itemId,
-            userId=user_id,
-            userName=user_name,
-            action=models.ActionEnum.uso_galpon if in_shed else models.ActionEnum.retiro,
-            personWhoTook=quien_tomo,  
-            amountRetired=dto.amount,
-            amountNotReturned=None ,
-            date=now(),
-            place=dto.place,
-            note=(dto.note or "").strip() or None,
-            turnback=True,
-            lastNotification=None
-        )
         item.actualAmount -= dto.amount
         item.totalAmount -= dto.amount
-        
-        db.add(history)
-        db.flush()
-        link_history_units(db, history.id, units)
-        db.commit()
-        db.refresh(history)
-        return _history_with_codes(history, units)
-    
-    item.actualAmount -= dto.amount
+    else:
+        item.actualAmount -= dto.amount
 
-    history = models.History(
-    itemId=dto.itemId,
-    userId=user_id,
-    userName=user_name,
-    action=models.ActionEnum.retiro,
-    personWhoTook=quien_tomo,  
-    amountRetired=dto.amount,
-    amountNotReturned=dto.amount,  
-    date=now(),
-    place=dto.place,
-    note=(dto.note or "").strip() or None,
-    turnback=False,
-    lastNotification=None
+    history = _store_retiro_history(
+        db, dto, user_id, user_name, quien_tomo, action, no_return, units, moment, viaje,
     )
-    
-
-    db.add(history)
-    db.flush()
-    link_history_units(db, history.id, units)
-    db.commit()
-    db.refresh(history)
-    return _history_with_codes(history, units)
+    return history, units
 
 
 def _validate_repair_return(dto):
@@ -749,10 +930,29 @@ def _discard_from_repair(db, item, dto, user_id, user_name):
 def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_user: Annotated[dict, Depends(get_current_user)]):
     user_id = current_user["user_id"]
     user_name = get_user_name_by_id(db, user_id)
+    result = _devolver_item(dto, db, user_id, user_name)
+    if isinstance(result, dict):
+        return result
+    history, units = result
+    db.commit()
+    db.refresh(history)
+    return _history_with_codes(history, units)
 
+
+def _devolver_item(dto: devolucionDTO.DevolucionDTO, db, user_id: int, user_name: str):
     item = db.query(models.Item).filter(models.Item.id == dto.itemId).first()
     if not item:
         raise HTTPException(404, "Item not found")
+
+    viaje = None
+    if dto.viajeId:
+        viaje = _load_viaje(db, dto.viajeId, "devolucion")
+        dto.place = viaje.place
+        if not (dto.personWhoReturned or "").strip():
+            dto.personWhoReturned = viaje.person
+        moment = viaje.occurred_at or now()
+    else:
+        moment = _occurred_at(dto.occurredAt)
 
     from_repair = (dto.place or "").strip() == REPAIR_PLACE
     if from_repair:
@@ -811,7 +1011,7 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             remaining -= take
             if row.amountNotReturned == 0:
                 row.turnback = True
-                row.turnbackDate = now()
+                row.turnbackDate = moment
             taken_by_unit[unit.id] = taken_by_unit.get(unit.id, 0) + take
         units = []
         try:
@@ -855,7 +1055,7 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             history.amountNotReturned -= 1
             if history.amountNotReturned == 0:
                 history.turnback = True
-                history.turnbackDate = now()
+                history.turnbackDate = moment
             home = db.query(models.Item).filter(models.Item.id == unit.item_id).first()
             if home:
                 home.actualAmount = (home.actualAmount or 0) + 1
@@ -908,7 +1108,7 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
 
             if p.amountNotReturned == 0:
                 p.turnback = True
-                p.turnbackDate = now()
+                p.turnbackDate = moment
 
     if from_repair:
         try:
@@ -921,43 +1121,172 @@ def devolver_item(dto: devolucionDTO.DevolucionDTO, db: db_dependency, current_u
             raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     quien_devuelve = dto.personWhoReturned.strip() if dto.personWhoReturned and dto.personWhoReturned.strip() else user_name
+    if viaje is not None and (viaje.person or "").strip():
+        quien_devuelve = viaje.person.strip()
 
-    shares = []
-    if return_amounts and len(return_amounts) > 1:
-        for unit in units:
-            shares.append((unit, int(return_amounts[unit.id])))
-    else:
-        shares.append((None, dto.amount))
+    history = _store_devolucion_history(
+        db,
+        dto.itemId,
+        user_id,
+        user_name,
+        quien_devuelve,
+        dto.amount,
+        moment,
+        dto.place,
+        dto.note,
+        units,
+        return_amounts,
+        viaje,
+    )
+    return history, units
 
-    moment = now()
-    created = None
-    for unit, share in shares:
-        history = models.History(
-            itemId=dto.itemId,
-            userId=user_id,
-            userName=user_name,
-            action=models.ActionEnum.devolucion,
-            amountRetired=share,
-            date=moment,
-            turnback=True,
-            turnbackDate=moment,
-            place=dto.place,
-            note=(dto.note or "").strip() or None,
-            personWhoTook=quien_devuelve,
-            lastNotification=None
-        )
-        db.add(history)
-        db.flush()
-        if unit is not None:
-            link_history_units(db, history.id, [unit], {unit.id: share})
+
+def _apply_viaje_lines(db, viaje, lines, user_id: int, user_name: str) -> None:
+    if not lines:
+        raise HTTPException(status_code=400, detail="Agregá al menos un producto")
+    for line in lines:
+        amount = int(line.amount or 0)
+        if amount < 1:
+            raise HTTPException(status_code=400, detail="La cantidad tiene que ser mayor a 0")
+        item = db.query(models.Item).filter(models.Item.id == line.itemId).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="No está ese producto")
+        codes = [str(code).strip() for code in (line.codes or []) if code and str(code).strip()]
+        if viaje.direction == "retiro" and item.track_units and not codes:
+            raise HTTPException(status_code=400, detail=f"Elegí el código de {item.name}")
+        if viaje.direction == "retiro":
+            _retirar_item(
+                retiroDTO.RetiroDTO(
+                    itemId=line.itemId,
+                    amount=amount,
+                    place=viaje.place,
+                    personWhoTook=viaje.person,
+                    codes=codes or None,
+                    noReturn=bool(line.noReturn),
+                    note=line.note,
+                    viajeId=viaje.id,
+                ),
+                db,
+                user_id,
+                user_name,
+            )
+        elif viaje.direction == "devolucion":
+            _devolver_item(
+                devolucionDTO.DevolucionDTO(
+                    itemId=line.itemId,
+                    amount=amount,
+                    place=viaje.place,
+                    personWhoReturned=viaje.person,
+                    codes=codes or None,
+                    note=line.note,
+                    viajeId=viaje.id,
+                ),
+                db,
+                user_id,
+                user_name,
+            )
         else:
-            link_history_units(db, history.id, units, return_amounts)
-        created = history
+            raise HTTPException(status_code=400, detail="Ese viaje no se puede completar")
 
+
+@router.get("/viajes")
+def list_viajes(
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    person: Optional[str] = None,
+    place: Optional[str] = None,
+    direction: Optional[str] = None,
+    day: Optional[str] = None,
+):
+    target = (day or "").strip() or now().strftime("%Y-%m-%d")
+    query = db.query(models.Viaje)
+    if person and person.strip():
+        query = query.filter(models.Viaje.person == person.strip())
+    if place and place.strip():
+        query = query.filter(models.Viaje.place == place.strip())
+    if direction and direction.strip():
+        query = query.filter(models.Viaje.direction == direction.strip())
+    query = query.filter(func.strftime("%Y-%m-%d", models.Viaje.occurred_at) == target)
+    viajes = query.order_by(models.Viaje.occurred_at.desc(), models.Viaje.id.desc()).all()
+    if not viajes:
+        return []
+    ids = [viaje.id for viaje in viajes]
+    names = {}
+    rows = (
+        db.query(models.History.viaje_id, models.Item.name)
+        .join(models.Item, models.Item.id == models.History.itemId)
+        .filter(models.History.viaje_id.in_(ids))
+        .order_by(models.History.id.asc())
+        .all()
+    )
+    for viaje_id, name in rows:
+        bucket = names.setdefault(viaje_id, [])
+        if name and name not in bucket:
+            bucket.append(name)
+    return [
+        {
+            "id": viaje.id,
+            "direction": viaje.direction,
+            "person": viaje.person,
+            "place": viaje.place,
+            "occurred_at": viaje.occurred_at.isoformat() if viaje.occurred_at else None,
+            "items": names.get(viaje.id, []),
+        }
+        for viaje in viajes
+    ]
+
+
+@router.post("/viajes")
+def create_viaje(
+    dto: viajeDTO.ViajeCreateDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    direction = (dto.direction or "").strip()
+    if direction not in ("retiro", "devolucion"):
+        raise HTTPException(status_code=400, detail="Elegí si se van o si vuelven")
+    person = (dto.person or "").strip()
+    if not person:
+        raise HTTPException(status_code=400, detail="Indicá quién")
+    place = (dto.place or "").strip()
+    if direction == "retiro":
+        from obras import require_active_obra
+        place = require_active_obra(db, place)
+    elif not place:
+        raise HTTPException(status_code=400, detail="Elegí la obra")
+    moment = _occurred_at(dto.occurredAt)
+    user_id = current_user["user_id"]
+    user_name = get_user_name_by_id(db, user_id)
+    viaje = models.Viaje(
+        direction=direction,
+        person=person,
+        place=place,
+        occurred_at=moment,
+        user_id=user_id,
+        note=(dto.note or "").strip() or None,
+    )
+    db.add(viaje)
+    db.flush()
+    _apply_viaje_lines(db, viaje, dto.lines, user_id, user_name)
     db.commit()
-    db.refresh(created)
+    return {"id": viaje.id}
 
-    return _history_with_codes(created, units)
+
+@router.post("/viajes/{viaje_id}/lineas")
+def add_viaje_lines(
+    viaje_id: int,
+    dto: viajeDTO.ViajeLineasDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    viaje = db.query(models.Viaje).filter(models.Viaje.id == viaje_id).first()
+    if not viaje:
+        raise HTTPException(status_code=404, detail="No está ese viaje")
+    user_id = current_user["user_id"]
+    user_name = get_user_name_by_id(db, user_id)
+    _apply_viaje_lines(db, viaje, dto.lines, user_id, user_name)
+    db.commit()
+    return {"id": viaje.id}
 
 
 def _pending_label(total):

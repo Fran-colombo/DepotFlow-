@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
 import { getAllItems, getFilteredHistorial, getItemImageUrl, getUnitImageUrl } from "../api/items"
 import PackingSlipModal from "../components/CrearRemito";
+import ViajeModal from "../components/ViajeModal";
 import {getSheds} from "../api/sheds"
 const Historial = () => {
   const [historial, setHistorial] = useState([]);
@@ -16,7 +17,9 @@ const Historial = () => {
     totalPages: 1
   });
   const [showRemitoModal, setShowRemitoModal] = useState(false);
+  const [viajeModal, setViajeModal] = useState(null);
   const [photo, setPhoto] = useState(null);
+  const [productQuery, setProductQuery] = useState("");
   const [filters, setFilters] = useState({
     itemName: "",
     userName: "",
@@ -160,13 +163,19 @@ useEffect(() => {
     setPagination(prev => ({ ...prev, page: 1 })); 
   };
 
-  const handleProductsChange = (e) => {
-    const itemIds = Array.from(e.target.selectedOptions).map((option) => Number(option.value));
-    setFilters(prev => ({ ...prev, itemIds }));
+  const toggleProduct = (itemId) => {
+    setFilters(prev => {
+      const selected = prev.itemIds.includes(itemId);
+      const itemIds = selected
+        ? prev.itemIds.filter((id) => id !== itemId)
+        : [...prev.itemIds, itemId];
+      return { ...prev, itemIds };
+    });
     setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const clearFilters = () => {
+    setProductQuery("");
     setFilters({
       itemName: "",
       userName: "",
@@ -186,6 +195,68 @@ useEffect(() => {
   const handlePageChange = (newPage) => {
     setPagination(prev => ({ ...prev, page: newPage }));
   };
+
+  const renderRegistro = (registro) => (
+    <tr key={`${registro.id}-${registro.itemName}`} className="text-center">
+      <td className="fw-medium">
+        <div>{registro.itemName}</div>
+        {registro.image && (
+          <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setPhoto(registro.image)}>
+            Ver imagen
+          </button>
+        )}
+        {registro.pieces?.length > 1 && (
+          <div className="small text-secondary fw-normal">
+            {registro.pieces.map((piece) => (
+              piece.name ? `${piece.code} · ${piece.name}` : piece.code
+            )).join(", ")}
+          </div>
+        )}
+      </td>
+      <td>{registro.itemCategory || 'N/A'}</td>
+      <td>{registro.userName}</td>
+      <td>{registro.personWhoTook || registro.userName}</td>
+      <td>
+        <span className={`badge ${getActionColor(registro.action)}`}>
+          {getActionLabel(registro.action)}
+        </span>
+      </td>
+      <td>{registro.amountRetired || registro.amountNotReturned || '0'}</td>
+      <td>
+        <div>{registro.place || 'N/A'}</div>
+        {registro.note && (
+          <div className="small text-secondary fw-normal">{registro.note}</div>
+        )}
+      </td>
+      <td>{registro.shed_name || 'N/A'}</td>
+      <td>{formatDate(registro.date)}</td>
+      <td>
+        {(() => {
+          const status = getStatusBadge(registro);
+          return (
+            <span className={`badge ${status.className}`}>
+              {status.label}
+            </span>
+          );
+        })()}
+      </td>
+    </tr>
+  );
+
+  const bundles = [];
+  historial.forEach((registro) => {
+    const grouped = registro.viajeId && Number(registro.viajeSize) > 1;
+    const last = bundles[bundles.length - 1];
+    if (grouped && last?.kind === "viaje" && last.viajeId === registro.viajeId) {
+      last.rows.push(registro);
+      return;
+    }
+    if (grouped) {
+      bundles.push({ kind: "viaje", viajeId: registro.viajeId, rows: [registro] });
+      return;
+    }
+    bundles.push({ kind: "solo", rows: [registro] });
+  });
 
   const months = [
     { value: 1, label: 'Enero' },
@@ -294,20 +365,57 @@ useEffect(() => {
 
             <div className="col-md-6">
               <label className="form-label">Subcategorías</label>
-              <select
-                multiple
-                className="form-select"
-                size={6}
-                value={filters.itemIds.map(String)}
-                onChange={handleProductsChange}
-              >
-                {products.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.name}
-                  </option>
-                ))}
-              </select>
-              <div className="form-text">Sin elección se ven todas. Mantené Ctrl para elegir varias.</div>
+              {filters.itemIds.length > 0 && (
+                <div className="d-flex flex-wrap gap-1 mb-2">
+                  {filters.itemIds.map((id) => {
+                    const product = products.find((row) => row.id === id);
+                    if (!product) return null;
+                    return (
+                      <button
+                        type="button"
+                        key={id}
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={() => toggleProduct(id)}
+                      >
+                        {product.name} ×
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <input
+                type="text"
+                className="form-control mb-2"
+                value={productQuery}
+                onChange={(e) => setProductQuery(e.target.value)}
+                placeholder="Buscar subcategoría..."
+              />
+              <div className="border rounded" style={{ maxHeight: 180, overflowY: "auto" }}>
+                {products.filter((product) => {
+                  const term = productQuery.trim().toLowerCase();
+                  return !term || product.name.toLowerCase().includes(term);
+                }).length === 0 ? (
+                  <div className="text-secondary small p-2">Ninguna subcategoría con ese nombre.</div>
+                ) : (
+                  products
+                    .filter((product) => {
+                      const term = productQuery.trim().toLowerCase();
+                      return !term || product.name.toLowerCase().includes(term);
+                    })
+                    .map((product) => (
+                      <label key={product.id} className="d-flex align-items-center gap-2 px-2 py-1 mb-0 border-bottom">
+                        <input
+                          type="checkbox"
+                          className="form-check-input m-0"
+                          checked={filters.itemIds.includes(product.id)}
+                          onChange={() => toggleProduct(product.id)}
+                        />
+                        <span>{product.name}</span>
+                      </label>
+                    ))
+                )}
+              </div>
+              <div className="form-text">Sin elección se ven todas.</div>
             </div>
 
             <div className="col-md-3">
@@ -377,21 +485,28 @@ useEffect(() => {
             </div>
           </div>
           
-          <div className="d-flex justify-content-end mt-3">
+          <div className="d-flex justify-content-end flex-wrap gap-2 mt-3">
             <button
               onClick={clearFilters}
               className="btn btn-outline-secondary"
             >
               Limpiar filtros
             </button>
+            <button
+              type="button"
+              onClick={() => setViajeModal({ mode: "create" })}
+              className="btn btn-outline-primary"
+            >
+              Nuevo viaje
+            </button>
+            <button
+              onClick={() => setShowRemitoModal(true)}
+              className="btn btn-primary"
+              disabled={loading}
+            >
+              {loading ? "Cargando..." : "Crear remito"}
+            </button>
           </div>
-        <button
-          onClick={() => setShowRemitoModal(true)}
-          className="btn btn-primary"
-          disabled={loading}
-        >
-          {loading ? "Cargando..." : "Crear remito"}
-        </button>
         </div>
       </div>
       {loading ? (
@@ -422,52 +537,43 @@ useEffect(() => {
                 </tr>
               </thead>
               <tbody>
-                {historial.length > 0 ? (
-                  historial.map((registro) => (
-                    <tr key={`${registro.id}-${registro.itemName}`} className="text-center">
-                      <td className="fw-medium">
-                        <div>{registro.itemName}</div>
-                        {registro.image && (
-                          <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setPhoto(registro.image)}>
-                            Ver imagen
-                          </button>
-                        )}
-                        {registro.pieces?.length > 1 && (
-                          <div className="small text-secondary fw-normal">
-                            {registro.pieces.map((piece) => (
-                              piece.name ? `${piece.code} · ${piece.name}` : piece.code
-                            )).join(", ")}
-                          </div>
-                        )}
-                      </td>
-                      <td>{registro.itemCategory || 'N/A'}</td>
-                      <td>{registro.userName}</td>
-                      <td>{registro.personWhoTook || registro.userName}</td>
-                      <td>
-                        <span className={`badge ${getActionColor(registro.action)}`}>
-                          {getActionLabel(registro.action)}
-                        </span>
-                      </td>
-                      <td>{registro.amountRetired || registro.amountNotReturned || '0'}</td>
-                      <td>
-                        <div>{registro.place || 'N/A'}</div>
-                        {registro.note && (
-                          <div className="small text-secondary fw-normal">{registro.note}</div>
-                        )}
-                      </td>
-                      <td>{registro.shed_name || 'N/A'}</td>
-                      <td>{formatDate(registro.date)}</td>
-                      <td>
-                        {(() => {
-                          const status = getStatusBadge(registro);
-                          return (
-                            <span className={`badge ${status.className}`}>
-                              {status.label}
-                            </span>
-                          );
-                        })()}
-                      </td>
-                    </tr>
+                {bundles.length > 0 ? (
+                  bundles.map((bundle) => (
+                    bundle.kind === "viaje" ? (
+                      <Fragment key={`viaje-${bundle.viajeId}`}>
+                        <tr className="table-light">
+                          <td colSpan="10" className="text-start">
+                            <div className="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                              <div>
+                                <span className="fw-semibold">
+                                  {bundle.rows[0].viajeDirection === "devolucion" ? "Vuelta" : "Salida"}
+                                </span>
+                                {" · "}
+                                {bundle.rows[0].personWhoTook || bundle.rows[0].userName}
+                                {" · "}
+                                {bundle.rows[0].place || "Sin lugar"}
+                                {" · "}
+                                {formatDate(bundle.rows[0].date)}
+                              </div>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-primary"
+                                onClick={() => setViajeModal({
+                                  mode: "add",
+                                  id: bundle.viajeId,
+                                  direction: bundle.rows[0].viajeDirection || "retiro",
+                                  place: bundle.rows[0].place || "",
+                                  person: bundle.rows[0].personWhoTook || bundle.rows[0].userName || "",
+                                })}
+                              >
+                                Agregar a este viaje
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {bundle.rows.map((registro) => renderRegistro(registro))}
+                      </Fragment>
+                    ) : renderRegistro(bundle.rows[0])
                   ))
                 ) : (
                   <tr>
@@ -569,6 +675,16 @@ useEffect(() => {
     onClose={() => setShowRemitoModal(false)}
   />
 )}
+      {viajeModal && (
+        <ViajeModal
+          viaje={viajeModal.mode === "add" ? viajeModal : null}
+          onClose={() => setViajeModal(null)}
+          onSuccess={() => {
+            setViajeModal(null);
+            fetchHistorial();
+          }}
+        />
+      )}
 
     </Dashboard>
   );

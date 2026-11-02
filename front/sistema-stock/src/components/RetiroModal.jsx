@@ -129,12 +129,13 @@
 // export default RetirarItemModal;
 
 import { useEffect, useState } from "react";
-import { getItemById, getItemUnits, retirarItem } from "../api/items";
+import { getItemById, getItemUnits, listViajes, retirarItem } from "../api/items";
 import { getObras } from "../api/obras";
 import ObraPicker from "./ObraPicker";
 import PersonPicker from "./PersonPicker";
 import FeedbackModal from "./FeedbackModal";
 import NumberInput from "./NumberInput";
+import { todayKey, viajeOptionLabel } from "./ViajeModal";
 
 const RetirarItemModal = ({ 
   itemId, 
@@ -146,7 +147,8 @@ const RetirarItemModal = ({
   const [item, setItem] = useState(null);
   const [stockUnits, setStockUnits] = useState([]);
   const [innerQuantity, setInnerQuantity] = useState(false);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '' });
+  const [viajes, setViajes] = useState([]);
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -160,7 +162,8 @@ const RetirarItemModal = ({
 
   useEffect(() => {
     if (isOpen && itemId) {
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '' });
+      setViajes([]);
       setRetiredCodes([]);
       setStockUnits([]);
       setInnerQuantity(false);
@@ -174,6 +177,37 @@ const RetirarItemModal = ({
       getObras().then((data) => setObras(Array.isArray(data) ? data : [])).catch(() => setObras([]));
     }
   }, [isOpen, itemId]);
+
+  useEffect(() => {
+    if (!isOpen || inShed || !form.place || !form.personWhoTook.trim()) {
+      setViajes([]);
+      return undefined;
+    }
+    let cancelled = false;
+    const day = form.occurredAt ? form.occurredAt.slice(0, 10) : todayKey();
+    listViajes({
+      person: form.personWhoTook.trim(),
+      place: form.place,
+      direction: "retiro",
+      day,
+    })
+      .then((rows) => {
+        if (cancelled) return;
+        const list = Array.isArray(rows) ? rows : [];
+        setViajes(list);
+        setForm((prev) => (
+          prev.viajeId && !list.some((row) => String(row.id) === String(prev.viajeId))
+            ? { ...prev, viajeId: "" }
+            : prev
+        ));
+      })
+      .catch(() => {
+        if (!cancelled) setViajes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, inShed, form.place, form.personWhoTook, form.occurredAt]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -219,15 +253,17 @@ const RetirarItemModal = ({
         noReturn: Boolean(item?.is_consumable) || form.noReturn,
         ...(inShed ? { inShed: true } : {}),
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
+        ...(form.viajeId ? { viajeId: Number(form.viajeId) } : {}),
+        ...(form.occurredAt && !form.viajeId ? { occurredAt: form.occurredAt } : {}),
       });
       setRetiredCodes(result?.unit_codes || []);
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '' });
       setRemitoDraft(inShed ? null : {
         item,
         amount,
         place: form.place,
         personWhoTook: form.personWhoTook || "Usuario actual",
       });
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false });
       onSuccess?.();
       setFeedback({ type: "success", message: inShed ? "Quedó como usado en el galpón." : "Se retiró." });
     } catch (error) {
@@ -409,6 +445,34 @@ const RetirarItemModal = ({
                     onChange={(personWhoTook) => setForm({ ...form, personWhoTook })}
                   />
                 </div>
+                {!form.viajeId && (
+                  <div className="mb-3">
+                    <label className="form-label">Fecha y hora</label>
+                    <input
+                      type="datetime-local"
+                      className="form-control"
+                      value={form.occurredAt}
+                      onChange={(e) => setForm({ ...form, occurredAt: e.target.value })}
+                    />
+                    <div className="form-text">Si no ponés nada, el horario es ahora.</div>
+                  </div>
+                )}
+                {!inShed && viajes.length > 0 && (
+                  <div className="mb-3">
+                    <label className="form-label">Sumar a este viaje</label>
+                    <select
+                      className="form-select"
+                      value={form.viajeId}
+                      onChange={(e) => setForm({ ...form, viajeId: e.target.value })}
+                    >
+                      <option value="">No, es otro viaje</option>
+                      {viajes.map((viaje) => (
+                        <option key={viaje.id} value={viaje.id}>{viajeOptionLabel(viaje)}</option>
+                      ))}
+                    </select>
+                    {form.viajeId && <div className="form-text">Se usa el horario de ese viaje.</div>}
+                  </div>
+                )}
                 <div className="mb-3">
                   <label className="form-label">{inShed ? "Para qué" : "Nota"}</label>
                   <textarea

@@ -63,6 +63,9 @@ class HistoryResponseWithDetailsDTO(HistoryResponseDTO):
     shed_name: Optional[str] = None
     pieces: Optional[list[HistoryPieceDTO]] = None
     image: Optional[HistoryImageDTO] = None
+    viajeId: Optional[int] = None
+    viajeSize: Optional[int] = None
+    viajeDirection: Optional[str] = None
 
     class Config:
         from_attributes = True

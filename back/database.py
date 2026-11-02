@@ -438,6 +438,33 @@ def ensure_inventory_schema():
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE categories ADD COLUMN hint VARCHAR"))
 
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS viajes (
+                id INTEGER NOT NULL PRIMARY KEY,
+                direction VARCHAR NOT NULL,
+                person VARCHAR NOT NULL,
+                place VARCHAR NOT NULL,
+                occurred_at DATETIME NOT NULL,
+                user_id INTEGER,
+                note VARCHAR,
+                FOREIGN KEY(user_id) REFERENCES users (id)
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_viajes_id ON viajes (id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_viajes_direction ON viajes (direction)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_viajes_place ON viajes (place)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_viajes_occurred_at ON viajes (occurred_at)"))
+
+    if _column_exists("historal", "id") and not _column_exists("historal", "viaje_id"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE historal ADD COLUMN viaje_id INTEGER REFERENCES viajes(id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_historal_viaje_id ON historal (viaje_id)"
+            ))
+
 
 def ensure_phone_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):

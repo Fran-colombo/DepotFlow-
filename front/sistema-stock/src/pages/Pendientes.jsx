@@ -17,7 +17,8 @@ const Pendientes = () => {
   });
   const [filters, setFilters] = useState({
     personWhoTook: "",
-    place: ""
+    place: "",
+    itemName: ""
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -91,7 +92,18 @@ const Pendientes = () => {
       </div>
     }>
       <div className="row g-3 mb-3">
-        <div className="col-md-6">
+        <div className="col-md-4">
+          <label className="form-label">Producto</label>
+          <input
+            type="text"
+            name="itemName"
+            value={filters.itemName}
+            onChange={handleFilterChange}
+            className="form-control"
+            placeholder="Buscar por producto"
+          />
+        </div>
+        <div className="col-md-4">
           <label className="form-label">Persona que retiró</label>
           <input
             type="text"
@@ -102,7 +114,7 @@ const Pendientes = () => {
             placeholder="Buscar por persona"
           />
         </div>
-        <div className="col-md-6">
+        <div className="col-md-4">
           <label className="form-label">Lugar al que fue</label>
           <input
             type="text"

@@ -8,6 +8,8 @@ class DevolucionDTO(BaseModel):
     place: str
     codes: Optional[List[str]] = None
     note: Optional[str] = None
+    occurredAt: Optional[str] = None
+    viajeId: Optional[int] = None
     fixed: Optional[bool] = None
     fix_note: Optional[str] = None
     damage_note: Optional[str] = None

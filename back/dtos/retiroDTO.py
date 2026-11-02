@@ -11,3 +11,5 @@ class RetiroDTO(BaseModel):
     repair: bool = False
     inShed: bool = False
     note: Optional[str] = None
+    occurredAt: Optional[str] = None
+    viajeId: Optional[int] = None

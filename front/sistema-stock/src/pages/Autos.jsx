@@ -154,6 +154,26 @@ function WhenFields({ date, time, onDate, onTime, hint = WHEN_HINT }) {
   );
 }
 
+function sinceLabel(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const today = new Date();
+  const sameDay = date.getFullYear() === today.getFullYear()
+    && date.getMonth() === today.getMonth()
+    && date.getDate() === today.getDate();
+  if (sameDay) return `desde ${time}`;
+  const day = date.toLocaleDateString("es-AR", { day: "numeric", month: "short" });
+  return `desde ${day}, ${time}`;
+}
+
+function withSince(text, row) {
+  const since = sinceLabel(row?.open_left_at);
+  if (!since) return text;
+  return text ? `${text} · ${since}` : since;
+}
+
 function formatWhen(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -355,7 +375,7 @@ const Autos = () => {
                   <div className="card-body pb-2">
                     <div className="fw-bold">{row.plate || row.name}</div>
                     <div>{row.name}</div>
-                    <div className="app-muted small">{row.place}{row.open_person ? ` · ${row.open_person}` : ""}</div>
+                    <div className="app-muted small">{withSince(`${row.place}${row.open_person ? ` · ${row.open_person}` : ""}`, row)}</div>
                     {row.with_name && <div className="app-muted small">Con {row.with_name}</div>}
                     {row.is_broken && <div className="small text-danger">Roto</div>}
                     {row.in_repair && <div className="small">Lo llevaron a arreglar</div>}
@@ -363,7 +383,7 @@ const Autos = () => {
                     <KmLine row={row} />
                   </div>
                 </button>
-                <div className="card-footer bg-white border-0 pt-0 d-flex gap-2">
+                <div className="card-footer bg-white border-0 pt-0 d-flex flex-wrap gap-2">
                   {!row.out ? (
                     <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setMove({ id: row.id, kind: "auto", action: "leave" })}>
                       Salir
@@ -379,6 +399,11 @@ const Autos = () => {
                         </button>
                       )}
                     </>
+                  )}
+                  {isAdmin && (
+                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setPastUse(row)}>
+                      Cargar uso pasado
+                    </button>
                   )}
                 </div>
               </div>
@@ -407,9 +432,7 @@ const Autos = () => {
                   <div className="card-body pb-2">
                     <div className="fw-bold">{row.name}</div>
                     <div className="app-muted small">
-                      {row.place}
-                      {row.with_name ? ` · ${row.with_name}` : ""}
-                      {row.open_person ? ` · ${row.open_person}` : ""}
+                      {withSince(`${row.place}${row.with_name ? ` · ${row.with_name}` : ""}${row.open_person ? ` · ${row.open_person}` : ""}`, row)}
                     </div>
                   </div>
                 </button>
@@ -916,7 +939,7 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
               />
             )}
             <div className="mt-2">{row.name}</div>
-            <div className="app-muted small mb-2">{row.place}{row.open_person ? ` · ${row.open_person}` : ""}</div>
+            <div className="app-muted small mb-2">{withSince(`${row.place}${row.open_person ? ` · ${row.open_person}` : ""}`, row)}</div>
             {row.kind === "auto" && (
               <>
                 {kmEdit == null ? (
