@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import AuthContext from './AuthContext';
 import { jwtDecode } from 'jwt-decode';
 import { refreshSession } from '../api/auth';
-import { setActivityListener } from '../sessionActivity'; 
+import { setActivityListener } from '../sessionActivity';
+import { setUnauthorizedHandler } from '../api/client'; 
 
 export default function AuthProvider({ children }) {
   const [authState, setAuthState] = useState(() => {
@@ -10,6 +11,17 @@ export default function AuthProvider({ children }) {
     if (token) {
       try {
         const decoded = jwtDecode(token);
+        const expired = decoded.exp && decoded.exp * 1000 <= Date.now();
+        if (expired) {
+          localStorage.removeItem('authToken');
+          return {
+            token: null,
+            isAuthenticated: false,
+            role: null,
+            userId: null,
+            email: null
+          };
+        }
         return {
           token,
           isAuthenticated: true,
@@ -70,15 +82,21 @@ export default function AuthProvider({ children }) {
   const logoutRef = useRef(null);
 
   const handleLogin = (token) => {
-    localStorage.setItem('authToken', token);
-    const decoded = jwtDecode(token);
-    setAuthState({
-      token,
-      isAuthenticated: true,
-      role: decoded.role,
-      userId: decoded.user_id,
-      email: decoded.sub
-    });
+    try {
+      const decoded = jwtDecode(token);
+      localStorage.setItem('authToken', token);
+      setAuthState({
+        token,
+        isAuthenticated: true,
+        role: decoded.role,
+        userId: decoded.user_id,
+        email: decoded.sub
+      });
+    } catch (error) {
+      console.error("Error decoding token:", error);
+      localStorage.removeItem('authToken');
+      throw new Error("El servidor devolvió un token inválido");
+    }
   };
 
   const handleLogout = () => {
@@ -149,6 +167,7 @@ export default function AuthProvider({ children }) {
     };
 
     setActivityListener(mark);
+    setUnauthorizedHandler(() => logoutRef.current?.());
     window.addEventListener("pointerdown", mark);
     window.addEventListener("keydown", mark);
     document.addEventListener("visibilitychange", onVisible);
@@ -157,6 +176,7 @@ export default function AuthProvider({ children }) {
 
     return () => {
       setActivityListener(null);
+      setUnauthorizedHandler(null);
       window.removeEventListener("pointerdown", mark);
       window.removeEventListener("keydown", mark);
       document.removeEventListener("visibilitychange", onVisible);

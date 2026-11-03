@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from pathlib import Path
 from fastapi import Depends, HTTPException, status, APIRouter
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
@@ -20,7 +21,6 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from PIL import Image
-import requests
 from reportlab.lib.units import cm
 
 import pytz
@@ -28,6 +28,7 @@ from item_categories import category_is_consumable
 from item_images import stored_image_path
 from obras import require_active_obra
 from item_service import ItemServiceError, item_unplaced_amount
+from config import EmailConfig
 from unit_service import (
     REPAIR_PLACE,
     STATUS_FUERA_DE_SERVICIO,
@@ -180,6 +181,7 @@ MAX_PAGE_SIZE = 100
 @router.get("/", response_model=dict)
 def read_history(
     db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
     item_name: Optional[str] = None,
     item_id: Optional[int] = None,
     item_ids: Optional[List[int]] = Query(None),
@@ -196,7 +198,6 @@ def read_history(
     page_size: int = Query(DEFAULT_PAGE_SIZE, le=MAX_PAGE_SIZE)
 ):
     try:
-        split_grouped_returns(db)
         original_name = case(
             (models.Item.name.like("%__DELETED_%"), 
              func.substr(models.Item.name, 1, func.instr(models.Item.name, "__DELETED_") - 1)),
@@ -426,6 +427,7 @@ def read_history(
 @router.get("/pending", response_model=dict)
 def read_pending_history(
     db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
     person_who_took: Optional[str] = None,
     place: Optional[str] = None,
     item_name: Optional[str] = None,
@@ -464,8 +466,14 @@ def read_pending_history(
                       .limit(page_size) \
                       .all()
 
+        threshold_days = max(float(EmailConfig.NOTIFICATION_THRESHOLD_DAYS or 7), 0.1)
+        now_utc = datetime.utcnow()
         data = []
         for history, item_name in results:
+            ref = history.date
+            if ref is not None and getattr(ref, "tzinfo", None):
+                ref = ref.replace(tzinfo=None)
+            days_pending = max((now_utc - ref).days, 0) if ref else 0
             data.append({
                 "id": history.id,
                 "itemId": history.itemId,
@@ -480,11 +488,14 @@ def read_pending_history(
                 "place": history.place,
                 "turnback": history.turnback,
                 "turnbackDate": history.turnbackDate,
-                "lastNotification": history.lastNotification
+                "lastNotification": history.lastNotification,
+                "daysPending": days_pending,
+                "stale": days_pending >= threshold_days,
             })
 
         return {
             "data": data,
+            "threshold_days": threshold_days,
             "pagination": {
                 "total_records": total_records,
                 "total_pages": total_pages,
@@ -503,7 +514,11 @@ def read_pending_history(
 
 
 @router.get("/search")
-def search_history(item_id: int, db: db_dependency):
+def search_history(
+    item_id: int,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     history = db.query(models.History).filter(models.History.itemId == item_id).all()
     if not history:
         raise HTTPException(
@@ -1741,20 +1756,24 @@ def trasladar_item(
 def generate_remito(
     history_ids: list[int],
     db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
     with_image: bool = Query(False),
 ):
-    split_grouped_returns(db)
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
 
-    logo_url = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSaURTEFHsQ9YD0w_LhYjgHna9Hg-myPBBH3w&s"
     logo = None
-    try:
-        response = requests.get(logo_url)
-        logo = Image.open(BytesIO(response.content))
-    except Exception:
-        pass
+    for candidate in (
+        Path(__file__).resolve().parent / "assets" / "logo-conkreto.png",
+        Path(__file__).resolve().parent.parent / "front" / "sistema-stock" / "src" / "assets" / "logo-conkreto.png",
+    ):
+        if candidate.is_file():
+            try:
+                logo = Image.open(candidate)
+                break
+            except Exception:
+                continue
 
     def joined(values):
         seen = []

@@ -114,43 +114,72 @@ const EmpleadosPage = () => {
       />
       {loading ? (
         <div className="text-secondary">Cargando...</div>
+      ) : empleados.length === 0 ? (
+        <div className="app-empty">No hay empleados cargados.</div>
       ) : (
-        <div className="table-responsive">
-          <table className="table app-table mb-0">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Activo</th>
-                <th className="text-end">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {empleados.map((row) => (
-                <tr key={row.id} className={row.active ? "" : "text-secondary"}>
-                  <td>{row.name}</td>
-                  <td>{row.active ? "Sí" : "No"}</td>
-                  <td className="text-end">
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-primary me-2"
-                      onClick={() => startEdit(row)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary"
-                      disabled={savingId === row.id}
-                      onClick={() => toggleActive(row)}
-                    >
-                      {row.active ? "Desactivar" : "Activar"}
-                    </button>
-                  </td>
+        <>
+          <div className="d-md-none app-card-list">
+            {empleados.map((row) => (
+              <div key={row.id} className={`app-mobile-card${row.active ? "" : " text-secondary"}`}>
+                <div className="fw-semibold">{row.name}</div>
+                <div className="app-muted small mb-2">{row.active ? "Activo" : "Inactivo"}</div>
+                <div className="d-flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-primary"
+                    onClick={() => startEdit(row)}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    disabled={savingId === row.id}
+                    onClick={() => toggleActive(row)}
+                  >
+                    {row.active ? "Desactivar" : "Activar"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="table-responsive d-none d-md-block">
+            <table className="table app-table mb-0">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Activo</th>
+                  <th className="text-end">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {empleados.map((row) => (
+                  <tr key={row.id} className={row.active ? "" : "text-secondary"}>
+                    <td>{row.name}</td>
+                    <td>{row.active ? "Sí" : "No"}</td>
+                    <td className="text-end">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary me-2"
+                        onClick={() => startEdit(row)}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-secondary"
+                        disabled={savingId === row.id}
+                        onClick={() => toggleActive(row)}
+                      >
+                        {row.active ? "Desactivar" : "Activar"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </Dashboard>
   );

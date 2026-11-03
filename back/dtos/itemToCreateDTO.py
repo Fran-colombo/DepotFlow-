@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, ConfigDict    
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 
 
@@ -10,7 +10,7 @@ class ActionEnum(str, Enum):
 class ItemBaseDTO(BaseModel):
     name: str
     description: str
-    quantity: int
+    quantity: int = Field(..., ge=0)
 
 class ItemCreateDTO(ItemBaseDTO):
     category: str

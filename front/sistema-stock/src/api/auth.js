@@ -19,8 +19,6 @@ export async function login(formData) {
   const body = new URLSearchParams();
   body.append("username", formData.username);
   body.append("password", formData.password);
-  console.log("API URL:", import.meta.env.VITE_API_URL);
-
   try {
     const data = await apiFetch("/login", {
       method: "POST",
@@ -58,7 +56,6 @@ export async function getUsers({ name = "", email = "", page = 1, pageSize = 20 
     }
   })
 
-  console.log(data)
   return data
 }
 
@@ -113,8 +110,12 @@ export async function updateUserTelegram(userId, telegramId) {
   })
 }
 
+let telegramBotCache = null;
+
 export async function getTelegramBot() {
-  return apiFetch("/telegram/bot")
+  if (telegramBotCache) return telegramBotCache;
+  telegramBotCache = await apiFetch("/telegram/bot");
+  return telegramBotCache;
 }
 
 export async function createTelegramLink() {

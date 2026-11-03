@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import useDebouncedValue from "../hooks/useDebouncedValue";
 import { useNavigate } from "react-router-dom";
 import { getUsers, deleteUser, updateUserPassword, updateUserPhone, updateUserTelegram, createUserTelegramLink } from "../api/auth";
 import Dashboard from "./Dashboard";
@@ -64,12 +65,13 @@ const UsersPage = () => {
   });
 
   const navigate = useNavigate();
+  const debouncedFilters = useDebouncedValue(filters, 300);
 
   const fetchUsers = async () => {
     setLoading(true);
     try {
       const { data, total, page, page_size, total_pages } = await getUsers({
-        ...filters,
+        ...debouncedFilters,
         page: pagination.page,
         pageSize: pagination.pageSize,
       });
@@ -98,7 +100,7 @@ const UsersPage = () => {
 
   useEffect(() => {
     fetchUsers();
-  }, [filters, pagination.page, pagination.pageSize]);
+  }, [debouncedFilters, pagination.page, pagination.pageSize]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;

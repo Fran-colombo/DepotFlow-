@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Annotated, List, Optional
 import models
 from database import get_db
+from auth import get_current_user, require_admin
 from dtos.createShedDTO import ShedDTO, ShedCreateDTO, ShedUpdateDTO
 
 
@@ -15,7 +16,10 @@ db_dependency = Annotated[Session, Depends(get_db)]
 
 
 @router.get("/", response_model=List[ShedDTO])
-def get_all_sheds(db: db_dependency):
+def get_all_sheds(
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     sheds = db.query(models.Shed).order_by(models.Shed.name.asc()).all()
     return sheds
 
@@ -24,7 +28,11 @@ def get_shed_name_by_id(db, shed_id: int) -> Optional[str]:
     return shed.name if shed else None
 
 @router.get("/{shed_id}", response_model=ShedDTO)
-def get_shed_by_id(shed_id: int, db: db_dependency):
+def get_shed_by_id(
+    shed_id: int,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     shed = db.query(models.Shed).filter(models.Shed.id == shed_id).first()
     if not shed:
         raise HTTPException(
@@ -34,7 +42,12 @@ def get_shed_by_id(shed_id: int, db: db_dependency):
     return shed
 
 @router.post("/", response_model=ShedDTO, status_code=status.HTTP_201_CREATED)
-def create_shed(shed: ShedCreateDTO, db: db_dependency):
+def create_shed(
+    shed: ShedCreateDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    require_admin(current_user)
     name = shed.name.strip()
     if not name:
         raise HTTPException(
@@ -57,7 +70,13 @@ def create_shed(shed: ShedCreateDTO, db: db_dependency):
 
 
 @router.put("/{shed_id}", response_model=ShedDTO)
-def update_shed(shed_id: int, payload: ShedUpdateDTO, db: db_dependency):
+def update_shed(
+    shed_id: int,
+    payload: ShedUpdateDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    require_admin(current_user)
     shed = db.query(models.Shed).filter(models.Shed.id == shed_id).first()
     if not shed:
         raise HTTPException(
@@ -90,7 +109,12 @@ def update_shed(shed_id: int, payload: ShedUpdateDTO, db: db_dependency):
 
 
 @router.delete("/{shed_id}", status_code=status.HTTP_200_OK)
-def delete_shed(shed_id: int, db: db_dependency):
+def delete_shed(
+    shed_id: int,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    require_admin(current_user)
     shed = db.query(models.Shed).filter(models.Shed.id == shed_id).first()
     if not shed:
         raise HTTPException(

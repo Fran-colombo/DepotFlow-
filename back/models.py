@@ -65,7 +65,7 @@ class User(Base):
         name = Column(String, index=True)
         surname = Column(String, index=True)
         email = Column(String, unique=True, index=True)
-        password = Column(String, index=True)
+        password = Column(String)
         role = Column(Enum(RoleEnum), index=True)
         status = Column(Integer, default=1)
         phone = Column(String, unique=True, index=True, nullable=True)

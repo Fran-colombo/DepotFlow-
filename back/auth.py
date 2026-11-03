@@ -1,4 +1,5 @@
 from datetime import timedelta, datetime
+import logging
 import os
 import time
 from jose import jwt, JWTError
@@ -18,12 +19,53 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="",
     tags=["auth"],
 )
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-me-in-production")
+INSECURE_DEFAULT_SECRET = "dev-only-change-me-in-production"
+SECRET_KEY = (os.getenv("SECRET_KEY") or INSECURE_DEFAULT_SECRET).strip() or INSECURE_DEFAULT_SECRET
 ALGORITHM = "HS256"
+
+
+def _is_localhost_origin(origin: str) -> bool:
+    value = (origin or "").strip().lower()
+    return (
+        value.startswith("http://localhost")
+        or value.startswith("https://localhost")
+        or value.startswith("http://127.0.0.1")
+        or value.startswith("https://127.0.0.1")
+    )
+
+
+def secret_key_is_insecure() -> bool:
+    return SECRET_KEY == INSECURE_DEFAULT_SECRET
+
+
+def is_local_dev_context() -> bool:
+    env = (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "").strip().lower()
+    if env in ("production", "prod"):
+        return False
+    if env in ("dev", "development", "local"):
+        return True
+    origins = (os.getenv("ALLOWED_ORIGINS") or "").strip()
+    if not origins or origins == "*":
+        return env not in ("production", "prod")
+    parts = [part.strip() for part in origins.split(",") if part.strip()]
+    return bool(parts) and all(_is_localhost_origin(part) for part in parts)
+
+
+def validate_secret_key() -> None:
+    if not secret_key_is_insecure():
+        return
+    if is_local_dev_context():
+        logger.warning("SECRET_KEY usa el valor de desarrollo. Configuralo antes de un deploy real.")
+        return
+    raise RuntimeError(
+        "SECRET_KEY debe ser una cadena larga y aleatoria fuera de desarrollo local."
+    )
 
 bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
@@ -35,6 +77,15 @@ def has_admin_access(current_user) -> bool:
     if not current_user:
         return False
     return current_user.get("role") in ("admin", "sysadmin")
+
+
+def require_admin(current_user) -> dict:
+    if not has_admin_access(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden hacer esto",
+        )
+    return current_user
 
 
 def create_access_token(email: str, user_id: int, role: str, expires_delta: timedelta | None = None):
@@ -80,9 +131,24 @@ def _payload_from_token(token: str, leeway_seconds: int = 0) -> dict:
     return payload
 
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+async def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: db_dependency,
+):
     payload = _payload_from_token(token)
-    return {"username": payload.get("sub"), "user_id": payload.get("user_id"), "role": payload.get("role")}
+    user = db.query(User).filter(User.id == payload.get("user_id")).first()
+    if not user or user.status != 1:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    role = user.role.value if hasattr(user.role, "value") else user.role
+    return {
+        "username": user.email,
+        "user_id": user.id,
+        "role": role,
+    }
 
 
 def normalize_email(email: str | None) -> str:
@@ -186,13 +252,18 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: 
         .first()
     )
 
-    if not user or not bcrypt_context.verify(form_data.password, user.password):
+    if (
+        not user
+        or user.status != 1
+        or not bcrypt_context.verify(form_data.password, user.password)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
 
-    token = create_access_token(user.email, user.id, user.role.value, timedelta(minutes=30))
+    role = user.role.value if hasattr(user.role, "value") else user.role
+    token = create_access_token(user.email, user.id, role, timedelta(minutes=30))
     return {"access_token": token, "token_type": "bearer"}
 
 

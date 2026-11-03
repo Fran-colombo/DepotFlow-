@@ -1,9 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional
 
 class DevolucionDTO(BaseModel):
     itemId: int
-    amount: int
+    amount: int = Field(..., ge=1)
     personWhoReturned: Optional[str] = None  
     place: str
     codes: Optional[List[str]] = None
@@ -25,7 +25,7 @@ class SinUbicarDTO(BaseModel):
 
 class NoVolvioDTO(BaseModel):
     itemId: int
-    amount: int
+    amount: int = Field(..., ge=1)
     place: str
     reason: str
     personWhoConfirmed: Optional[str] = None

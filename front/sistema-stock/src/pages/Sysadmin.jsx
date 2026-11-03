@@ -178,39 +178,54 @@ const SysadminPage = () => {
           </form>
           {loading ? (
             <div className="text-secondary">Cargando...</div>
+          ) : rows.length === 0 ? (
+            <div className="app-empty mb-2">No hay filas.</div>
           ) : (
-            <div className="table-responsive">
-              <table className="table app-table mb-2">
-                <thead>
-                  <tr>
-                    <th>Id</th>
-                    <th>Dato</th>
-                    <th className="text-end">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 && (
+            <>
+              <div className="d-md-none app-card-list mb-2">
+                {rows.map((row) => (
+                  <div key={row.id} className="app-mobile-card">
+                    <div className="app-muted small">Id {row.id}</div>
+                    <div className="fw-semibold mb-2">{row.summary || "—"}</div>
+                    <div className="d-flex gap-2">
+                      <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => openEdit(row)}>
+                        Editar
+                      </button>
+                      <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setConfirmRow(row)}>
+                        Borrar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="table-responsive d-none d-md-block">
+                <table className="table app-table mb-2">
+                  <thead>
                     <tr>
-                      <td colSpan={3} className="text-secondary">No hay filas.</td>
+                      <th>Id</th>
+                      <th>Dato</th>
+                      <th className="text-end">Acciones</th>
                     </tr>
-                  )}
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.id}</td>
-                      <td>{row.summary || "—"}</td>
-                      <td className="text-end">
-                        <button type="button" className="btn btn-sm btn-outline-primary me-2" onClick={() => openEdit(row)}>
-                          Editar
-                        </button>
-                        <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setConfirmRow(row)}>
-                          Borrar
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.id}</td>
+                        <td>{row.summary || "—"}</td>
+                        <td className="text-end">
+                          <button type="button" className="btn btn-sm btn-outline-primary me-2" onClick={() => openEdit(row)}>
+                            Editar
+                          </button>
+                          <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => setConfirmRow(row)}>
+                            Borrar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
           <div className="d-flex justify-content-between align-items-center">
             <span className="text-secondary small">{total} filas</span>

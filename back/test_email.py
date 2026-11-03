@@ -17,4 +17,5 @@ def send_test_email():
     except Exception as e:
         print(" Error al enviar el correo:", str(e))
 
-send_test_email()
+if __name__ == "__main__":
+    send_test_email()

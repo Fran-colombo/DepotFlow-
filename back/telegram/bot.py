@@ -1,3 +1,4 @@
+import hmac
 import logging
 import os
 import threading
@@ -273,7 +274,18 @@ async def telegram_webhook(
         )
 
     secret = webhook_secret()
-    if secret and x_telegram_bot_api_secret_token != secret:
+    if webhook_url() and not secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TELEGRAM_WEBHOOK_SECRET es obligatorio cuando hay webhook",
+        )
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Webhook de Telegram no habilitado",
+        )
+    provided = x_telegram_bot_api_secret_token or ""
+    if not hmac.compare_digest(provided, secret):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Secret inválido")
 
     update = await request.json()
@@ -282,7 +294,9 @@ async def telegram_webhook(
 
 
 @router.get("/bot")
-def telegram_bot_info():
+def telegram_bot_info(
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     username = bot_username()
     url = bot_deeplink()
     return {

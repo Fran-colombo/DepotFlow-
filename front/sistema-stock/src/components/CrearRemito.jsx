@@ -3,7 +3,13 @@ import { getFilteredHistorial } from "../api/items";
 import { getObras } from "../api/obras";
 import FeedbackModal from "./FeedbackModal";
 
-export default function PackingSlipModal({onClose}) {
+export default function PackingSlipModal({
+  onClose,
+  item,
+  amount,
+  place,
+  personWhoTook,
+}) {
   const [historial, setHistorial] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -19,12 +25,12 @@ const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [obras, setObras] = useState([]);
   const [filters, setFilters] = useState({
-    itemName: "",
-    personWhoTook: "",
+    itemName: item?.name || "",
+    personWhoTook: personWhoTook || "",
     day: "",
     month: new Date().getMonth() + 1,
     year: new Date().getFullYear(),
-    place: "",
+    place: place || "",
     action: "retiro",
   });
 
@@ -40,14 +46,30 @@ const [showConfirmModal, setShowConfirmModal] = useState(false);
     setLoading(true);
     try {
       const res = await getFilteredHistorial(filters, pagination.page, pagination.pageSize);
-        setHistorial(res.data);
+        const rows = res.data || [];
+        setHistorial(rows);
         setPagination(prev => ({
           ...prev,
           totalRecords: res.pagination.total_records,
           totalPages: res.pagination.total_pages
         }));
+        if (item && pagination.page === 1) {
+          const match = rows.find((row) => {
+            const sameItem = !item.id || row.itemId === item.id || row.item_id === item.id;
+            const samePlace = !place || row.place === place;
+            const samePerson = !personWhoTook || row.personWhoTook === personWhoTook;
+            const sameAmount = amount == null || Number(row.amountRetired) === Number(amount);
+            return sameItem && samePlace && samePerson && sameAmount;
+          });
+          if (match?.id) {
+            setSelectedIds((prev) => (prev.includes(match.id) ? prev : [...prev, match.id]));
+          }
+        }
     } catch (error) {
-      alert(error, "Error al cargar el historial");
+      setFeedback({
+        type: "error",
+        message: error.message || "Error al cargar el historial",
+      });
     } finally {
       setLoading(false);
     }

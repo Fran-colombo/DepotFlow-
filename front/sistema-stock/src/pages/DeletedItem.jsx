@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import useDebouncedValue from "../hooks/useDebouncedValue";
 import { getDeletedItems } from "../api/items";
 import Dashboard from "./Dashboard";
 
@@ -12,6 +13,7 @@ const DeletedItemsPage = () => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const debouncedFilters = useDebouncedValue(filters, 300);
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 10,
@@ -25,7 +27,7 @@ const fetchData = async () => {
 
   try {
     const apiResponse = await getDeletedItems({
-      ...filters,
+      ...debouncedFilters,
       page: pagination.page,
       pageSize: pagination.pageSize
     });
@@ -55,11 +57,12 @@ const fetchData = async () => {
 
   useEffect(() => {
     fetchData();
-  }, [filters, pagination.page, pagination.pageSize]);
+  }, [debouncedFilters, pagination.page, pagination.pageSize]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
+    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
   const clearFilters = () => {
@@ -88,11 +91,8 @@ const fetchData = async () => {
   const years = Array.from({ length: currentYear + 1 - 2025 }, (_, i) => 2025 + i);
 
   return (
-    <Dashboard>
-      <div className="container-fluid px-4 mt-4">
-        <div className="d-flex justify-content-between align-items-center mb-4">
-          <h2 className="mb-0">Elementos eliminados</h2>
-        </div>
+    <Dashboard title="Elementos eliminados">
+      <div className="container-fluid px-0">
 
         {/* Filtros */}
         <div className="card mb-4">
@@ -179,10 +179,23 @@ const fetchData = async () => {
               </div>
             ) : error ? (
               <div className="alert alert-danger m-3">{error}</div>
+            ) : deletedItems.length === 0 ? (
+              <div className="app-empty m-3">No se encontraron elementos eliminados</div>
             ) : (
               <>
-                <div className="table-responsive">
-                  <table className="table table-hover mb-0">
+                <div className="d-md-none app-card-list p-3">
+                  {deletedItems.map((item) => (
+                    <div key={item.id} className="app-mobile-card">
+                      <div className="fw-semibold">{item.name}</div>
+                      <div className="app-muted small">{item.category || "Sin categoría"}</div>
+                      {item.description ? <div className="small mt-1">{item.description}</div> : null}
+                      <div className="small mt-2">{item.deletion_reason || "Sin motivo"}</div>
+                      <div className="app-muted small mt-1">{formatDate(item.deleted_at)}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="table-responsive d-none d-md-block">
+                  <table className="table table-hover app-table mb-0">
                     <thead className="table-light">
                       <tr>
                         <th>Nombre</th>
@@ -205,12 +218,6 @@ const fetchData = async () => {
                     </tbody>
                   </table>
                 </div>
-
-                {deletedItems.length === 0 && !loading && (
-                  <div className="text-center py-4 text-muted">
-                    No se encontraron elementos eliminados
-                  </div>
-                )}
               </>
             )}
           </div>

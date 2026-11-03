@@ -7,7 +7,7 @@ from typing import List
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dtos.deleteItemDTO import ResponseFakeDeleteDTO
-from database import get_db
+from database import SessionLocal
 from config import EmailConfig
 import pytz
 
@@ -23,11 +23,12 @@ class NotificationService:
     @staticmethod
 
     def check_pending_items():
+        db = None
         try:
-            db = next(get_db())
+            db = SessionLocal()
             now_utc = datetime.utcnow()
 
-            threshold_days = 60  
+            threshold_days = max(float(EmailConfig.NOTIFICATION_THRESHOLD_DAYS or 7), 0.1)
             threshold_datetime = now_utc - timedelta(days=threshold_days)
 
             # Trae todos los items pendientes (turnback == False)
@@ -64,6 +65,9 @@ class NotificationService:
 
         except Exception as e:
             logger.error(f"Error checking pending items: {e}", exc_info=True)
+        finally:
+            if db is not None:
+                db.close()
 
 
     @staticmethod
@@ -113,21 +117,25 @@ class NotificationService:
 
     @staticmethod
     def run_scheduler():
+        interval_seconds = 60 * 60
         logger.info("Iniciando scheduler de notificaciones")
         while True:
             try:
                 logger.info("Ejecutando chequeo de ítems pendientes...")
                 NotificationService.check_pending_items()
-                logger.info("Chequeo finalizado, durmiendo 5 minutos...")
-                time.sleep(60 * 24 * 60 * 60)
+                logger.info("Chequeo finalizado, durmiendo %s segundos...", interval_seconds)
+                time.sleep(interval_seconds)
             except Exception as e:
                 logger.error(f"Error en scheduler de notificaciones: {e}", exc_info=True)
-                time.sleep(60)  
+                time.sleep(60)
 
 def enviar_mail_fallo_borrado(dto: ResponseFakeDeleteDTO, itemName: str):
+    if not EmailConfig.is_configured():
+        logger.warning(
+            "Email no configurado. Se omite aviso de borrado no autorizado."
+        )
+        return
     date_time = now()
-    remitente = EmailConfig.EMAIL_ADDRESS
-    receptor = EmailConfig.ADMIN_EMAIL
     asunto = "Intento de borrado NO AUTORIZADO"
     cuerpo = f"""
     El usuario {dto.username} intentó borrar {itemName} sin permisos.
@@ -137,17 +145,16 @@ def enviar_mail_fallo_borrado(dto: ResponseFakeDeleteDTO, itemName: str):
     """
 
     mensaje = MIMEMultipart()
-    mensaje["From"] = remitente
-    mensaje["To"] = receptor
+    mensaje["From"] = EmailConfig.EMAIL_ADDRESS
+    mensaje["To"] = EmailConfig.ADMIN_EMAIL
     mensaje["Subject"] = asunto
     mensaje.attach(MIMEText(cuerpo, "plain"))
 
     try:
-        servidor = smtplib.SMTP("smtp.gmail.com", 587)
-        servidor.starttls()
-        servidor.login(remitente, EmailConfig.EMAIL_PASSWORD)
-        servidor.sendmail(remitente, receptor, mensaje.as_string())
-        servidor.quit()
-        print("Correo enviado exitosamente.")
+        with smtplib.SMTP(EmailConfig.SMTP_SERVER, EmailConfig.SMTP_PORT) as servidor:
+            servidor.starttls()
+            servidor.login(EmailConfig.EMAIL_ADDRESS, EmailConfig.EMAIL_PASSWORD)
+            servidor.send_message(mensaje)
+        logger.info("Correo de borrado no autorizado enviado.")
     except Exception as e:
-        print(f"Error al enviar correo: {e}")
+        logger.error("Error al enviar correo de borrado no autorizado: %s", e)

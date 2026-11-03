@@ -1,7 +1,39 @@
+:root {
+  --app-bg: #f7f8fa;
+  --app-text: #101828;
+  --app-muted: #667085;
+  --app-primary: #175cd3;
+  --app-border: #eaecf0;
+  --app-card: #fff;
+  --app-radius: 0.85rem;
+}
+
 body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
-  background-color: #f7f8fa;
-  color: #1f2937;
+  background-color: var(--app-bg);
+  color: var(--app-text);
+}
+
+.app-empty {
+  text-align: center;
+  color: var(--app-muted);
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius);
+  background: #f9fafb;
+}
+
+.app-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app-mobile-card {
+  border: 1px solid var(--app-border);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: var(--app-card);
 }
 
 .app-shell {
@@ -332,11 +364,9 @@ body {
   font-weight: 600;
 }
 
-.app-selection-bar {
+.app-selection-bar.app-selection-bar {
   background: #eff8ff;
   border: 1px solid #b2ddff;
-  border-radius: 0.75rem;
-  padding: 0.75rem 1rem;
   color: #175cd3;
 }
 

@@ -711,7 +711,10 @@ def restore_units(db: Session, item: models.Item, amount: int, codes, place: str
 
     missing = amount - len(units)
     if missing > 0:
-        units.extend(create_units_for_item(db, item, missing))
+        raise ItemServiceError(
+            f"No hay suficientes piezas para devolver ({len(units)} de {amount})",
+            400,
+        )
     return units
 
 

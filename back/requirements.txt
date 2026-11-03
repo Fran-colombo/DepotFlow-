@@ -29,6 +29,7 @@ passlib==1.7.4
 pillow==11.3.0
 pyasn1==0.6.1
 pycparser==2.22
+pytest==8.4.1
 pydantic==2.11.7
 pydantic-extra-types==2.10.5
 pydantic-settings==2.10.1

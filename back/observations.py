@@ -23,22 +23,30 @@ def now():
 
 
 @router.get("/", response_model=list[dtos.ObservationResponseDTO])
-def get_all_observations():
-    return []
+def get_all_observations(
+    db: db_dependency,
+    current_user: dict = Depends(get_current_user),
+):
+    return (
+        db.query(models.Observation)
+        .filter(models.Observation.unit_id.is_(None))
+        .order_by(models.Observation.date.desc())
+        .limit(200)
+        .all()
+    )
 
 @router.get("/item/{item_id}", response_model=list[dtos.ObservationResponseDTO])
-def get_observations_by_item(item_id: int, db: db_dependency):
+def get_observations_by_item(
+    item_id: int,
+    db: db_dependency,
+    current_user: dict = Depends(get_current_user),
+):
     observations = db.query(models.Observation).filter(
         models.Observation.item_id == item_id,
         models.Observation.unit_id.is_(None),
     ).all()
     
-    if not observations:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No observations found for this item"
-        )
-    return observations
+    return observations or []
 
 
 def add_unit_observation(db, item_id: int, unit_id: int, description: str, current_user: dict):
@@ -61,7 +69,11 @@ def add_unit_observation(db, item_id: int, unit_id: int, description: str, curre
 
 
 @router.get("/unit/{unit_id}", response_model=list[dtos.ObservationResponseDTO])
-def get_observations_by_unit(unit_id: int, db: db_dependency):
+def get_observations_by_unit(
+    unit_id: int,
+    db: db_dependency,
+    current_user: dict = Depends(get_current_user),
+):
     return (
         db.query(models.Observation)
         .filter(models.Observation.unit_id == unit_id)

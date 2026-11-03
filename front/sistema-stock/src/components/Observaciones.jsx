@@ -18,9 +18,7 @@ const ObservationsModal = ({ itemId, isOpen, onClose }) => {
       setObservations(data);
     } catch (err) {
       setObservations([]);
-      if (!String(err.message || "").includes("No observations found")) {
-        setError(err.message || "No se pudieron cargar las observaciones.");
-      }
+      setError(err.message || "No se pudieron cargar las observaciones.");
     } finally {
       setLoading(false);
     }

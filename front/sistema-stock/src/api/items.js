@@ -606,13 +606,10 @@ export function discardUnit(unitId, data) {
   });
 }
 
-export async function searchPieces(q = "", options = {}) {
+export async function searchPieces(q = "", options = {}, page = 1, pageSize = 20) {
   const params = pieceParams(q, options);
-  const text = (q || "").trim();
-  const broad = Boolean(
-    text || options.broken || options.withoutImage || options.unlabeled || options.situation || options.obra || options.category || options.shedId
-  );
-  params.set("limit", broad ? "500" : "10");
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
   return apiFetch(`/units?${params.toString()}`);
 }
 

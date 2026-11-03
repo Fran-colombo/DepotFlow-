@@ -143,47 +143,76 @@ const ObrasPage = () => {
       />
       {loading ? (
         <div className="text-secondary">Cargando...</div>
+      ) : obras.length === 0 ? (
+        <div className="app-empty">No hay obras cargadas.</div>
       ) : (
-        <div className="table-responsive">
-          <table className="table app-table mb-0">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Estado</th>
-                <th className="text-end">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {obras.map((obra) => (
-                <tr key={obra.id} className={obra.stage === "finalizada" ? "text-secondary" : ""}>
-                  <td>{obra.name}</td>
-                  <td style={{ minWidth: "12rem" }}>
-                    <select
-                      className="form-select form-select-sm"
-                      aria-label={`Estado de ${obra.name}`}
-                      value={obra.stage || "trabajando"}
-                      disabled={savingId === obra.id}
-                      onChange={(e) => changeStage(obra, e.target.value)}
-                    >
-                      {OBRA_STAGES.map((item) => (
-                        <option key={item.value} value={item.value}>{item.label}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="text-end">
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-primary"
-                      onClick={() => startEdit(obra)}
-                    >
-                      Editar
-                    </button>
-                  </td>
+        <>
+          <div className="d-md-none app-card-list">
+            {obras.map((obra) => (
+              <div key={obra.id} className={`app-mobile-card${obra.stage === "finalizada" ? " text-secondary" : ""}`}>
+                <div className="fw-semibold mb-2">{obra.name}</div>
+                <select
+                  className="form-select form-select-sm mb-2"
+                  aria-label={`Estado de ${obra.name}`}
+                  value={obra.stage || "trabajando"}
+                  disabled={savingId === obra.id}
+                  onChange={(e) => changeStage(obra, e.target.value)}
+                >
+                  {OBRA_STAGES.map((item) => (
+                    <option key={item.value} value={item.value}>{item.label}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-primary"
+                  onClick={() => startEdit(obra)}
+                >
+                  Editar
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="table-responsive d-none d-md-block">
+            <table className="table app-table mb-0">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Estado</th>
+                  <th className="text-end">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {obras.map((obra) => (
+                  <tr key={obra.id} className={obra.stage === "finalizada" ? "text-secondary" : ""}>
+                    <td>{obra.name}</td>
+                    <td style={{ minWidth: "12rem" }}>
+                      <select
+                        className="form-select form-select-sm"
+                        aria-label={`Estado de ${obra.name}`}
+                        value={obra.stage || "trabajando"}
+                        disabled={savingId === obra.id}
+                        onChange={(e) => changeStage(obra, e.target.value)}
+                      >
+                        {OBRA_STAGES.map((item) => (
+                          <option key={item.value} value={item.value}>{item.label}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="text-end">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary"
+                        onClick={() => startEdit(obra)}
+                      >
+                        Editar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </Dashboard>
   );

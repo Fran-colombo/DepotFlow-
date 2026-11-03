@@ -200,52 +200,88 @@ const CategoriesPage = () => {
 
       {loading ? (
         <div className="text-secondary">Cargando...</div>
+      ) : categories.length === 0 ? (
+        <div className="app-empty">No hay categorías cargadas.</div>
       ) : (
-        <div className="table-responsive">
-          <table className="table app-table mb-0">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Etiqueta</th>
-                <th>Comportamiento</th>
-                <th>Estado</th>
-                <th className="text-end">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {categories.map((category) => (
-                <tr key={category.id} className={category.active ? "" : "text-secondary"}>
-                  <td>{category.name}</td>
-                  <td>{category.label}</td>
-                  <td>
-                    {category.is_consumable ? "No espera devolución" : "Puede volver"}
-                    {category.unit === "metro" ? " · metros" : ""}
-                  </td>
-                  <td>{category.active ? "Activa" : "Inactiva"}</td>
-                  <td className="text-end">
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-primary me-2"
-                      onClick={() => startEdit(category)}
-                    >
-                      Editar
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary"
-                      onClick={() => {
-                        setPopupError("");
-                        setPendingToggle(category);
-                      }}
-                    >
-                      {category.active ? "Desactivar" : "Activar"}
-                    </button>
-                  </td>
+        <>
+          <div className="d-md-none app-card-list">
+            {categories.map((category) => (
+              <div key={category.id} className={`app-mobile-card${category.active ? "" : " text-secondary"}`}>
+                <div className="fw-semibold">{category.name}</div>
+                <div className="app-muted small">{category.label}</div>
+                <div className="small mt-1">
+                  {category.is_consumable ? "No espera devolución" : "Puede volver"}
+                  {category.unit === "metro" ? " · metros" : ""}
+                </div>
+                <div className="small mb-2">{category.active ? "Activa" : "Inactiva"}</div>
+                <div className="d-flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-primary"
+                    onClick={() => startEdit(category)}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={() => {
+                      setPopupError("");
+                      setPendingToggle(category);
+                    }}
+                  >
+                    {category.active ? "Desactivar" : "Activar"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="table-responsive d-none d-md-block">
+            <table className="table app-table mb-0">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Etiqueta</th>
+                  <th>Comportamiento</th>
+                  <th>Estado</th>
+                  <th className="text-end">Acciones</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {categories.map((category) => (
+                  <tr key={category.id} className={category.active ? "" : "text-secondary"}>
+                    <td>{category.name}</td>
+                    <td>{category.label}</td>
+                    <td>
+                      {category.is_consumable ? "No espera devolución" : "Puede volver"}
+                      {category.unit === "metro" ? " · metros" : ""}
+                    </td>
+                    <td>{category.active ? "Activa" : "Inactiva"}</td>
+                    <td className="text-end">
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-primary me-2"
+                        onClick={() => startEdit(category)}
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-secondary"
+                        onClick={() => {
+                          setPopupError("");
+                          setPendingToggle(category);
+                        }}
+                      >
+                        {category.active ? "Desactivar" : "Activar"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {editing && (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import useDebouncedValue from "../hooks/useDebouncedValue";
 import Dashboard from "./Dashboard";
 import { getPendientes } from "../api/items";
 import TrasladoModal from "../components/TrasladoModal";
@@ -26,11 +27,12 @@ const Pendientes = () => {
   const [showDevolverModal, setShowDevolverModal] = useState(false);
   const [showNoVolvioModal, setShowNoVolvioModal] = useState(false);
   const [selectedPending, setSelectedPending] = useState(null);
+  const debouncedFilters = useDebouncedValue(filters, 300);
 
   const fetchPendientes = async (page = 1) => {
     setLoading(true);
     try {
-      const response = await getPendientes(filters, page, pagination.page_size);
+      const response = await getPendientes(debouncedFilters, page, pagination.page_size);
 
       setPendientes(response.data || []);
 
@@ -58,7 +60,7 @@ const Pendientes = () => {
 
   useEffect(() => {
     fetchPendientes(pagination.current_page);
-  }, [pagination.current_page, filters, pagination.page_size]);
+  }, [pagination.current_page, debouncedFilters, pagination.page_size]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
@@ -85,12 +87,7 @@ const Pendientes = () => {
   };
 
  return (
-    <Dashboard title={
-      <div className="text-center">
-        <h1 className="fw-bold mb-0 d-md-none fs-4">Inventario Pendiente de Devolución</h1>
-        <h1 className="display-5 fw-bold d-none d-md-block">Inventario Pendiente de Devolución</h1>
-      </div>
-    }>
+    <Dashboard title="Pendientes de devolución">
       <div className="row g-3 mb-3">
         <div className="col-md-4">
           <label className="form-label">Producto</label>
@@ -140,8 +137,11 @@ const Pendientes = () => {
           <div className="d-md-none d-flex flex-column gap-3">
             {pendientes.length > 0 ? (
               pendientes.map((registro) => (
-                <div key={registro.id} className="border rounded-3 p-3">
+                <div key={registro.id} className={`border rounded-3 p-3${registro.stale ? " border-warning" : ""}`}>
                   <div className="fw-semibold">{registro.itemName}</div>
+                  {registro.stale && (
+                    <div className="small text-warning fw-semibold">Lleva {registro.daysPending} días pendiente</div>
+                  )}
                   <div className="small text-secondary mt-1">
                     {registro.personWhoTook || "—"}
                   </div>
@@ -205,8 +205,13 @@ const Pendientes = () => {
               <tbody>
                 {pendientes.length > 0 ? (
                   pendientes.map((registro) => (
-                    <tr key={registro.id} className="text-center">
-                      <td className="fw-medium">{registro.itemName}</td>
+                    <tr key={registro.id} className={`text-center${registro.stale ? " table-warning" : ""}`}>
+                      <td className="fw-medium">
+                        {registro.itemName}
+                        {registro.stale && (
+                          <div className="small text-warning">Lleva {registro.daysPending} días</div>
+                        )}
+                      </td>
                       <td>{registro.personWhoTook}</td>
                       <td className="fw-semibold text-warning">{registro.amountNotReturned}</td>
                       <td>{registro.place || 'N/A'}</td>

@@ -330,12 +330,14 @@ def _add_unit_photo(db: Session, unit: models.ItemUnit, img: Image.Image) -> dic
 
 
 @router.get("/units/{unit_id}/photos")
-def list_unit_photos(unit_id: int, db: Annotated[Session, Depends(get_db)]):
+def list_unit_photos(
+    unit_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     unit = db.query(models.ItemUnit).filter(models.ItemUnit.id == unit_id).first()
     if not unit:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pieza no encontrada")
-    ensure_cover_photo(db, unit)
-    db.commit()
     photos = unit_photo_rows(db, unit.id)
     return {"photos": _photo_payload(photos)}
 

@@ -337,7 +337,10 @@ def create_movement(
 
 
 @router.get("/", response_model=List[MovementResponseDTO])
-def get_movements(db: Session = Depends(get_db)):
+def get_movements(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     query = db.query(Movement).options(
         joinedload(Movement.from_shed),
         joinedload(Movement.to_shed),
@@ -351,7 +354,11 @@ def get_movements(db: Session = Depends(get_db)):
 
 
 @router.get("/by-item/{item_id}", response_model=List[MovementResponseDTO])
-def get_movements_by_item_id(item_id: int, db: Session = Depends(get_db)):
+def get_movements_by_item_id(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     item = db.query(Item).filter(Item.id == item_id).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item no encontrado")

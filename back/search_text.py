@@ -29,6 +29,18 @@ def fold(value):
     return folded.lower()
 
 
+def search_terms(value):
+    terms = []
+    seen = set()
+    for token in search_tokens(value):
+        extras = (token,) + tuple(_SYNONYMS.get(token, ()))
+        for term in extras:
+            if term and term not in seen:
+                seen.add(term)
+                terms.append(term)
+    return terms
+
+
 def search_tokens(value):
     parts = []
     for chunk in fold(value).split():

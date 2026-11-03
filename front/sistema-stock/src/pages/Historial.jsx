@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
-import { getAllItems, getFilteredHistorial, getItemImageUrl, getUnitImageUrl } from "../api/items"
+import { getItems, getFilteredHistorial, getItemImageUrl, getUnitImageUrl } from "../api/items"
 import PackingSlipModal from "../components/CrearRemito";
 import ViajeModal from "../components/ViajeModal";
 import {getSheds} from "../api/sheds"
@@ -48,15 +48,26 @@ useEffect(() => {
   };
   
   loadSheds();
-  getAllItems()
-    .then((rows) => {
-      const list = (Array.isArray(rows) ? rows : [])
-        .map((item) => ({ id: item.id, name: item.name || "" }))
-        .sort((a, b) => a.name.localeCompare(b.name, "es"));
-      setProducts(list);
-    })
-    .catch(() => setProducts([]));
 }, []);
+
+useEffect(() => {
+  const term = productQuery.trim();
+  if (!term) {
+    setProducts([]);
+    return;
+  }
+  const timer = setTimeout(() => {
+    getItems({ name: term }, 1, 40)
+      .then((res) => {
+        const list = (res.data || [])
+          .map((item) => ({ id: item.id, name: item.name || "" }))
+          .sort((a, b) => a.name.localeCompare(b.name, "es"));
+        setProducts(list);
+      })
+      .catch(() => setProducts([]));
+  }, 250);
+  return () => clearTimeout(timer);
+}, [productQuery]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -535,8 +546,47 @@ useEffect(() => {
         <div className="alert alert-danger">{error}</div>
       ) : (
         <>
-          <div className="table-responsive mb-3">
-            <table className="table table-hover">
+          <div className="d-md-none app-card-list mb-3">
+            {bundles.length === 0 ? (
+              <div className="app-empty">No se encontraron registros con los filtros aplicados</div>
+            ) : bundles.map((bundle) => (
+              bundle.kind === "viaje" ? (
+                <div key={`viaje-${bundle.viajeId}`} className="app-mobile-card">
+                  <div className="fw-semibold mb-2">
+                    {bundle.rows[0].viajeDirection === "devolucion" ? "Vuelta" : "Salida"}
+                    {" · "}
+                    {bundle.rows[0].personWhoTook || bundle.rows[0].userName}
+                  </div>
+                  <div className="app-muted mb-2">
+                    {bundle.rows[0].place || "Sin lugar"} · {formatDate(bundle.rows[0].date)}
+                  </div>
+                  {bundle.rows.map((registro) => (
+                    <div key={registro.id} className="border-top pt-2 mt-2">
+                      <div className="fw-semibold">{registro.itemName}</div>
+                      <div className="small">{getActionLabel(registro.action)} · {registro.amountRetired || registro.amountNotReturned || "0"}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div key={bundle.rows[0].id} className="app-mobile-card">
+                  <div className="d-flex justify-content-between gap-2">
+                    <div className="fw-semibold">{bundle.rows[0].itemName}</div>
+                    <span className={`badge ${getActionColor(bundle.rows[0].action)}`}>
+                      {getActionLabel(bundle.rows[0].action)}
+                    </span>
+                  </div>
+                  <div className="app-muted mt-1">
+                    {bundle.rows[0].personWhoTook || bundle.rows[0].userName} · {bundle.rows[0].place || "N/A"}
+                  </div>
+                  <div className="small mt-1">
+                    {bundle.rows[0].amountRetired || bundle.rows[0].amountNotReturned || "0"} · {formatDate(bundle.rows[0].date)}
+                  </div>
+                </div>
+              )
+            ))}
+          </div>
+          <div className="table-responsive mb-3 d-none d-md-block">
+            <table className="table table-hover app-table">
               <thead className="table-light">
                 <tr className="text-center">
                   <th>Elemento</th>

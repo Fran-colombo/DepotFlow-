@@ -23,8 +23,14 @@ import pytz
 from dtos.itemResponseDTO import ItemResponseDTO
 from dtos.deleteItemDTO import DeleteItemDTO, ResponseFakeDeleteDTO
 import dtos.itemToCreateDTO as itemDTO
-from historial import router
-from auth import get_current_user, get_user_name_by_id, has_admin_access, router as auth_router
+from historial import router, split_grouped_returns
+from auth import (
+    get_current_user,
+    get_user_name_by_id,
+    has_admin_access,
+    router as auth_router,
+    validate_secret_key,
+)
 from notifications import NotificationService, enviar_mail_fallo_borrado
 import zones
 from seed_admin import seed_admin_from_env
@@ -51,7 +57,7 @@ import transportes
 from item_categories import category_is_consumable, category_units_by_name, normalize_lookup, seed_categories
 from pydantic import BaseModel
 from observations import add_unit_observation
-from search_text import search_matches, search_rank, search_tokens
+from search_text import search_matches, search_rank, search_terms, search_tokens
 from unit_service import (
     REPAIR_PLACE,
     apply_piece_profile,
@@ -75,23 +81,41 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-logging.basicConfig(level=logging.DEBUG)
+_debug = os.getenv("DEBUG", "").strip().lower() in ("1", "true", "yes")
+logging.basicConfig(level=logging.DEBUG if _debug else logging.INFO)
 logger = logging.getLogger(__name__)
 
+validate_secret_key()
 
-app = FastAPI()
+LOCAL_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
 
-_raw_origins = os.getenv("ALLOWED_ORIGINS", "*").strip()
-_allow_origins = (
-    ["*"]
-    if _raw_origins == "*"
-    else [origin.strip() for origin in _raw_origins.split(",") if origin.strip()]
+app = FastAPI(
+    docs_url="/docs" if _debug else None,
+    redoc_url="/redoc" if _debug else None,
+    openapi_url="/openapi.json" if _debug else None,
 )
+
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "").strip()
+if not _raw_origins or _raw_origins == "*":
+    if _raw_origins == "*":
+        logger.warning("ALLOWED_ORIGINS=* no es compatible con credenciales; se usan orígenes locales.")
+    _allow_origins = LOCAL_ORIGINS
+    _allow_credentials = True
+else:
+    _allow_origins = [origin.strip() for origin in _raw_origins.split(",") if origin.strip()]
+    _allow_credentials = True
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allow_origins,
-    allow_credentials=True,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"]
@@ -151,6 +175,14 @@ def startup_event():
     if not getattr(app, "telegram_started", False):
         start_telegram_bot()
         app.telegram_started = True
+    try:
+        history_db = SessionLocal()
+        try:
+            split_grouped_returns(history_db)
+        finally:
+            history_db.close()
+    except Exception:
+        logger.exception("No se pudo normalizar el historial agrupado")
 
 TIMEZONE = pytz.timezone('America/Argentina/Buenos_Aires')
 
@@ -162,10 +194,12 @@ def now():
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
+MAX_EXCEL_BYTES = 5 * 1024 * 1024
 
 @app.get("/", response_model=dict)
 def read_items(
     db: Session = Depends(get_db),
+    current_user: Annotated[dict, Depends(get_current_user)] = None,
     name: Optional[str] = None,
     category: Optional[str] = None,
     shed_id: Optional[int] = None,
@@ -192,11 +226,28 @@ def read_items(
         name_query = (name or "").strip()
         ranked_search = bool(search_tokens(name_query))
         if ranked_search:
+            term_filters = []
+            for term in search_terms(name_query)[:12]:
+                like = f"%{term}%"
+                term_filters.extend([
+                    models.Item.name.ilike(like),
+                    models.Item.aliases.ilike(like),
+                    models.Item.description.ilike(like),
+                    models.Item.category.ilike(like),
+                ])
+            unit_ids = (
+                db.query(models.ItemUnit.item_id)
+                .filter(or_(*[
+                    models.ItemUnit.code.ilike(f"%{term}%")
+                    for term in search_terms(name_query)[:12]
+                ]))
+            )
+            query = query.filter(or_(*term_filters, models.Item.id.in_(unit_ids)))
             candidates = query.order_by(
                 models.Shed.name.asc().nullslast(),
                 models.Zone.name.asc().nullslast(),
                 models.Item.name.asc(),
-            ).all()
+            ).limit(400).all()
             texts, codes = _unit_search_bits(db, [item.id for item in candidates])
             shed_names = {row.id: row.name or "" for row in db.query(models.Shed).all()}
             ranked = []
@@ -265,10 +316,38 @@ def read_items(
         )
 
 @app.get("/search")
-def searchItems(name: str, db: item_dependency):
+def searchItems(
+    name: str,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     if not search_tokens(name):
         return []
-    items = db.query(models.Item).filter(models.Item.status == 1).all()
+    term_filters = []
+    for term in search_terms(name)[:12]:
+        like = f"%{term}%"
+        term_filters.extend([
+            models.Item.name.ilike(like),
+            models.Item.aliases.ilike(like),
+            models.Item.description.ilike(like),
+            models.Item.category.ilike(like),
+        ])
+    unit_ids = (
+        db.query(models.ItemUnit.item_id)
+        .filter(or_(*[
+            models.ItemUnit.code.ilike(f"%{term}%")
+            for term in search_terms(name)[:12]
+        ]))
+    )
+    items = (
+        db.query(models.Item)
+        .filter(
+            models.Item.status == 1,
+            or_(*term_filters, models.Item.id.in_(unit_ids)),
+        )
+        .limit(400)
+        .all()
+    )
     texts, codes = _unit_search_bits(db, [item.id for item in items])
     ranked = []
     for item in items:
@@ -330,7 +409,11 @@ def getItemById(item_id: int, db: item_dependency):
 
 
 @app.post("/")
-def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
+def createItem(
+    item: itemDTO.ItemCreateDTO,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     try:
         created = create_item(
             db,
@@ -360,7 +443,10 @@ def createItem(item: itemDTO.ItemCreateDTO, db: item_dependency):
 
 
 @app.get("/items/import/template")
-def download_items_import_template(db: item_dependency):
+def download_items_import_template(
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     content = build_import_template(db)
     return StreamingResponse(
         BytesIO(content),
@@ -389,6 +475,11 @@ async def import_items_excel(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El archivo está vacío",
+        )
+    if len(file_bytes) > MAX_EXCEL_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El Excel no puede superar 5 MB",
         )
 
     try:
@@ -436,6 +527,11 @@ async def import_items_update_excel(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El archivo está vacío",
+        )
+    if len(file_bytes) > MAX_EXCEL_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El Excel no puede superar 5 MB",
         )
 
     try:
@@ -574,8 +670,17 @@ def update_item_by_id(
     }
 
 @app.put("/")
-def updateItem(name: str, quantity: int, db: item_dependency):
-    item = db.query(models.Item).filter(models.Item.name == name).first()
+def updateItem(
+    name: str,
+    quantity: int,
+    db: item_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    item = (
+        db.query(models.Item)
+        .filter(models.Item.name == name, models.Item.status == 1)
+        .first()
+    )
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -586,11 +691,12 @@ def updateItem(name: str, quantity: int, db: item_dependency):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Quantity cannot be negative"
         )
-    item.totalAmount += quantity
-    item.actualAmount += quantity
-    db.commit()
-    db.refresh(item)
-    return item
+    try:
+        updated = adjust_item_stock(db, item, quantity)
+    except ItemServiceError as e:
+        db.rollback()
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+    return updated
 
 
 @app.get("/items/{item_id}")
@@ -615,7 +721,7 @@ def get_item_details(
         deletion_history = None
         if is_deleted:
             deletion_history = db.query(models.DeletedItem)\
-                .filter(models.DeletedItem.original_id == item_id)\
+                .filter(models.DeletedItem.item_id == item_id)\
                 .order_by(models.DeletedItem.deleted_at.desc())\
                 .first()
 
@@ -650,8 +756,8 @@ def get_item_details(
                     "deleted_at": deletion_history.deleted_at if deletion_history else None
                 } if is_deleted else None,
                 "permissions": {
-                    "can_edit": current_user["role"] in ["admin", "editor"],
-                    "can_delete": current_user["role"] == "admin"
+                    "can_edit": has_admin_access(current_user),
+                    "can_delete": has_admin_access(current_user),
                 }
             },
             "relations": {
@@ -663,8 +769,8 @@ def get_item_details(
 
         return response_data
 
-
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error obteniendo detalles del item {item_id}: {str(e)}")
         raise HTTPException(
@@ -805,16 +911,24 @@ def list_pieces(
     obra: str = "",
     category: str = "",
     shed_id: Optional[int] = None,
-    limit: int = Query(10, ge=1, le=500),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=500),
 ):
     text = (q or "").strip()
     situation = (situation or "").strip()
     obra = (obra or "").strip()
     category = (category or "").strip()
-    broad = _pieces_active(text, broken, without_image, situation, obra, category, shed_id, unlabeled)
-    cap = 10 if not broad else min(limit, 500)
     query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id, unlabeled)
-    rows = _pieces_rows(query, text, cap)
+    size = min(page_size or limit, 100)
+    if search_tokens(text):
+        ranked = _pieces_rows(query, text, None)
+        total_records = len(ranked)
+        start = (page - 1) * size
+        rows = ranked[start:start + size]
+    else:
+        total_records = query.count()
+        rows = query.order_by(models.ItemUnit.code.asc()).offset((page - 1) * size).limit(size).all()
     away_ids = [
         unit.id
         for unit, _item in rows
@@ -839,7 +953,18 @@ def list_pieces(
             "item_name": item.name,
             "category": item.category,
         })
-    return {"data": data}
+    total_pages = ceil(total_records / size) if size else 0
+    return {
+        "data": data,
+        "pagination": {
+            "total_records": total_records,
+            "total_pages": total_pages,
+            "current_page": page,
+            "page_size": size,
+            "has_next": page < total_pages,
+            "has_previous": page > 1,
+        },
+    }
 
 
 def _pieces_export(rows, places_by_unit) -> BytesIO:
@@ -1568,7 +1693,6 @@ def delete_product(
 ):
     item = db.query(models.Item).filter(models.Item.id == item_delete.item_id).first()
     item_name = item.name if item else "desconocido"
-    can_delete = item.actualAmount == item.totalAmount
 
     if not has_admin_access(current_user):
         fake_dto = ResponseFakeDeleteDTO(
@@ -1586,6 +1710,7 @@ def delete_product(
     if not item:
         raise HTTPException(status_code=404, detail="Item no encontrado")
 
+    can_delete = item.actualAmount == item.totalAmount
     if not can_delete:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1629,8 +1754,14 @@ def get_deleted_items(
     to_date: Optional[datetime] = Query(None, alias="to"),
     page: int = Query(1, ge=1),
     page_size: int = Query(DEFAULT_PAGE_SIZE, le=MAX_PAGE_SIZE),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Annotated[dict, Depends(get_current_user)] = None,
 ):
+    if not has_admin_access(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los administradores pueden ver ítems eliminados",
+        )
     try:
         query = db.query(models.DeletedItem)
 

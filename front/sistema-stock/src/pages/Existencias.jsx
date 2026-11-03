@@ -351,7 +351,32 @@ const Existencias = () => {
               {selectedRows.length > 0 ? `${selectedRows.length} seleccionadas` : "Nada seleccionado"}
             </span>
           </div>
-          <div className="table-responsive">
+          <div className="d-md-none app-card-list">
+            {rows.map((row) => {
+              const key = rowKey(row);
+              return (
+                <label key={key} className="app-mobile-card d-block mb-0">
+                  <div className="d-flex gap-2">
+                    <input
+                      type="checkbox"
+                      className="form-check-input mt-1"
+                      checked={selected.includes(key)}
+                      onChange={() => toggleRow(key)}
+                      aria-label={`Seleccionar ${row.code || row.description}`}
+                    />
+                    <div>
+                      <div className="fw-semibold">{row.description || "—"}</div>
+                      <div className="app-muted small">{row.code || "Sin código"} · {row.quantity}</div>
+                      <div className="small mt-1">
+                        {kind === "obra" ? (row.people || "Sin responsable") : (row.zone || "Sin zona")}
+                      </div>
+                    </div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          <div className="table-responsive d-none d-md-block">
             <table className="table app-table mb-0">
               <thead>
                 <tr>

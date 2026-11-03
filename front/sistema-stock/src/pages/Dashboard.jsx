@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { useNavigate, useLocation } from "react-router-dom"
+import { useNavigate, useLocation, NavLink, Link } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
 import { Package, LayoutGrid, ClipboardList, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound, Car, BookOpen } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
@@ -14,11 +14,16 @@ const Dashboard = ({ title, children }) => {
   const adminMenuRef = useRef(null)
   const [telegramBot, setTelegramBot] = useState(null)
   const [openingTelegram, setOpeningTelegram] = useState(false)
+  const [accessMessage, setAccessMessage] = useState(location.state?.error || "")
 
   useEffect(() => {
     setNavOpen(false)
     setAdminOpen(false)
-  }, [location.pathname])
+    if (location.state?.error) {
+      setAccessMessage(location.state.error)
+      navigate(location.pathname, { replace: true, state: {} })
+    }
+  }, [location.pathname, location.state, navigate])
 
   useEffect(() => {
     if (!adminOpen) return
@@ -60,16 +65,11 @@ const Dashboard = ({ title, children }) => {
     }
   }
 
-  const isActive = (path) => location.pathname === path
+  const closeNav = () => setNavOpen(false)
 
-  const go = (path) => {
-    setNavOpen(false)
-    navigate(path)
-  }
-
-  const navLinkClass = (path) =>
+  const navLinkClass = ({ isActive }) =>
     `btn btn-link text-decoration-none d-flex align-items-center fs-6 px-2 py-2 py-lg-1 app-nav-link w-100 ${
-      isActive(path) ? "app-nav-link-active" : "text-secondary"
+      isActive ? "app-nav-link-active" : "text-secondary"
     }`
 
   return (
@@ -77,14 +77,14 @@ const Dashboard = ({ title, children }) => {
       <nav className="navbar navbar-expand-lg navbar-light bg-white border-bottom app-navbar">
         <div className="container-fluid px-3 px-md-4">
           <div className="d-flex align-items-center gap-2 min-w-0">
-            <button
-              type="button"
-              className="navbar-brand fw-semibold fs-6 fs-lg-5 text-dark mb-0 d-flex align-items-center gap-2 text-truncate btn btn-link text-decoration-none p-0"
-              onClick={() => go("/")}
+            <Link
+              to="/"
+              className="navbar-brand fw-semibold fs-6 fs-lg-5 text-dark mb-0 d-flex align-items-center gap-2 text-truncate text-decoration-none"
+              onClick={closeNav}
             >
               Gestión depósito
               <img src={logoConkreto} alt="Logo Conkreto" style={{ maxHeight: 40, width: "auto" }} />
-            </button>
+            </Link>
           </div>
           <button
             className="navbar-toggler"
@@ -98,40 +98,40 @@ const Dashboard = ({ title, children }) => {
           </button>
           <div className={`navbar-collapse ${navOpen ? "d-block" : "collapse"}`} id="navbarNav">
             <div className="ms-lg-auto d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-1 gap-lg-2 pt-2 pt-lg-0">
-              <button onClick={() => go("/manual")} className={navLinkClass("/manual")}>
+              <NavLink to="/manual" className={navLinkClass} onClick={closeNav}>
                 <BookOpen className="me-1" size={18} />
                 Manual de uso
-              </button>
+              </NavLink>
 
-              <button onClick={() => go("/")} className={navLinkClass("/")}>
+              <NavLink to="/" end className={navLinkClass} onClick={closeNav}>
                 <Package className="me-1" size={18} />
                 Productos
-              </button>
+              </NavLink>
 
-              <button onClick={() => go("/piezas")} className={navLinkClass("/piezas")}>
+              <NavLink to="/piezas" className={navLinkClass} onClick={closeNav}>
                 <LayoutGrid className="me-1" size={18} />
                 Piezas
-              </button>
+              </NavLink>
 
-              <button onClick={() => go("/autos")} className={navLinkClass("/autos")}>
+              <NavLink to="/autos" className={navLinkClass} onClick={closeNav}>
                 <Car className="me-1" size={18} />
                 Autos
-              </button>
+              </NavLink>
 
-              <button onClick={() => go("/existencias")} className={navLinkClass("/existencias")}>
+              <NavLink to="/existencias" className={navLinkClass} onClick={closeNav}>
                 <ClipboardList className="me-1" size={18} />
                 Existencias
-              </button>
+              </NavLink>
 
-              <button onClick={() => go("/historial")} className={navLinkClass("/historial")}>
+              <NavLink to="/historial" className={navLinkClass} onClick={closeNav}>
                 <History className="me-1" size={18} />
                 Historial
-              </button>
+              </NavLink>
 
-              <button onClick={() => go("/pendientes")} className={navLinkClass("/pendientes")}>
+              <NavLink to="/pendientes" className={navLinkClass} onClick={closeNav}>
                 <Clock className="me-1" size={18} />
                 Pendientes
-              </button>
+              </NavLink>
 
               <button
                 type="button"
@@ -156,40 +156,40 @@ const Dashboard = ({ title, children }) => {
                   </button>
                   <ul className={`dropdown-menu dropdown-menu-end${adminOpen ? " show" : ""}`}>
                     <li>
-                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/obras")}>
+                      <Link to="/admin/obras" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                         <MapPin className="me-2" size={16} /> Obras
-                      </button>
+                      </Link>
                     </li>
                     <li>
-                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/empleados")}>
+                      <Link to="/admin/empleados" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                         <UserRound className="me-2" size={16} /> Empleados
-                      </button>
+                      </Link>
                     </li>
                     <li>
-                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/categories")}>
+                      <Link to="/admin/categories" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                         <Tags className="me-2" size={16} /> Categorías
-                      </button>
+                      </Link>
                     </li>
                     <li>
-                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/warehouses")}>
+                      <Link to="/admin/warehouses" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                         <Warehouse className="me-2" size={16} /> Depósitos
-                      </button>
+                      </Link>
                     </li>
                     <li>
-                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/users")}>
+                      <Link to="/admin/users" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                         <Users className="me-2" size={16} /> Usuarios
-                      </button>
+                      </Link>
                     </li>
                     <li>
-                      <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/deleted-items")}>
+                      <Link to="/deleted-items" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                         <Trash2 className="me-2" size={16} /> Eliminados
-                      </button>
+                      </Link>
                     </li>
                     {role === "sysadmin" && (
                       <li>
-                        <button type="button" className="dropdown-item d-flex align-items-center" onClick={() => go("/admin/sysadmin")}>
+                        <Link to="/admin/sysadmin" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                           <Wrench className="me-2" size={16} /> Sysadmin
-                        </button>
+                        </Link>
                       </li>
                     )}
                   </ul>
@@ -210,6 +210,11 @@ const Dashboard = ({ title, children }) => {
       <main className="container-xl my-4 my-md-5 px-3 px-md-4">
         <div className="app-page-card">
           {title && <h1 className="app-page-title">{title}</h1>}
+          {accessMessage && (
+            <div className="alert alert-warning py-2" role="alert">
+              {accessMessage}
+            </div>
+          )}
           {children}
         </div>
       </main>

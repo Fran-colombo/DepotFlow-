@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { login } from '../api/auth';
 import useAuth from '../hooks/useAuth';
 import logoConkreto from '../assets/logo-conkreto.png';
@@ -13,8 +13,12 @@ function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login: authLogin } = useAuth();
+  const { login: authLogin, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -41,7 +45,7 @@ function LoginPage() {
       authLogin(access_token);
       navigate('/');
     } catch (err) {
-      const message = err?.response?.data?.detail || err.message || 'Error de autenticación';
+      const message = err.message || 'Error de autenticación';
       setError(typeof message === 'string' ? message : JSON.stringify(message));
     } finally {
       setLoading(false);

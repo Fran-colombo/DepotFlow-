@@ -36,6 +36,8 @@ const Piezas = () => {
   const [exporting, setExporting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [chosen, setChosen] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ totalPages: 1, totalRecords: 0 });
   const filters = { broken, withoutImage, unlabeled, situation, obra, category, shedId };
   const filtering = Boolean(query.trim() || broken || withoutImage || unlabeled || situation || obra || category || shedId);
   const canExport = filtering;
@@ -103,12 +105,22 @@ const Piezas = () => {
   };
 
   useEffect(() => {
+    setPage(1);
+  }, [query, broken, withoutImage, unlabeled, situation, obra, category, shedId]);
+
+  useEffect(() => {
     let cancelled = false;
     const timer = setTimeout(() => {
       setLoading(true);
-      searchPieces(query, { broken, withoutImage, unlabeled, situation, obra, category, shedId })
+      searchPieces(query, { broken, withoutImage, unlabeled, situation, obra, category, shedId }, page, 20)
         .then((res) => {
-          if (!cancelled) setPieces(Array.isArray(res?.data) ? res.data : []);
+          if (!cancelled) {
+            setPieces(Array.isArray(res?.data) ? res.data : []);
+            setPagination({
+              totalPages: res?.pagination?.total_pages || 1,
+              totalRecords: res?.pagination?.total_records || 0,
+            });
+          }
         })
         .catch((err) => {
           if (!cancelled) {
@@ -124,7 +136,7 @@ const Piezas = () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query, broken, withoutImage, unlabeled, situation, obra, category, shedId, revision]);
+  }, [query, broken, withoutImage, unlabeled, situation, obra, category, shedId, revision, page]);
 
   const openPiece = async (piece) => {
     setError("");
@@ -396,6 +408,32 @@ const Piezas = () => {
               </div>
             );
           })}
+        </div>
+      )}
+      {pieces.length > 0 && pagination.totalPages > 1 && (
+        <div className="d-flex justify-content-between align-items-center mt-3">
+          <div className="app-muted">{pagination.totalRecords} piezas</div>
+          <div className="btn-group btn-group-sm">
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              disabled={page <= 1}
+              onClick={() => setPage((value) => value - 1)}
+            >
+              Anterior
+            </button>
+            <button type="button" className="btn btn-light border" disabled>
+              {page} / {pagination.totalPages}
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              disabled={page >= pagination.totalPages}
+              onClick={() => setPage((value) => value + 1)}
+            >
+              Siguiente
+            </button>
+          </div>
         </div>
       )}
 

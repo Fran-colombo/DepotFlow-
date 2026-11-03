@@ -32,7 +32,9 @@ uvicorn main:app --reload
 
 La DB por defecto queda en `shed_data/shed.db` (relativa al repo).
 
-Crear admin con `adminSeed.py` (local) y al menos un depósito desde `/docs`.
+El admin se crea al arrancar si en `.env` están `ADMIN_USER_EMAIL` y `ADMIN_USER_PASSWORD`.
+Después creá al menos un depósito y zonas desde la app (Administración → Depósitos).
+`/docs` solo está disponible si `DEBUG=true`.
 
 ### Frontend
 
@@ -79,7 +81,7 @@ docker compose up -d --build
 | `ADMIN_USER_EMAIL` / `ADMIN_USER_PASSWORD` | Admin creado al arrancar (si no existe) |
 | `VITE_API_URL` | Default `/api` (proxy nginx). Si el front está en otro dominio, usá la URL pública del API |
 | `DB_PATH` | Ruta SQLite (Docker: `/app/shed_data/shed.db`) |
-| `ALLOWED_ORIGINS` | CORS (`*` o lista) |
+| `ALLOWED_ORIGINS` | CORS (orígenes del front, separados por coma). No uses `*` |
 | `EMAIL_*` / `SMTP_*` | Notificaciones (opcional) |
 
 ### HTTPS

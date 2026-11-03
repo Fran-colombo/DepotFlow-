@@ -42,6 +42,7 @@ const Items = () => {
   const [showMovementsModal, setShowMovementsModal] = useState(false);
   const [movements, setMovements] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [pagination, setPagination] = useState({ page: 1, pageSize: 10, totalRecords: 0, totalPages: 1 });
   const [itemModal, setItemModal] = useState({ open: false, mode: "create", itemId: null });
   const [showBulkImportModal, setShowBulkImportModal] = useState(false);
@@ -65,13 +66,8 @@ const Items = () => {
 
   useEffect(() => {
     const loadInitialData = async () => {
-      setIsLoading(true);
       try {
-        const [itemsData, shedsData] = await Promise.all([
-          getItems(filters, 1, pagination.pageSize),
-          getSheds(),
-        ]);
-        setItems(itemsData.data);
+        const shedsData = await getSheds();
         setSheds(shedsData);
         try {
           const categoriesData = await getCategories();
@@ -79,15 +75,9 @@ const Items = () => {
         } catch (categoryError) {
           console.error("Error cargando categorías:", categoryError);
         }
-        setPagination({
-          ...pagination,
-          totalRecords: itemsData.pagination.total_records,
-          totalPages: itemsData.pagination.total_pages
-        });
       } catch (err) {
         console.error("Error cargando datos:", err);
-      } finally {
-        setIsLoading(false);
+        setLoadError(err.message || "No se pudieron cargar los depósitos");
       }
     };
     loadInitialData();
@@ -126,6 +116,7 @@ const Items = () => {
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       setIsLoading(true);
+      setLoadError("");
       try {
         const itemsData = await getItems(filters, 1, pagination.pageSize);
         const query = (filters.name || "").trim();
@@ -147,6 +138,8 @@ const Items = () => {
         });
       } catch (err) {
         console.error("Error aplicando filtros automáticos:", err);
+        setItems([]);
+        setLoadError(err.message || "No se pudieron cargar los productos");
       } finally {
         setIsLoading(false);
       }
@@ -649,7 +642,7 @@ const Items = () => {
               })
             ) : (
               <div className="text-center text-muted py-5">
-                No se encontraron productos con los filtros aplicados
+                {loadError || "No se encontraron productos con los filtros aplicados"}
               </div>
             )}
           </div>
@@ -992,7 +985,7 @@ const Items = () => {
                 })) : (
                   <tr>
                     <td colSpan="6" className="text-center text-muted py-5">
-                      No se encontraron productos con los filtros aplicados
+                      {loadError || "No se encontraron productos con los filtros aplicados"}
                     </td>
                   </tr>
                 )}

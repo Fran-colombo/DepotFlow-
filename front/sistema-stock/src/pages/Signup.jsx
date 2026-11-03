@@ -63,6 +63,10 @@ const SignUp = () => {
         hasErrors = true;
       }
     });
+    if (form.password && form.password.length < 8) {
+      newErrors.password = true;
+      hasErrors = true;
+    }
 
     if (hasErrors) {
       setErrors(newErrors);
@@ -168,11 +172,12 @@ const SignUp = () => {
                         name="password"
                         type={showPassword ? "text" : "password"}
                         className={`form-control ${errors.password ? "is-invalid" : ""}`}
-                        placeholder="Ingresar contraseña"
+                        placeholder="Mínimo 8 caracteres"
                         onChange={handleChange}
                         value={form.password}
                         ref={refs.password}
                         autoComplete="new-password"
+                        minLength={8}
                       />
                       <button
                         className="btn btn-outline-secondary"
@@ -186,7 +191,7 @@ const SignUp = () => {
                         )}
                       </button>
                       {errors.password && (
-                        <div className="invalid-feedback">Debe completar este campo</div>
+                        <div className="invalid-feedback">La contraseña debe tener al menos 8 caracteres</div>
                       )}
                     </div>
                   </div>

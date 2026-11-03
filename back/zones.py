@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from typing import Annotated, List, Optional
 import models
 from database import get_db
+from auth import get_current_user, require_admin
 from dtos.zoneDTO import ZoneCreateDTO, ZoneUpdateDTO, ZoneDTO
 
 router = APIRouter(prefix="/zones", tags=["zones"])
@@ -21,6 +22,7 @@ def _to_dto(zone: models.Zone) -> ZoneDTO:
 @router.get("/", response_model=List[ZoneDTO])
 def get_zones(
     db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
     shed_id: Optional[int] = Query(None),
 ):
     query = db.query(models.Zone).options(joinedload(models.Zone.shed))
@@ -31,7 +33,11 @@ def get_zones(
 
 
 @router.get("/{zone_id}", response_model=ZoneDTO)
-def get_zone_by_id(zone_id: int, db: db_dependency):
+def get_zone_by_id(
+    zone_id: int,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
     zone = (
         db.query(models.Zone)
         .options(joinedload(models.Zone.shed))
@@ -47,7 +53,12 @@ def get_zone_by_id(zone_id: int, db: db_dependency):
 
 
 @router.post("/", response_model=ZoneDTO, status_code=status.HTTP_201_CREATED)
-def create_zone(payload: ZoneCreateDTO, db: db_dependency):
+def create_zone(
+    payload: ZoneCreateDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    require_admin(current_user)
     shed = db.query(models.Shed).filter(models.Shed.id == payload.shed_id).first()
     if not shed:
         raise HTTPException(
@@ -90,7 +101,13 @@ def create_zone(payload: ZoneCreateDTO, db: db_dependency):
 
 
 @router.put("/{zone_id}", response_model=ZoneDTO)
-def update_zone(zone_id: int, payload: ZoneUpdateDTO, db: db_dependency):
+def update_zone(
+    zone_id: int,
+    payload: ZoneUpdateDTO,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    require_admin(current_user)
     zone = (
         db.query(models.Zone)
         .options(joinedload(models.Zone.shed))
@@ -132,7 +149,12 @@ def update_zone(zone_id: int, payload: ZoneUpdateDTO, db: db_dependency):
 
 
 @router.delete("/{zone_id}", status_code=status.HTTP_200_OK)
-def delete_zone(zone_id: int, db: db_dependency):
+def delete_zone(
+    zone_id: int,
+    db: db_dependency,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    require_admin(current_user)
     zone = db.query(models.Zone).filter(models.Zone.id == zone_id).first()
     if not zone:
         raise HTTPException(

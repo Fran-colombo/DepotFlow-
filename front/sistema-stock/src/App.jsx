@@ -18,7 +18,18 @@ import ObrasPage from "./pages/Obras";
 import EmpleadosPage from "./pages/Empleados";
 import SysadminPage from "./pages/Sysadmin";
 import Manual from "./pages/Manual";
+import Dashboard from "./pages/Dashboard";
+import { Link } from "react-router-dom";
 
+
+function NotFound() {
+  return (
+    <Dashboard title="Página no encontrada">
+      <p className="app-muted mb-3">Esa dirección no existe en el sistema.</p>
+      <Link to="/" className="btn btn-primary">Volver a productos</Link>
+    </Dashboard>
+  );
+}
 
 function App() {
   return (
@@ -85,6 +96,11 @@ function App() {
         <Route element={<SysadminRoute />}>
           <Route path="/admin/sysadmin" element={<SysadminPage />} />
         </Route>
+        <Route path="*" element={
+          <PrivateRoute>
+            <NotFound />
+          </PrivateRoute>
+        } />
         </Routes>
       </Router>
     </AuthProvider>
