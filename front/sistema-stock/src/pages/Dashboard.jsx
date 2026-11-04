@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useLocation, NavLink, Link } from "react-router-dom"
 import useAuth from "../hooks/useAuth"
-import { Package, LayoutGrid, ClipboardList, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound, Car, BookOpen } from "lucide-react"
+import { Package, LayoutGrid, ClipboardList, History, Clock, LogOut, Users, Trash2, Warehouse, Send, Tags, MapPin, ChevronDown, Wrench, UserRound, Car, BookOpen, Mail } from "lucide-react"
 import logoConkreto from '../assets/logo-conkreto.png';
 import { createTelegramLink, getTelegramBot } from "../api/auth"
 
@@ -178,6 +178,11 @@ const Dashboard = ({ title, children }) => {
                     <li>
                       <Link to="/admin/users" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
                         <Users className="me-2" size={16} /> Usuarios
+                      </Link>
+                    </li>
+                    <li>
+                      <Link to="/admin/reportes" className="dropdown-item d-flex align-items-center" onClick={closeNav}>
+                        <Mail className="me-2" size={16} /> Reportes
                       </Link>
                     </li>
                     <li>

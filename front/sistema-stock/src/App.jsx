@@ -17,6 +17,7 @@ import CategoriesPage from "./pages/Categories";
 import ObrasPage from "./pages/Obras";
 import EmpleadosPage from "./pages/Empleados";
 import SysadminPage from "./pages/Sysadmin";
+import ReportesPage from "./pages/Reportes";
 import Manual from "./pages/Manual";
 import Dashboard from "./pages/Dashboard";
 import { Link } from "react-router-dom";
@@ -89,6 +90,7 @@ function App() {
           <Route path="/admin/categories" element={<CategoriesPage />} />
           <Route path="/admin/obras" element={<ObrasPage />} />
           <Route path="/admin/empleados" element={<EmpleadosPage />} />
+          <Route path="/admin/reportes" element={<ReportesPage />} />
           <Route path="/admin/zones" element={<Navigate to="/admin/warehouses" replace />} />
           <Route path="/deleted-items" element={<DeletedItemsPage />} />
 

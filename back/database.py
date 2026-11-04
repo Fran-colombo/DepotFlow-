@@ -506,6 +506,20 @@ def ensure_inventory_schema():
                   )
             """))
 
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS email_reports (
+                id INTEGER NOT NULL PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                enabled BOOLEAN NOT NULL DEFAULT 1,
+                frequency VARCHAR NOT NULL DEFAULT 'monthly',
+                combine BOOLEAN NOT NULL DEFAULT 1,
+                item_ids VARCHAR,
+                last_sent DATETIME
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_email_reports_id ON email_reports (id)"))
+
 
 def ensure_phone_unique_index():
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):

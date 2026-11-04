@@ -312,6 +312,18 @@ class HistoryUnit(Base):
     amount = Column(Integer, nullable=True)
 
 
+class EmailReport(Base):
+    __tablename__ = "email_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    enabled = Column(Boolean, default=True, nullable=False)
+    frequency = Column(String, nullable=False, default="monthly")
+    combine = Column(Boolean, default=True, nullable=False)
+    item_ids = Column(String, nullable=True)
+    last_sent = Column(DateTime, nullable=True)
+
+
 class DeletedItem(Base):
     __tablename__ = "deleted_items"
 

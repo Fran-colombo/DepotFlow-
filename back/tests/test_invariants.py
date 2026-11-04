@@ -150,3 +150,79 @@ def test_delete_missing_item_returns_404():
             },
         )
         assert response.status_code == 404
+
+
+def test_pending_email_groups_by_obra_then_name():
+    from datetime import datetime
+    from notifications import TIMEZONE, build_pending_body, report_is_due
+
+    body = build_pending_body([
+        {
+            "obra": "Paraguay 500",
+            "subcategory": "Herramientas de albañil",
+            "label": "Amoladora",
+            "code": "AM-1",
+            "amount": 1,
+            "person": "Franco Topa",
+            "date": TIMEZONE.localize(datetime(2026, 10, 28, 9, 12)),
+            "days": 7,
+        },
+        {
+            "obra": "Paraguay 500",
+            "subcategory": "Herramientas de albañil",
+            "label": "Nivel",
+            "code": "",
+            "amount": 2,
+            "person": "Franco Topa",
+            "date": TIMEZONE.localize(datetime(2026, 10, 28, 9, 18)),
+            "days": 7,
+        },
+    ])
+    assert body.index("Obra: Paraguay 500") < body.index("Herramientas de albañil")
+    assert body.index("Herramientas de albañil") < body.index("Amoladora")
+    assert "Amoladora (AM-1)" in body
+    assert "Ítem: Herramientas de albañil" not in body
+
+    report = models.EmailReport(enabled=True, frequency="monthly", last_sent=None)
+    first = TIMEZONE.localize(datetime(2026, 12, 1, 8, 0, 0))
+    mid = TIMEZONE.localize(datetime(2026, 11, 4, 8, 0, 0))
+    assert report_is_due(report, first)
+    assert not report_is_due(report, mid)
+
+
+def test_pending_email_groups_by_obra_then_name():
+    from datetime import datetime
+    from notifications import TIMEZONE, build_pending_body, report_is_due
+
+    body = build_pending_body([
+        {
+            "obra": "Paraguay 500",
+            "subcategory": "Herramientas de albañil",
+            "label": "Amoladora",
+            "code": "AM-1",
+            "amount": 1,
+            "person": "Franco Topa",
+            "date": TIMEZONE.localize(datetime(2026, 10, 28, 9, 12)),
+            "days": 7,
+        },
+        {
+            "obra": "Paraguay 500",
+            "subcategory": "Herramientas de albañil",
+            "label": "Nivel",
+            "code": "",
+            "amount": 2,
+            "person": "Franco Topa",
+            "date": TIMEZONE.localize(datetime(2026, 10, 28, 9, 18)),
+            "days": 7,
+        },
+    ])
+    assert body.index("Obra: Paraguay 500") < body.index("Herramientas de albañil")
+    assert body.index("Herramientas de albañil") < body.index("Amoladora")
+    assert "Amoladora (AM-1)" in body
+    assert "Ítem: Herramientas de albañil" not in body
+
+    report = models.EmailReport(enabled=True, frequency="monthly", last_sent=None)
+    first = TIMEZONE.localize(datetime(2026, 12, 1, 8, 0, 0))
+    mid = TIMEZONE.localize(datetime(2026, 11, 4, 8, 0, 0))
+    assert report_is_due(report, first)
+    assert not report_is_due(report, mid)

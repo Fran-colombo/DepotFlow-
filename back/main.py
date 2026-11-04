@@ -31,7 +31,7 @@ from auth import (
     router as auth_router,
     validate_secret_key,
 )
-from notifications import NotificationService, enviar_mail_fallo_borrado
+from notifications import NotificationService, enviar_mail_fallo_borrado, seed_default_report
 import zones
 from seed_admin import seed_admin_from_env
 from item_service import ItemServiceError, adjust_item_stock, create_item, item_unplaced_amount, pending_amounts, unplaced_amount
@@ -54,6 +54,7 @@ import empleados
 import existencias
 import sysadmin
 import transportes
+import reports
 from item_categories import category_is_consumable, category_units_by_name, normalize_lookup, seed_categories
 from pydantic import BaseModel
 from observations import add_unit_observation
@@ -138,6 +139,7 @@ app.include_router(empleados.router)
 app.include_router(existencias.router)
 app.include_router(sysadmin.router)
 app.include_router(transportes.router)
+app.include_router(reports.router)
 
 models.Base.metadata.create_all(bind=engine)
 ensure_zone_schema()
@@ -161,6 +163,7 @@ except Exception:
 ensure_phone_unique_index()
 ensure_telegram_unique_index()
 seed_admin_from_env()
+seed_default_report()
 
 item_dependency = Annotated[Session, Depends(get_db)]
 
@@ -899,6 +902,164 @@ def _pieces_rows(query, text, limit=None):
     return ordered.all()
 
 
+_UNIT_ONLY_SITUATIONS = {"fuera_de_servicio", "usadas"}
+
+
+def _quantity_filters_ok(broken, without_image, unlabeled, situation):
+    if broken or without_image or unlabeled:
+        return False
+    return situation not in _UNIT_ONLY_SITUATIONS
+
+
+def _pending_history_filter(obra=None):
+    filters = [
+        models.History.action == models.ActionEnum.retiro,
+        models.History.turnback == False,
+        models.History.amountNotReturned > 0,
+        models.History.place != REPAIR_PLACE,
+        (models.History.hideFromHistorial.is_(False)) | (models.History.hideFromHistorial.is_(None)),
+    ]
+    if obra:
+        filters.append(models.History.place == obra)
+    return filters
+
+
+def _pending_item_ids(db, obra=None):
+    rows = db.query(models.History.itemId).filter(*_pending_history_filter(obra)).distinct().all()
+    return {item_id for (item_id,) in rows if item_id}
+
+
+def _pending_places_by_item(db, item_ids):
+    if not item_ids:
+        return {}
+    rows = (
+        db.query(models.History.itemId, models.History.place)
+        .filter(
+            models.History.itemId.in_(item_ids),
+            *_pending_history_filter(),
+            models.History.place.isnot(None),
+            models.History.place != "",
+        )
+        .distinct()
+        .all()
+    )
+    grouped = {}
+    for item_id, place in rows:
+        if not place:
+            continue
+        grouped.setdefault(item_id, [])
+        if place not in grouped[item_id]:
+            grouped[item_id].append(place)
+    return grouped
+
+
+def _quantity_item_place(item, pending_places):
+    names = [name for name in (pending_places or []) if name]
+    if int(item.actualAmount or 0) > 0:
+        zone = item.zone.name if item.zone else None
+        depot = zone or "En depósito"
+        if names:
+            return f"{depot} · " + " · ".join(names)
+        return depot
+    if names:
+        return " · ".join(names)
+    return "Sin stock"
+
+
+def _quantity_item_rows(db, text, situation, obra, category, shed_id, broken, without_image, unlabeled):
+    if not _quantity_filters_ok(broken, without_image, unlabeled, situation):
+        return []
+    query = (
+        db.query(models.Item)
+        .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
+        .options(contains_eager(models.Item.zone))
+        .filter(models.Item.status == 1, models.Item.track_units.is_(False))
+    )
+    if category:
+        query = query.filter(models.Item.category == category)
+    if shed_id:
+        query = query.filter(models.Item.shed_id == shed_id)
+    pending_ids = None
+    if situation in ("fuera", "en_obra") or obra:
+        pending_ids = _pending_item_ids(db, obra or None)
+        query = query.filter(models.Item.id.in_(pending_ids or [-1]))
+    if situation == "en_deposito":
+        query = query.filter(models.Item.actualAmount > 0)
+    elif situation == "con_stock":
+        query = query.filter(models.Item.actualAmount > 0)
+    elif situation == "sin_stock":
+        query = query.filter((models.Item.actualAmount.is_(None)) | (models.Item.actualAmount <= 0))
+    items = query.order_by(models.Item.name.asc()).all()
+    scored = []
+    for item in items:
+        parts = [item.name, item.description, item.aliases, item.category]
+        if search_tokens(text) and not search_matches(text, *parts):
+            continue
+        rank = search_rank(text, *parts) if search_tokens(text) else 0
+        scored.append((rank, item))
+    scored.sort(key=lambda row: (-row[0], (row[1].name or "").lower()))
+    return [item for _rank, item in scored]
+
+
+def _serialize_piece_unit(unit, item, places, photo_count):
+    return {
+        "kind": "unit",
+        "id": unit.id,
+        "code": unit.code,
+        "name": unit.name or "",
+        "status": unit.status,
+        "place": _piece_place(unit, item, places),
+        "quantity": int(unit.quantity or 0) if item.inner_quantity else 1,
+        "is_broken": bool(unit.is_broken),
+        "labeled": bool(unit.labeled),
+        "has_image": bool(unit.image_filename),
+        "photo_count": photo_count,
+        "image_filename": unit.image_filename,
+        "item_id": item.id,
+        "item_name": item.name,
+        "category": item.category,
+    }
+
+
+def _serialize_piece_item(item, pending_places):
+    return {
+        "kind": "item",
+        "id": None,
+        "code": None,
+        "name": item.name or "",
+        "status": "quantity",
+        "place": _quantity_item_place(item, pending_places),
+        "quantity": int(item.actualAmount or 0),
+        "is_broken": False,
+        "labeled": True,
+        "has_image": bool(item.image_filename),
+        "photo_count": 1 if item.image_filename else 0,
+        "image_filename": item.image_filename,
+        "item_id": item.id,
+        "item_name": item.name,
+        "category": item.category,
+    }
+
+
+def _combined_piece_entries(db, text, broken, without_image, unlabeled, situation, obra, category, shed_id):
+    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id, unlabeled)
+    unit_rows = _pieces_rows(query, text)
+    quantity_items = _quantity_item_rows(
+        db, text, situation, obra, category, shed_id, broken, without_image, unlabeled
+    )
+    entries = []
+    for unit, item in unit_rows:
+        parts = [unit.code, unit.name, unit.description, item.name, item.description, item.aliases, item.category]
+        rank = search_rank(text, *parts, code=unit.code or "") if search_tokens(text) else 0
+        entries.append(("unit", rank, (unit.code or unit.name or "").lower(), unit, item))
+    for item in quantity_items:
+        parts = [item.name, item.description, item.aliases, item.category]
+        rank = search_rank(text, *parts) if search_tokens(text) else 0
+        entries.append(("item", rank, (item.name or "").lower(), None, item))
+    entries.sort(key=lambda row: (-row[1], row[2]))
+    return entries
+
+
 @app.get("/units")
 def list_pieces(
     db: item_dependency,
@@ -919,40 +1080,34 @@ def list_pieces(
     situation = (situation or "").strip()
     obra = (obra or "").strip()
     category = (category or "").strip()
-    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id, unlabeled)
+    entries = _combined_piece_entries(
+        db, text, broken, without_image, unlabeled, situation, obra, category, shed_id
+    )
     size = min(page_size or limit, 100)
-    if search_tokens(text):
-        ranked = _pieces_rows(query, text, None)
-        total_records = len(ranked)
-        start = (page - 1) * size
-        rows = ranked[start:start + size]
-    else:
-        total_records = query.count()
-        rows = query.order_by(models.ItemUnit.code.asc()).offset((page - 1) * size).limit(size).all()
+    total_records = len(entries)
+    start = (page - 1) * size
+    page_entries = entries[start:start + size]
+    unit_rows = [(unit, item) for kind, _rank, _key, unit, item in page_entries if kind == "unit"]
     away_ids = [
         unit.id
-        for unit, _item in rows
+        for unit, _item in unit_rows
         if unit.status not in ("consumida", "fuera_de_servicio", "en_stock")
     ]
     places_by_unit = pending_places_by_unit(db, away_ids)
-    counts = photo_counts(db, [unit.id for unit, _item in rows])
+    counts = photo_counts(db, [unit.id for unit, _item in unit_rows])
+    quantity_ids = [item.id for kind, _rank, _key, _unit, item in page_entries if kind == "item"]
+    places_by_item = _pending_places_by_item(db, quantity_ids)
     data = []
-    for unit, item in rows:
-        data.append({
-            "id": unit.id,
-            "code": unit.code,
-            "name": unit.name or "",
-            "status": unit.status,
-            "place": _piece_place(unit, item, places_by_unit.get(unit.id)),
-            "is_broken": bool(unit.is_broken),
-            "labeled": bool(unit.labeled),
-            "has_image": bool(unit.image_filename),
-            "photo_count": counts.get(unit.id, 1 if unit.image_filename else 0),
-            "image_filename": unit.image_filename,
-            "item_id": item.id,
-            "item_name": item.name,
-            "category": item.category,
-        })
+    for kind, _rank, _key, unit, item in page_entries:
+        if kind == "item":
+            data.append(_serialize_piece_item(item, places_by_item.get(item.id)))
+            continue
+        data.append(_serialize_piece_unit(
+            unit,
+            item,
+            places_by_unit.get(unit.id),
+            counts.get(unit.id, 1 if unit.image_filename else 0),
+        ))
     total_pages = ceil(total_records / size) if size else 0
     return {
         "data": data,
@@ -996,26 +1151,41 @@ def _pieces_export(rows, places_by_unit) -> BytesIO:
         cell.fill = header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
-    for row_index, (unit, item) in enumerate(rows, start=2):
-        places = places_by_unit.get(unit.id) or []
-        if item.inner_quantity:
-            quantity = int(unit.quantity or 0)
-            if quantity <= 0:
-                quantity = sum(int(place.get("quantity") or 0) for place in places)
+    for row_index, entry in enumerate(rows, start=2):
+        kind, unit, item, places = entry
+        if kind == "item":
+            values = [
+                "",
+                item.name or "",
+                item.name or "",
+                "Por cantidad",
+                _quantity_item_place(item, places),
+                int(item.actualAmount or 0),
+                "",
+                "",
+                "No",
+                "No",
+            ]
         else:
-            quantity = 1
-        values = [
-            unit.code or "",
-            unit.name or "",
-            item.name or "",
-            labels.get(unit.status, unit.status or ""),
-            _piece_place(unit, item, places),
-            quantity,
-            unit.damage_note or "",
-            unit.repair_note or "",
-            "Sí" if unit.status == "fuera_de_servicio" else "No",
-            "Sí" if unit.labeled else "No",
-        ]
+            unit_places = places or []
+            if item.inner_quantity:
+                quantity = int(unit.quantity or 0)
+                if quantity <= 0:
+                    quantity = sum(int(place.get("quantity") or 0) for place in unit_places)
+            else:
+                quantity = 1
+            values = [
+                unit.code or "",
+                unit.name or "",
+                item.name or "",
+                labels.get(unit.status, unit.status or ""),
+                _piece_place(unit, item, unit_places),
+                quantity,
+                unit.damage_note or "",
+                unit.repair_note or "",
+                "Sí" if unit.status == "fuera_de_servicio" else "No",
+                "Sí" if unit.labeled else "No",
+            ]
         for col, value in enumerate(values, start=1):
             sheet.cell(row_index, col, value)
     widths = [22, 36, 36, 22, 32, 12, 40, 40, 16, 14]
@@ -1246,15 +1416,25 @@ def export_pieces(
     category = (category or "").strip()
     if not _pieces_active(text, broken, without_image, situation, obra, category, shed_id, unlabeled):
         raise HTTPException(status_code=400, detail="Elegí un filtro o un texto para exportar")
-    query = _pieces_query(db, broken, without_image, situation, obra, category, shed_id, unlabeled)
-    rows = _pieces_rows(query, text)
+    entries = _combined_piece_entries(
+        db, text, broken, without_image, unlabeled, situation, obra, category, shed_id
+    )
+    unit_rows = [(unit, item) for kind, _rank, _key, unit, item in entries if kind == "unit"]
     away_ids = [
         unit.id
-        for unit, _item in rows
+        for unit, _item in unit_rows
         if unit.status not in ("consumida", "fuera_de_servicio", "en_stock")
     ]
     places_by_unit = pending_places_by_unit(db, away_ids)
-    buffer = _pieces_export(rows, places_by_unit)
+    quantity_ids = [item.id for kind, _rank, _key, _unit, item in entries if kind == "item"]
+    places_by_item = _pending_places_by_item(db, quantity_ids)
+    export_rows = []
+    for kind, _rank, _key, unit, item in entries:
+        if kind == "item":
+            export_rows.append(("item", None, item, places_by_item.get(item.id)))
+        else:
+            export_rows.append(("unit", unit, item, places_by_unit.get(unit.id)))
+    buffer = _pieces_export(export_rows, places_by_unit)
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

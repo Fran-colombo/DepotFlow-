@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
-import { exportPieces, getItemById, getPiecePlaces, getUnitImageUrl, searchPieces, setUnitLabeled, sharePiecesCatalog } from "../api/items";
+import { exportPieces, getItemById, getItemImageUrl, getPiecePlaces, getUnitImageUrl, searchPieces, setUnitLabeled, sharePiecesCatalog } from "../api/items";
 import { getCategories } from "../api/categories";
 import { getSheds } from "../api/sheds";
 import ItemDetailModal from "../components/ItemDetailModal";
@@ -69,7 +69,10 @@ const Piezas = () => {
 
   const chosenIds = new Set(chosen.map((piece) => piece.id));
 
+  const isCodedPiece = (piece) => piece?.kind !== "item" && piece?.id != null;
+
   const togglePiece = (piece) => {
+    if (!isCodedPiece(piece)) return;
     setChosen((current) => {
       if (current.some((row) => row.id === piece.id)) {
         return current.filter((row) => row.id !== piece.id);
@@ -83,7 +86,7 @@ const Piezas = () => {
       const seen = new Set(current.map((piece) => piece.id));
       const next = [...current];
       pieces.forEach((piece) => {
-        if (seen.has(piece.id)) return;
+        if (!isCodedPiece(piece) || seen.has(piece.id)) return;
         seen.add(piece.id);
         next.push({ id: piece.id, code: piece.code, name: piece.name || "" });
       });
@@ -284,7 +287,7 @@ const Piezas = () => {
           <button
             type="button"
             className="btn btn-outline-secondary btn-sm"
-            disabled={pieces.length === 0}
+            disabled={pieces.filter(isCodedPiece).length === 0}
             onClick={addVisible}
           >
             Agregar estas
@@ -327,24 +330,36 @@ const Piezas = () => {
         <p className="app-muted mb-0">Cargando…</p>
       ) : pieces.length === 0 ? (
         <p className="app-muted mb-0">
-          {filtering ? "No hay piezas con eso." : "No hay piezas."}
+          {filtering
+            ? "No hay piezas con código ni productos por cantidad con eso."
+            : "No hay piezas ni productos por cantidad."}
         </p>
       ) : (
         <div className="row g-3">
           {pieces.map((piece) => {
-            const imageUrl = getUnitImageUrl(piece);
+            const quantityOnly = piece.kind === "item";
+            const imageUrl = quantityOnly
+              ? getItemImageUrl({
+                  id: piece.item_id,
+                  has_image: piece.has_image,
+                  image_filename: piece.image_filename,
+                })
+              : getUnitImageUrl(piece);
+            const cardKey = quantityOnly ? `item-${piece.item_id}` : piece.id;
             return (
-              <div className="col-12 col-sm-6 col-lg-4 col-xl-3" key={piece.id}>
+              <div className="col-12 col-sm-6 col-lg-4 col-xl-3" key={cardKey}>
                 <div className="card h-100 border shadow-sm position-relative">
-                  <div className="position-absolute top-0 start-0 p-2" style={{ zIndex: 2 }}>
-                    <input
-                      type="checkbox"
-                      className="form-check-input"
-                      checked={chosenIds.has(piece.id)}
-                      aria-label={`Elegir ${piece.code}`}
-                      onChange={() => togglePiece(piece)}
-                    />
-                  </div>
+                  {!quantityOnly && (
+                    <div className="position-absolute top-0 start-0 p-2" style={{ zIndex: 2 }}>
+                      <input
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={chosenIds.has(piece.id)}
+                        aria-label={`Elegir ${piece.code}`}
+                        onChange={() => togglePiece(piece)}
+                      />
+                    </div>
+                  )}
                 <button
                   type="button"
                   className="btn p-0 h-100 w-100 text-start border-0"
@@ -357,7 +372,7 @@ const Piezas = () => {
                     {imageUrl ? (
                       <img
                         src={imageUrl}
-                        alt={piece.code}
+                        alt={piece.code || piece.name}
                         style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }}
                       />
                     ) : (
@@ -370,40 +385,45 @@ const Piezas = () => {
                     )}
                   </div>
                   <div className="card-body">
-                    <div className="fw-bold">{piece.code}</div>
-                    {piece.name && <div>{piece.name}</div>}
+                    <div className="fw-bold">{quantityOnly ? piece.name : piece.code}</div>
+                    {!quantityOnly && piece.name && <div>{piece.name}</div>}
+                    {quantityOnly && (
+                      <div className="small">Por cantidad · {piece.quantity ?? 0} en depósito</div>
+                    )}
                     {piece.is_broken && <div className="small text-danger">Rota</div>}
-                    {!piece.labeled && <div className="small">Sin etiqueta</div>}
+                    {!quantityOnly && !piece.labeled && <div className="small">Sin etiqueta</div>}
                     <div className="app-muted small">{piece.place}</div>
-                    {piece.item_name && (
+                    {!quantityOnly && piece.item_name && (
                       <div className="app-muted small">{piece.item_name}</div>
                     )}
                   </div>
                 </button>
-                <div className="card-footer bg-white border-0 pt-0">
-                  <label className="form-check mb-0">
-                    <input
-                      type="checkbox"
-                      className="form-check-input"
-                      checked={Boolean(piece.labeled)}
-                      onChange={async (event) => {
-                        const next = event.target.checked;
-                        clearError();
-                        try {
-                          await setUnitLabeled(piece.id, next);
-                          setPieces((current) => (
-                            unlabeled && next
-                              ? current.filter((row) => row.id !== piece.id)
-                              : current.map((row) => (row.id === piece.id ? { ...row, labeled: next } : row))
-                          ));
-                        } catch (err) {
-                          setError(err.message || "No se pudo marcar la etiqueta");
-                        }
-                      }}
-                    />
-                    <span className="form-check-label">Etiquetada</span>
-                  </label>
-                </div>
+                {!quantityOnly && (
+                  <div className="card-footer bg-white border-0 pt-0">
+                    <label className="form-check mb-0">
+                      <input
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={Boolean(piece.labeled)}
+                        onChange={async (event) => {
+                          const next = event.target.checked;
+                          clearError();
+                          try {
+                            await setUnitLabeled(piece.id, next);
+                            setPieces((current) => (
+                              unlabeled && next
+                                ? current.filter((row) => row.id !== piece.id)
+                                : current.map((row) => (row.id === piece.id ? { ...row, labeled: next } : row))
+                            ));
+                          } catch (err) {
+                            setError(err.message || "No se pudo marcar la etiqueta");
+                          }
+                        }}
+                      />
+                      <span className="form-check-label">Etiquetada</span>
+                    </label>
+                  </div>
+                )}
                 </div>
               </div>
             );
