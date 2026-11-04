@@ -7,7 +7,15 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user, require_admin
 from database import get_db
-from notifications import dump_item_ids, parse_item_ids, seed_default_report, send_report
+from notifications import (
+    REPORT_KINDS,
+    dump_item_ids,
+    dump_kinds,
+    parse_item_ids,
+    parse_kinds,
+    seed_default_report,
+    send_report,
+)
 
 router = APIRouter(prefix="/admin", tags=["reports"])
 db_dependency = Annotated[Session, Depends(get_db)]
@@ -19,6 +27,7 @@ class ReportWriteDTO(BaseModel):
     frequency: str = "monthly"
     combine: bool = True
     item_ids: list[int] = []
+    kind: list[str] = ["pending"]
 
 
 def _normalize_frequency(value: str) -> str:
@@ -31,6 +40,16 @@ def _normalize_frequency(value: str) -> str:
     return frequency
 
 
+def _normalize_kinds(values) -> str:
+    kinds = parse_kinds(values if isinstance(values, str) else dump_kinds(values))
+    if not kinds or any(kind not in REPORT_KINDS for kind in kinds):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Elegí pendientes, rotos y/o sin stock",
+        )
+    return dump_kinds(kinds)
+
+
 def _serialize(report: models.EmailReport) -> dict:
     last_sent = report.last_sent
     return {
@@ -40,6 +59,7 @@ def _serialize(report: models.EmailReport) -> dict:
         "frequency": report.frequency,
         "combine": bool(report.combine),
         "item_ids": parse_item_ids(report.item_ids),
+        "kind": parse_kinds(report.kind),
         "last_sent": last_sent.isoformat() if last_sent else None,
     }
 
@@ -88,6 +108,7 @@ def create_report(
         frequency=_normalize_frequency(dto.frequency),
         combine=bool(dto.combine),
         item_ids=dump_item_ids(dto.item_ids),
+        kind=_normalize_kinds(dto.kind),
     )
     db.add(report)
     db.commit()
@@ -111,6 +132,7 @@ def update_report(
     report.frequency = _normalize_frequency(dto.frequency)
     report.combine = bool(dto.combine)
     report.item_ids = dump_item_ids(dto.item_ids)
+    report.kind = _normalize_kinds(dto.kind)
     db.commit()
     db.refresh(report)
     return _serialize(report)

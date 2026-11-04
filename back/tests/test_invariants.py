@@ -190,39 +190,39 @@ def test_pending_email_groups_by_obra_then_name():
     assert not report_is_due(report, mid)
 
 
-def test_pending_email_groups_by_obra_then_name():
-    from datetime import datetime
-    from notifications import TIMEZONE, build_pending_body, report_is_due
+def test_report_body_for_broken_and_no_stock():
+    from notifications import build_report_body, build_report_html, parse_kinds
 
-    body = build_pending_body([
-        {
-            "obra": "Paraguay 500",
-            "subcategory": "Herramientas de albañil",
-            "label": "Amoladora",
-            "code": "AM-1",
-            "amount": 1,
-            "person": "Franco Topa",
-            "date": TIMEZONE.localize(datetime(2026, 10, 28, 9, 12)),
-            "days": 7,
-        },
-        {
-            "obra": "Paraguay 500",
-            "subcategory": "Herramientas de albañil",
-            "label": "Nivel",
-            "code": "",
-            "amount": 2,
-            "person": "Franco Topa",
-            "date": TIMEZONE.localize(datetime(2026, 10, 28, 9, 18)),
-            "days": 7,
-        },
-    ])
-    assert body.index("Obra: Paraguay 500") < body.index("Herramientas de albañil")
-    assert body.index("Herramientas de albañil") < body.index("Amoladora")
-    assert "Amoladora (AM-1)" in body
-    assert "Ítem: Herramientas de albañil" not in body
+    broken = build_report_body("broken", [{
+        "obra": "",
+        "subcategory": "Amoladoras",
+        "label": "Amoladora Bosch",
+        "code": "AM-1",
+        "amount": 1,
+        "person": "Fuera de servicio",
+        "date": None,
+        "days": None,
+        "note": "Cable cortado",
+    }])
+    assert "Elementos rotos" in broken
+    assert "Amoladora Bosch (AM-1)" in broken
+    assert "Cable cortado" in broken
+    assert "Obra:" not in broken
+    html = build_report_html("broken", [{
+        "obra": "",
+        "subcategory": "Amoladoras",
+        "label": "Amoladora Bosch",
+        "code": "AM-1",
+        "amount": 1,
+        "person": "Fuera de servicio",
+        "date": None,
+        "days": None,
+        "note": "Cable cortado",
+    }])
+    assert "Amoladora Bosch" in html
+    assert "AM-1" in html
+    assert "<table" in html
 
-    report = models.EmailReport(enabled=True, frequency="monthly", last_sent=None)
-    first = TIMEZONE.localize(datetime(2026, 12, 1, 8, 0, 0))
-    mid = TIMEZONE.localize(datetime(2026, 11, 4, 8, 0, 0))
-    assert report_is_due(report, first)
-    assert not report_is_due(report, mid)
+    empty_stock = build_report_body("no_stock", [])
+    assert "No hay productos sin stock" in empty_stock
+    assert parse_kinds("broken,no_stock") == ["broken", "no_stock"]

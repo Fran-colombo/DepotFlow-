@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import datetime, timedelta
+from html import escape
 import json
 import logging
 import smtplib
@@ -19,6 +20,12 @@ from unit_service import REPAIR_PLACE
 TIMEZONE = pytz.timezone("America/Argentina/Buenos_Aires")
 logger = logging.getLogger(__name__)
 DEFAULT_REPORT_NAME = "Pendientes por obra"
+REPORT_KINDS = ("pending", "broken", "no_stock")
+KIND_LABELS = {
+    "pending": "Pendientes fuera del depósito",
+    "broken": "Elementos rotos",
+    "no_stock": "Sin stock en depósito",
+}
 
 
 def now():
@@ -49,6 +56,32 @@ def parse_item_ids(raw):
     return ids
 
 
+def parse_kinds(raw):
+    values = []
+    if raw is None or str(raw).strip() == "":
+        return ["pending"]
+    text = str(raw).strip()
+    try:
+        parsed = json.loads(text)
+        parts = parsed if isinstance(parsed, list) else [parsed]
+    except (TypeError, json.JSONDecodeError):
+        parts = [part.strip() for part in text.split(",")]
+    for part in parts:
+        kind = str(part or "").strip().lower()
+        if kind in REPORT_KINDS and kind not in values:
+            values.append(kind)
+    return values or ["pending"]
+
+
+def dump_kinds(kinds):
+    values = []
+    for part in kinds or []:
+        kind = str(part or "").strip().lower()
+        if kind in REPORT_KINDS and kind not in values:
+            values.append(kind)
+    return ",".join(values or ["pending"])
+
+
 def dump_item_ids(item_ids):
     values = []
     for value in item_ids or []:
@@ -74,6 +107,7 @@ def seed_default_report(db=None):
                 frequency="monthly",
                 combine=True,
                 item_ids="[]",
+                kind="pending",
             )
         )
         db.commit()
@@ -185,6 +219,77 @@ def pending_lines(db, item_ids=None):
     return lines
 
 
+def _item_query(db, item_ids=None):
+    query = db.query(models.Item).filter(models.Item.status == 1)
+    if item_ids:
+        query = query.filter(models.Item.id.in_(item_ids))
+    return query
+
+
+def broken_lines(db, item_ids=None):
+    query = (
+        db.query(models.ItemUnit, models.Item)
+        .join(models.Item, models.Item.id == models.ItemUnit.item_id)
+        .filter(
+            models.Item.status == 1,
+            models.ItemUnit.is_broken.is_(True),
+            models.ItemUnit.status != "tirada",
+        )
+    )
+    if item_ids:
+        query = query.filter(models.Item.id.in_(item_ids))
+    lines = []
+    for unit, item in query.all():
+        status_labels = {
+            "en_stock": "En depósito",
+            "retirada": "En obra",
+            "fuera_de_servicio": "Fuera de servicio",
+            "consumida": "Usada",
+        }
+        lines.append({
+            "item_id": item.id,
+            "obra": "",
+            "subcategory": item.name or "Sin subcategoría",
+            "label": unit.name or unit.code or item.name,
+            "code": unit.code or "",
+            "amount": int(unit.quantity or 1),
+            "person": status_labels.get(unit.status, unit.status or ""),
+            "date": None,
+            "days": None,
+            "note": (unit.damage_note or unit.repair_note or "").strip(),
+        })
+    return lines
+
+
+def no_stock_lines(db, item_ids=None):
+    items = _item_query(db, item_ids).order_by(models.Item.name.asc()).all()
+    lines = []
+    for item in items:
+        if int(item.actualAmount or 0) > 0:
+            continue
+        lines.append({
+            "item_id": item.id,
+            "obra": "",
+            "subcategory": item.category or "Sin categoría",
+            "label": item.name or "Sin nombre",
+            "code": "",
+            "amount": 0,
+            "person": "Por cantidad" if not item.track_units else "Por código",
+            "date": None,
+            "days": None,
+            "note": "",
+        })
+    return lines
+
+
+def report_lines(db, kind, item_ids=None):
+    if kind == "broken":
+        return broken_lines(db, item_ids)
+    if kind == "no_stock":
+        return no_stock_lines(db, item_ids)
+    return pending_lines(db, item_ids)
+
+
 def _line_sort_key(line):
     return (
         (line.get("obra") or "").lower(),
@@ -194,43 +299,178 @@ def _line_sort_key(line):
     )
 
 
-def build_pending_body(lines, title=None):
+def _grouped_lines(lines):
+    groups = []
+    current = None
+    for line in sorted(lines, key=_line_sort_key):
+        obra = line.get("obra") or ""
+        sub = line.get("subcategory") or ""
+        if current is None or current["obra"] != obra or current["subcategory"] != sub:
+            current = {"obra": obra, "subcategory": sub, "lines": []}
+            groups.append(current)
+        current["lines"].append(line)
+    return groups
+
+
+def _line_name(line):
+    name = line.get("label") or ""
+    code = line.get("code") or ""
+    if code and code != name:
+        return f"{name} ({code})"
+    return name
+
+
+def _empty_message(kind):
+    if kind == "broken":
+        return "No hay elementos rotos."
+    if kind == "no_stock":
+        return "No hay productos sin stock."
+    return "No hay ítems pendientes fuera del depósito."
+
+
+def _section_title(kind, title=None):
+    return title or KIND_LABELS.get(kind, KIND_LABELS["pending"]) + "."
+
+
+def build_pending_body(lines, title=None, empty_message=None):
     if not lines:
-        return "No hay ítems pendientes fuera del depósito."
-    ordered = sorted(lines, key=_line_sort_key)
+        return empty_message or "No hay ítems pendientes fuera del depósito."
     chunks = [title or "Pendientes que siguen fuera del depósito.", ""]
-    current_obra = None
-    current_sub = None
-    for line in ordered:
-        if line["obra"] != current_obra:
-            current_obra = line["obra"]
-            current_sub = None
-            chunks.append(f"Obra: {current_obra}")
-        if line["subcategory"] != current_sub:
-            current_sub = line["subcategory"]
-            chunks.append(f"  {current_sub}")
-        name = line["label"]
-        if line["code"] and line["code"] != name:
-            name = f"{name} ({line['code']})"
-        date_text = line["date"].strftime("%d/%m/%Y") if line.get("date") else ""
-        chunks.append(
-            f"    {name}  ×{line['amount']}  · {line['person']}  · {date_text}  · {line['days']} días"
+    unseen = object()
+    last_obra = unseen
+    for group in _grouped_lines(lines):
+        if group["obra"] and group["obra"] != last_obra:
+            if last_obra is not unseen:
+                chunks.append("")
+            chunks.append(f"Obra: {group['obra']}")
+            last_obra = group["obra"]
+        elif not group["obra"] and last_obra is not unseen:
+            chunks.append("")
+            last_obra = ""
+        chunks.append(group["subcategory"])
+        for line in group["lines"]:
+            chunks.append(f"  {_line_name(line)}")
+            meta = [f"Cantidad: {line.get('amount', 0)}"]
+            if line.get("person"):
+                meta.append(line["person"])
+            if line.get("date"):
+                meta.append(line["date"].strftime("%d/%m/%Y"))
+            if line.get("days") is not None:
+                meta.append(f"{line['days']} días")
+            if line.get("note"):
+                meta.append(line["note"])
+            chunks.append("  " + "  ·  ".join(meta))
+        chunks.append("")
+    return "\n".join(chunks).rstrip() + "\n"
+
+
+def _html(text):
+    return escape(str(text or ""))
+
+
+def build_report_html(kind, lines, title=None):
+    heading = _html(_section_title(kind, title).rstrip("."))
+    if not lines:
+        return (
+            f'<h2 style="margin:0 0 12px;font-size:18px;color:#101828">{heading}</h2>'
+            f'<p style="margin:0;color:#667085">{_html(_empty_message(kind))}</p>'
         )
-    return "\n".join(chunks) + "\n"
+    blocks = [
+        f'<h2 style="margin:0 0 16px;font-size:18px;color:#101828">{heading}</h2>'
+    ]
+    last_obra = object()
+    unseen = last_obra
+    for group in _grouped_lines(lines):
+        if group["obra"] and group["obra"] != last_obra:
+            blocks.append(
+                '<table width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 8px">'
+                f'<tr><td style="background:#175cd3;color:#ffffff;padding:10px 14px;'
+                f'font-size:15px;font-weight:bold;border-radius:8px 8px 0 0">'
+                f'{_html(group["obra"])}</td></tr></table>'
+            )
+            last_obra = group["obra"]
+        rows = []
+        for line in group["lines"]:
+            name = _html(line.get("label") or "")
+            code = line.get("code") or ""
+            code_html = (
+                f'<div style="font-size:12px;color:#667085;margin-top:2px">{_html(code)}</div>'
+                if code and code != line.get("label")
+                else ""
+            )
+            meta_bits = []
+            if line.get("person"):
+                meta_bits.append(_html(line["person"]))
+            if line.get("date"):
+                meta_bits.append(_html(line["date"].strftime("%d/%m/%Y")))
+            if line.get("days") is not None:
+                meta_bits.append(_html(f"{line['days']} días"))
+            if line.get("note"):
+                meta_bits.append(_html(line["note"]))
+            meta = " · ".join(meta_bits)
+            rows.append(
+                '<tr>'
+                '<td style="padding:10px 14px;border-top:1px solid #eaecf0;vertical-align:top">'
+                f'<div style="font-weight:600;color:#101828">{name}</div>'
+                f"{code_html}"
+                f'<div style="font-size:12px;color:#667085;margin-top:4px">{meta}</div>'
+                "</td>"
+                '<td style="padding:10px 14px;border-top:1px solid #eaecf0;vertical-align:top;'
+                'text-align:right;white-space:nowrap;font-weight:600;color:#175cd3">'
+                f'×{_html(line.get("amount", 0))}</td>'
+                "</tr>"
+            )
+        blocks.append(
+            '<table width="100%" cellpadding="0" cellspacing="0" '
+            'style="background:#ffffff;border:1px solid #eaecf0;border-radius:8px;margin:0 0 12px">'
+            f'<tr><td colspan="2" style="padding:10px 14px;font-size:13px;color:#667085;'
+            f'font-weight:bold;background:#f7f8fa">{_html(group["subcategory"])}</td></tr>'
+            + "".join(rows)
+            + "</table>"
+        )
+    return "".join(blocks)
 
 
-def _send_mail(subject, body):
+def wrap_report_html(inner):
+    return (
+        "<!DOCTYPE html><html><body "
+        'style="margin:0;padding:0;background:#f7f8fa;font-family:Arial,Helvetica,sans-serif;'
+        'color:#101828">'
+        '<div style="max-width:640px;margin:0 auto;padding:20px 12px">'
+        f"{inner}"
+        "</div></body></html>"
+    )
+
+
+def build_report_body(kind, lines, title=None):
+    return build_pending_body(
+        lines,
+        title=_section_title(kind, title),
+        empty_message=_empty_message(kind),
+    )
+
+
+def build_report_parts(kind, lines, title=None):
+    return (
+        build_report_body(kind, lines, title=title),
+        build_report_html(kind, lines, title=title),
+    )
+
+
+def _send_mail(subject, body, html=None):
     if not EmailConfig.is_configured():
         logger.warning(
             "Email no configurado (EMAIL_ADDRESS / EMAIL_PASSWORD / ADMIN_EMAIL). "
             "Se omite el envío."
         )
         return False
-    msg = MIMEMultipart()
+    msg = MIMEMultipart("alternative")
     msg["From"] = EmailConfig.EMAIL_ADDRESS
     msg["To"] = EmailConfig.ADMIN_EMAIL
     msg["Subject"] = subject
     msg.attach(MIMEText(body, "plain", "utf-8"))
+    if html:
+        msg.attach(MIMEText(wrap_report_html(html), "html", "utf-8"))
     with smtplib.SMTP(EmailConfig.SMTP_SERVER, EmailConfig.SMTP_PORT) as server:
         server.starttls()
         server.login(EmailConfig.EMAIL_ADDRESS, EmailConfig.EMAIL_PASSWORD)
@@ -249,16 +489,27 @@ def send_report(db, report, force=False):
     if not force and not report_is_due(report):
         return {"sent": 0, "skipped": True}
     item_ids = parse_item_ids(report.item_ids)
-    lines = pending_lines(db, item_ids or None)
+    kinds = parse_kinds(getattr(report, "kind", None))
+    collected = []
+    for kind in kinds:
+        collected.append((kind, report_lines(db, kind, item_ids or None)))
     sent = 0
     if report.combine:
-        subject = report.name or DEFAULT_REPORT_NAME
-        if _send_mail(subject, build_pending_body(lines)):
+        texts = []
+        htmls = []
+        for kind, lines in collected:
+            title = KIND_LABELS[kind] + "." if len(kinds) > 1 else None
+            text, html = build_report_parts(kind, lines, title=title)
+            texts.append(text)
+            htmls.append(html)
+        subject = report.name or KIND_LABELS[kinds[0]]
+        if _send_mail(subject, "\n".join(texts), "".join(htmls)):
             sent = 1
     else:
         by_item = defaultdict(list)
-        for line in lines:
-            by_item[line["item_id"]].append(line)
+        for kind, lines in collected:
+            for line in lines:
+                by_item[line["item_id"]].append((kind, line))
         targets = item_ids or sorted(by_item.keys())
         names = {}
         if targets:
@@ -267,15 +518,33 @@ def send_report(db, report, force=False):
                 for item in db.query(models.Item).filter(models.Item.id.in_(targets)).all()
             }
         for item_id in targets:
-            group = by_item.get(item_id) or []
-            if not group:
+            grouped = by_item.get(item_id) or []
+            if not grouped:
                 continue
-            subcategory = names.get(item_id) or group[0]["subcategory"]
-            subject = f"{report.name} · {subcategory}"
-            if _send_mail(subject, build_pending_body(group, f"Pendientes de {subcategory}.")):
+            subcategory = names.get(item_id) or grouped[0][1]["subcategory"]
+            texts = []
+            htmls = []
+            lines_by_kind = defaultdict(list)
+            for kind, line in grouped:
+                lines_by_kind[kind].append(line)
+            for kind in kinds:
+                kind_lines = lines_by_kind.get(kind) or []
+                if not kind_lines and len(kinds) > 1:
+                    continue
+                title = f"{KIND_LABELS[kind]} · {subcategory}."
+                text, html = build_report_parts(kind, kind_lines, title=title)
+                texts.append(text)
+                htmls.append(html)
+            if _send_mail(f"{report.name} · {subcategory}", "\n".join(texts), "".join(htmls)):
                 sent += 1
-        if not targets and not lines:
-            if _send_mail(report.name or DEFAULT_REPORT_NAME, build_pending_body([])):
+        if not targets:
+            texts = []
+            htmls = []
+            for kind, lines in collected:
+                text, html = build_report_parts(kind, lines)
+                texts.append(text)
+                htmls.append(html)
+            if _send_mail(report.name or KIND_LABELS[kinds[0]], "\n".join(texts), "".join(htmls)):
                 sent = 1
     report.last_sent = now().replace(tzinfo=None)
     db.add(report)

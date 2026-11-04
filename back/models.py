@@ -321,6 +321,7 @@ class EmailReport(Base):
     frequency = Column(String, nullable=False, default="monthly")
     combine = Column(Boolean, default=True, nullable=False)
     item_ids = Column(String, nullable=True)
+    kind = Column(String, nullable=False, default="pending")
     last_sent = Column(DateTime, nullable=True)
 
 

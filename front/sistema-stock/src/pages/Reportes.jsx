@@ -10,12 +10,30 @@ import {
 import FeedbackModal from "../components/FeedbackModal";
 import Dashboard from "./Dashboard";
 
+const KIND_OPTIONS = [
+  ["pending", "Pendientes (fuera del depósito)"],
+  ["broken", "Rotos"],
+  ["no_stock", "Sin stock"],
+];
+
+const KIND_LABELS = {
+  pending: "Pendientes",
+  broken: "Rotos",
+  no_stock: "Sin stock",
+};
+
 const emptyForm = {
   name: "Pendientes por obra",
   frequency: "monthly",
   combine: true,
   enabled: true,
   item_ids: [],
+  kind: ["pending"],
+};
+
+const kindLabel = (kinds) => {
+  const values = Array.isArray(kinds) && kinds.length ? kinds : ["pending"];
+  return values.map((kind) => KIND_LABELS[kind] || kind).join(" + ");
 };
 
 const formatLastSent = (value) => {
@@ -72,6 +90,7 @@ const ReportesPage = () => {
       combine: report.combine !== false,
       enabled: report.enabled !== false,
       item_ids: Array.isArray(report.item_ids) ? report.item_ids : [],
+      kind: Array.isArray(report.kind) && report.kind.length ? report.kind : ["pending"],
     });
   };
 
@@ -100,6 +119,7 @@ const ReportesPage = () => {
       combine: form.combine,
       enabled: form.enabled,
       item_ids: form.item_ids,
+      kind: form.kind,
     };
     try {
       if (editingId != null) {
@@ -125,7 +145,7 @@ const ReportesPage = () => {
       const count = result?.sent ?? 0;
       setFeedback({
         type: "success",
-        message: count ? `Se enviaron ${count} mail${count === 1 ? "" : "s"}` : "No había pendientes para enviar",
+        message: count ? `Se enviaron ${count} mail${count === 1 ? "" : "s"}` : "No había datos para enviar",
       });
       await load({ silent: true });
     } catch (err) {
@@ -152,8 +172,8 @@ const ReportesPage = () => {
   return (
     <Dashboard title="Reportes">
       <p className="text-secondary">
-        El mail mensual agrupa lo que sigue afuera por obra, subcategoría y nombre o código.
-        Podés armar más reportes, elegir subcategorías y si va todo en un mail o uno por subcategoría.
+        Armá reportes de pendientes, rotos y/o sin stock. Los pendientes van agrupados por obra,
+        subcategoría y nombre o código. Podés mandar todo en un mail o uno por subcategoría.
         El SMTP sigue en el .env.
       </p>
 
@@ -168,6 +188,36 @@ const ReportesPage = () => {
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
                 required
               />
+            </div>
+            <div className="col-12">
+              <span className="form-label d-block">Qué incluye</span>
+              <div className="d-flex flex-wrap gap-3">
+                {KIND_OPTIONS.map(([value, label]) => (
+                  <label key={value} className="form-check mb-0">
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={form.kind.includes(value)}
+                      onChange={() => {
+                        setForm((current) => {
+                          const selected = new Set(current.kind);
+                          if (selected.has(value)) {
+                            if (selected.size === 1) return current;
+                            selected.delete(value);
+                          } else {
+                            selected.add(value);
+                          }
+                          return {
+                            ...current,
+                            kind: KIND_OPTIONS.map(([key]) => key).filter((key) => selected.has(key)),
+                          };
+                        });
+                      }}
+                    />
+                    <span className="form-check-label">{label}</span>
+                  </label>
+                ))}
+              </div>
             </div>
             <div className="col-md-3">
               <label className="form-label">Frecuencia</label>
@@ -267,6 +317,8 @@ const ReportesPage = () => {
               <div key={report.id} className="app-mobile-card">
                 <div className="fw-semibold">{report.name}</div>
                 <div className="app-muted small mb-2">
+                  {kindLabel(report.kind)}
+                  {" · "}
                   {report.frequency === "weekly" ? "Semanal" : "Mensual"}
                   {" · "}
                   {report.combine ? "Un mail" : "Uno por subcategoría"}
@@ -298,6 +350,7 @@ const ReportesPage = () => {
               <thead>
                 <tr>
                   <th>Nombre</th>
+                  <th>Tipo</th>
                   <th>Frecuencia</th>
                   <th>Mails</th>
                   <th>Subcategorías</th>
@@ -309,6 +362,7 @@ const ReportesPage = () => {
                 {reports.map((report) => (
                   <tr key={report.id} className={report.enabled ? "" : "text-secondary"}>
                     <td>{report.name}</td>
+                    <td>{kindLabel(report.kind)}</td>
                     <td>{report.frequency === "weekly" ? "Semanal" : "Mensual"}</td>
                     <td>{report.combine ? "Uno solo" : "Por subcategoría"}</td>
                     <td>{report.item_ids?.length ? report.item_ids.length : "Todas"}</td>

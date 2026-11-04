@@ -515,10 +515,17 @@ def ensure_inventory_schema():
                 frequency VARCHAR NOT NULL DEFAULT 'monthly',
                 combine BOOLEAN NOT NULL DEFAULT 1,
                 item_ids VARCHAR,
+                kind VARCHAR NOT NULL DEFAULT 'pending',
                 last_sent DATETIME
             )
         """))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_email_reports_id ON email_reports (id)"))
+
+    if _column_exists("email_reports", "id") and not _column_exists("email_reports", "kind"):
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE email_reports ADD COLUMN kind VARCHAR NOT NULL DEFAULT 'pending'"
+            ))
 
 
 def ensure_phone_unique_index():
