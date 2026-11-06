@@ -805,7 +805,13 @@ def _retirar_item(dto: retiroDTO.RetiroDTO, db, user_id: int, user_name: str):
 
     if item.actualAmount < dto.amount:
         raise HTTPException(400, "No hay suficiente stock")
-    
+
+    if not item.track_units:
+        from zone_stock import take_item_zone_stock
+        try:
+            take_item_zone_stock(db, item, dto.amount, dto.zone_id)
+        except ItemServiceError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message)
 
     quien_tomo = user_name  
     if dto.personWhoTook and dto.personWhoTook.strip():  
@@ -1107,6 +1113,11 @@ def _devolver_item(dto: devolucionDTO.DevolucionDTO, db, user_id: int, user_name
                 if home:
                     home.actualAmount = (home.actualAmount or 0) + 1
         else:
+            from zone_stock import add_item_zone_stock
+            try:
+                add_item_zone_stock(db, item, item.zone_id, dto.amount)
+            except ItemServiceError as exc:
+                raise HTTPException(status_code=exc.status_code, detail=exc.message)
             item.actualAmount += dto.amount
         restante = dto.amount
 

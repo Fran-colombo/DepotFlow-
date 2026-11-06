@@ -303,6 +303,18 @@ class UnitDepotZone(Base):
     quantity = Column(Integer, nullable=False, default=0)
 
 
+class ItemDepotZone(Base):
+    __tablename__ = "item_depot_zones"
+    __table_args__ = (
+        UniqueConstraint("item_id", "zone_id", name="uq_item_depot_zone"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    item_id = Column(Integer, ForeignKey("items.id"), nullable=False, index=True)
+    zone_id = Column(Integer, ForeignKey("zones.id"), nullable=False, index=True)
+    quantity = Column(Integer, nullable=False, default=0)
+
+
 class HistoryUnit(Base):
     __tablename__ = "history_units"
 

@@ -226,3 +226,259 @@ def test_report_body_for_broken_and_no_stock():
     empty_stock = build_report_body("no_stock", [])
     assert "No hay productos sin stock" in empty_stock
     assert parse_kinds("broken,no_stock") == ["broken", "no_stock"]
+
+
+def _move_item(db, item, from_zone, to_zone, quantity, codes=None):
+    from dtos.movementsDTO import MovementCreateDTO
+    from movements import execute_movement, validate_movement
+
+    data = MovementCreateDTO(
+        item_id=item.id,
+        from_shed_id=item.shed_id,
+        to_shed_id=item.shed_id,
+        from_zone_id=from_zone.id,
+        to_zone_id=to_zone.id,
+        quantity=quantity,
+        username="test",
+        codes=codes,
+    )
+    source, from_zone_id = validate_movement(db, data)
+    return execute_movement(db, data, 1, source, from_zone_id)
+
+
+def test_same_shed_full_move_keeps_item_id():
+    db = _session()
+    try:
+        shed = models.Shed(name="Galpon zona full")
+        db.add(shed)
+        db.flush()
+        office = models.Zone(name="Oficina", shed_id=shed.id)
+        upstairs = models.Zone(name="Oficina Arriba", shed_id=shed.id)
+        db.add_all([office, upstairs])
+        db.flush()
+        item = models.Item(
+            name="Vestimenta full",
+            category="Ropa",
+            description="",
+            totalAmount=10,
+            actualAmount=10,
+            shed_id=shed.id,
+            zone_id=office.id,
+            status=1,
+            track_units=False,
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        item_id = item.id
+
+        _move_item(db, item, office, upstairs, 10)
+        db.refresh(item)
+
+        assert item.id == item_id
+        assert item.zone_id == upstairs.id
+        assert item.actualAmount == 10
+        assert item.status == 1
+        clones = (
+            db.query(models.Item)
+            .filter(models.Item.name == "Vestimenta full", models.Item.status == 1)
+            .all()
+        )
+        assert len(clones) == 1
+    finally:
+        db.close()
+
+
+def test_same_shed_partial_move_splits_zones_on_one_item():
+    db = _session()
+    try:
+        from zone_stock import item_depot_places
+
+        shed = models.Shed(name="Galpon zona split")
+        db.add(shed)
+        db.flush()
+        office = models.Zone(name="Oficina", shed_id=shed.id)
+        upstairs = models.Zone(name="Oficina Arriba", shed_id=shed.id)
+        db.add_all([office, upstairs])
+        db.flush()
+        item = models.Item(
+            name="Vestimenta split",
+            category="Ropa",
+            description="",
+            totalAmount=10,
+            actualAmount=10,
+            shed_id=shed.id,
+            zone_id=office.id,
+            status=1,
+            track_units=False,
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        item_id = item.id
+
+        _move_item(db, item, office, upstairs, 4)
+        db.refresh(item)
+
+        assert item.id == item_id
+        assert item.actualAmount == 10
+        assert item.status == 1
+        places = {row["zone_id"]: row["quantity"] for row in item_depot_places(db, item)}
+        assert places[office.id] == 6
+        assert places[upstairs.id] == 4
+        clones = (
+            db.query(models.Item)
+            .filter(models.Item.name == "Vestimenta split", models.Item.status == 1)
+            .all()
+        )
+        assert len(clones) == 1
+    finally:
+        db.close()
+
+
+def test_same_shed_full_move_merges_into_existing_twin():
+    db = _session()
+    try:
+        shed = models.Shed(name="Galpon zona merge")
+        db.add(shed)
+        db.flush()
+        office = models.Zone(name="Oficina", shed_id=shed.id)
+        upstairs = models.Zone(name="Oficina Arriba", shed_id=shed.id)
+        db.add_all([office, upstairs])
+        db.flush()
+        source = models.Item(
+            name="Vestimenta merge",
+            category="Ropa",
+            description="",
+            totalAmount=10,
+            actualAmount=10,
+            shed_id=shed.id,
+            zone_id=office.id,
+            status=1,
+            track_units=False,
+        )
+        twin = models.Item(
+            name="Vestimenta merge",
+            category="Ropa",
+            description="",
+            totalAmount=2,
+            actualAmount=2,
+            shed_id=shed.id,
+            zone_id=upstairs.id,
+            status=1,
+            track_units=False,
+        )
+        db.add_all([source, twin])
+        db.commit()
+        db.refresh(source)
+        db.refresh(twin)
+
+        _move_item(db, source, office, upstairs, 10)
+        db.refresh(source)
+        db.refresh(twin)
+
+        assert twin.actualAmount == 12
+        assert source.actualAmount == 0
+        assert source.status == 0
+        active = (
+            db.query(models.Item)
+            .filter(models.Item.name == "Vestimenta merge", models.Item.status == 1)
+            .all()
+        )
+        assert [row.id for row in active] == [twin.id]
+    finally:
+        db.close()
+
+
+def test_adjust_stock_asks_existing_zone_when_split():
+    db = _session()
+    try:
+        from item_service import adjust_item_stock
+        from zone_stock import item_depot_places
+
+        shed = models.Shed(name="Galpon zona add")
+        db.add(shed)
+        db.flush()
+        office = models.Zone(name="Oficina", shed_id=shed.id)
+        upstairs = models.Zone(name="Oficina Arriba", shed_id=shed.id)
+        db.add_all([office, upstairs])
+        db.flush()
+        item = models.Item(
+            name="Vestimenta add",
+            category="Ropa",
+            description="",
+            totalAmount=10,
+            actualAmount=10,
+            shed_id=shed.id,
+            zone_id=office.id,
+            status=1,
+            track_units=False,
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+        _move_item(db, item, office, upstairs, 4)
+        db.refresh(item)
+
+        adjust_item_stock(db, item, 3, zone_id=upstairs.id)
+        db.refresh(item)
+
+        places = {row["zone_id"]: row["quantity"] for row in item_depot_places(db, item)}
+        assert item.actualAmount == 13
+        assert places[office.id] == 6
+        assert places[upstairs.id] == 7
+    finally:
+        db.close()
+
+
+def test_same_shed_partial_coded_keeps_one_item():
+    db = _session()
+    try:
+        from zone_stock import places_by_item_ids
+        from unit_service import STATUS_EN_STOCK
+
+        shed = models.Shed(name="Galpon zona coded")
+        db.add(shed)
+        db.flush()
+        office = models.Zone(name="Oficina", shed_id=shed.id)
+        upstairs = models.Zone(name="Oficina Arriba", shed_id=shed.id)
+        db.add_all([office, upstairs])
+        db.flush()
+        item = models.Item(
+            name="Amoladora coded",
+            category="Herramientas",
+            description="",
+            totalAmount=2,
+            actualAmount=2,
+            shed_id=shed.id,
+            zone_id=office.id,
+            status=1,
+            track_units=True,
+        )
+        db.add(item)
+        db.flush()
+        db.add_all([
+            models.ItemUnit(item_id=item.id, code="AM-Z-26-1", status=STATUS_EN_STOCK, quantity=1),
+            models.ItemUnit(item_id=item.id, code="AM-Z-26-2", status=STATUS_EN_STOCK, quantity=1),
+        ])
+        db.commit()
+        db.refresh(item)
+        item_id = item.id
+
+        _move_item(db, item, office, upstairs, 1, codes=["AM-Z-26-1"])
+        db.refresh(item)
+
+        assert item.id == item_id
+        assert item.actualAmount == 2
+        clones = (
+            db.query(models.Item)
+            .filter(models.Item.name == "Amoladora coded", models.Item.status == 1)
+            .all()
+        )
+        assert len(clones) == 1
+        places = {row["zone_id"]: row["quantity"] for row in places_by_item_ids(db, [item]).get(item.id)}
+        assert places[office.id] == 1
+        assert places[upstairs.id] == 1
+        assert db.query(models.ItemUnit).filter(models.ItemUnit.item_id == item_id).count() == 2
+    finally:
+        db.close()

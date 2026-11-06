@@ -1,5 +1,12 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import List, Optional
+
+
+class ItemDepotZoneDTO(BaseModel):
+    zone_id: int
+    zone_name: str
+    quantity: int
+
 
 class ItemResponseDTO(BaseModel):
     id: int
@@ -22,6 +29,7 @@ class ItemResponseDTO(BaseModel):
     unit: str = "unidad"
     code_prefix: Optional[str] = None
     missing_amount: int = 0
+    depot_zones: List[ItemDepotZoneDTO] = []
 
     class Config:
         from_attributes = True

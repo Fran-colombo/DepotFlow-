@@ -48,6 +48,7 @@ class ItemUpdateDTO(BaseModel):
     piece_names: Optional[List[PieceNameDTO]] = None
     renames: Optional[List[UnitRenameDTO]] = None
     contents: Optional[List[UnitContentDTO]] = None
+    zone_id: Optional[int] = None
 
 class MoveItemDTO(BaseModel):
     item_id: int

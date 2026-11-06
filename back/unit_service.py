@@ -613,6 +613,9 @@ def take_units_out(db: Session, item: models.Item, quantity: int, codes, consume
     units = select_stock_units(db, item, quantity, codes)
     moment = datetime.utcnow()
     for unit in units:
+        db.query(models.UnitDepotZone).filter(models.UnitDepotZone.unit_id == unit.id).delete(
+            synchronize_session=False
+        )
         if consume:
             unit.status = STATUS_CONSUMIDA
             unit.consumed_at = moment

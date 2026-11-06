@@ -13,3 +13,4 @@ class RetiroDTO(BaseModel):
     note: Optional[str] = None
     occurredAt: Optional[str] = None
     viajeId: Optional[int] = None
+    zone_id: Optional[int] = None

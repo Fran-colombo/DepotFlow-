@@ -147,7 +147,7 @@ const RetirarItemModal = ({
   const [item, setItem] = useState(null);
   const [stockUnits, setStockUnits] = useState([]);
   const [innerQuantity, setInnerQuantity] = useState(false);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '' });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '', zone_id: '' });
   const [viajes, setViajes] = useState([]);
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -162,12 +162,21 @@ const RetirarItemModal = ({
 
   useEffect(() => {
     if (isOpen && itemId) {
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '' });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '', zone_id: '' });
       setViajes([]);
       setRetiredCodes([]);
       setStockUnits([]);
       setInnerQuantity(false);
-      getItemById(itemId).then(res => setItem(res.item)).catch(console.error);
+      getItemById(itemId).then((res) => {
+        const next = res.item || res;
+        setItem(next);
+        const zones = (Array.isArray(next?.depot_zones) ? next.depot_zones : [])
+          .filter((row) => Number(row.quantity) > 0);
+        setForm((prev) => ({
+          ...prev,
+          zone_id: next?.zone_id || zones[0]?.zone_id || "",
+        }));
+      }).catch(console.error);
       getItemUnits(itemId, "en_stock")
         .then((data) => {
           setStockUnits(Array.isArray(data?.units) ? data.units : []);
@@ -244,6 +253,13 @@ const RetirarItemModal = ({
         setLoading(false);
         return;
       }
+      const retireZones = (Array.isArray(item?.depot_zones) ? item.depot_zones : [])
+        .filter((row) => Number(row.quantity) > 0);
+      if (!item?.track_units && retireZones.length > 1 && !form.zone_id) {
+        setError("Elegí de qué zona sacar el stock");
+        setLoading(false);
+        return;
+      }
       const result = await retirarItem({
         itemId,
         amount,
@@ -255,9 +271,10 @@ const RetirarItemModal = ({
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
         ...(form.viajeId ? { viajeId: Number(form.viajeId) } : {}),
         ...(form.occurredAt && !form.viajeId ? { occurredAt: form.occurredAt } : {}),
+        ...(!item?.track_units && form.zone_id ? { zone_id: Number(form.zone_id) } : {}),
       });
       setRetiredCodes(result?.unit_codes || []);
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '' });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '', zone_id: '' });
       setRemitoDraft(inShed ? null : {
         item,
         amount,
@@ -323,6 +340,25 @@ const RetirarItemModal = ({
                     min={1}
                   />
                 </div>
+                )}
+
+                {!item?.track_units && (item?.depot_zones || []).filter((row) => Number(row.quantity) > 0).length > 1 && (
+                  <div className="mb-3">
+                    <label className="form-label">Zona</label>
+                    <select
+                      className="form-select"
+                      value={form.zone_id || ""}
+                      onChange={(e) => setForm({ ...form, zone_id: e.target.value })}
+                      required
+                    >
+                      <option value="">Elegí una zona</option>
+                      {(item.depot_zones || []).filter((row) => Number(row.quantity) > 0).map((row) => (
+                        <option key={row.zone_id} value={row.zone_id}>
+                          {row.zone_name} ({row.quantity})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 )}
 
                 {item?.is_consumable && (

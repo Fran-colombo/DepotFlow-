@@ -20,6 +20,11 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, on
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const tracksPieces = Boolean(item?.track_units);
+  const originZones = (item?.depot_zones || []).filter((row) => Number(row.quantity) > 0);
+  const selectedFromZone = originZones.find(
+    (row) => Number(row.zone_id) === Number(formData.from_zone_id || item?.zone_id)
+  );
+  const fromAvailable = selectedFromZone ? Number(selectedFromZone.quantity) : item?.actualAmount;
 
   useEffect(() => {
     if (isOpen && item) {
@@ -64,11 +69,12 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, on
       }
       try {
         const zones = await getZones(formData.to_shed_id);
+        const fromZoneId = Number(formData.from_zone_id || item?.zone_id);
         const filtered = zones.filter(
           (z) =>
             !(
               Number(formData.to_shed_id) === Number(item?.shed_id) &&
-              Number(z.id) === Number(item?.zone_id)
+              Number(z.id) === fromZoneId
             )
         );
         setDestinationZones(filtered);
@@ -87,7 +93,7 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, on
     if (isOpen) {
       loadZones();
     }
-  }, [formData.to_shed_id, isOpen, item]);
+  }, [formData.to_shed_id, formData.from_zone_id, isOpen, item]);
 
   const getShedName = (shedId) => {
     const shed = sheds.find(s => s.id === shedId);
@@ -133,8 +139,12 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, on
       return;
     }
 
-    if (!tracksPieces && quantity > item.actualAmount) {
-      setError(`Stock insuficiente (disponible: ${item.actualAmount})`);
+    const fromZone = (item.depot_zones || []).find(
+      (row) => Number(row.zone_id) === Number(formData.from_zone_id || item.zone_id)
+    );
+    const fromAvailable = fromZone ? Number(fromZone.quantity) : item.actualAmount;
+    if (!tracksPieces && quantity > fromAvailable) {
+      setError(`Stock insuficiente (disponible: ${fromAvailable})`);
       setIsLoading(false);
       return;
     }
@@ -219,12 +229,28 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, on
 
               <div className="mb-3">
                 <label className="form-label fw-semibold text-primary">Origen:</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={`${getShedName(item.shed_id)} / ${item.zone_name || "Sin zona"}`}
-                  readOnly
-                />
+                {originZones.length > 1 && !tracksPieces ? (
+                  <select
+                    name="from_zone_id"
+                    className="form-select"
+                    value={formData.from_zone_id || ""}
+                    onChange={handleChange}
+                    required
+                  >
+                    {originZones.map((row) => (
+                      <option key={row.zone_id} value={row.zone_id}>
+                        {getShedName(item.shed_id)} / {row.zone_name} ({row.quantity})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    className="form-control"
+                    value={`${getShedName(item.shed_id)} / ${item.zone_name || "Sin zona"}`}
+                    readOnly
+                  />
+                )}
               </div>
 
               <div className="mb-3">
@@ -338,7 +364,7 @@ const SwitchShedModal = ({ item = null, isOpen, onClose, refreshItems, sheds, on
                   name="quantity"
                   className="form-control"
                   min="1"
-                  max={item.actualAmount}
+                  max={fromAvailable}
                   value={formData.quantity}
                   onChange={handleChange}
                   required

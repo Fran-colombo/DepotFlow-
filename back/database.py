@@ -250,6 +250,22 @@ def ensure_inventory_schema():
             "CREATE INDEX IF NOT EXISTS ix_unit_depot_zones_unit_id ON unit_depot_zones (unit_id)"
         ))
         conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS item_depot_zones (
+                id INTEGER NOT NULL PRIMARY KEY,
+                item_id INTEGER NOT NULL,
+                zone_id INTEGER NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 0,
+                FOREIGN KEY(item_id) REFERENCES items (id),
+                FOREIGN KEY(zone_id) REFERENCES zones (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_item_depot_zones_item_id ON item_depot_zones (item_id)"
+        ))
+        conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_item_depot_zone ON item_depot_zones (item_id, zone_id)"
+        ))
+        conn.execute(text("""
             CREATE TABLE IF NOT EXISTS roturas (
                 id INTEGER NOT NULL PRIMARY KEY,
                 unit_id INTEGER NOT NULL,

@@ -6,6 +6,7 @@ import {
   devolverItem,
   discardUnit,
   getAllItems,
+  getItemById,
   getItemUnits,
   getUnitImageUrl,
   listUnitPhotos,
@@ -926,6 +927,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [trackUnits, setTrackUnits] = useState(false);
   const [consumable, setConsumable] = useState(false);
   const [missingAmount, setMissingAmount] = useState(0);
+  const [depotZones, setDepotZones] = useState([]);
   const [showUnplaced, setShowUnplaced] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -1024,17 +1026,32 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     };
   }, [moveUnit, moveWantsCode, moveTargetId, moveTargets]);
 
+  const loadDepotZones = () => {
+    if (!item?.id) return Promise.resolve();
+    return getItemById(item.id)
+      .then((res) => {
+        const next = res?.item || res;
+        setDepotZones(Array.isArray(next?.depot_zones) ? next.depot_zones : []);
+      })
+      .catch(() => {
+        setDepotZones(Array.isArray(item?.depot_zones) ? item.depot_zones : []);
+      });
+  };
+
   const reload = () => {
     if (!item?.id) return Promise.resolve();
-    return getItemUnits(item.id, "all").then((data) => {
-      const next = data.units || [];
-      setUnits(next);
-      setTrackUnits(Boolean(data.track_units));
-      setConsumable(Boolean(data.is_consumable));
-      setInnerQuantity(Boolean(data.inner_quantity));
-      setMissingAmount(Number(data.missing_amount) || 0);
-      if (data.unit) setMeasureUnit(data.unit);
-    });
+    return Promise.all([
+      getItemUnits(item.id, "all").then((data) => {
+        const next = data.units || [];
+        setUnits(next);
+        setTrackUnits(Boolean(data.track_units));
+        setConsumable(Boolean(data.is_consumable));
+        setInnerQuantity(Boolean(data.inner_quantity));
+        setMissingAmount(Number(data.missing_amount) || 0);
+        if (data.unit) setMeasureUnit(data.unit);
+      }),
+      loadDepotZones(),
+    ]);
   };
 
   useEffect(() => {
@@ -1065,9 +1082,11 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setPiecePrefixChoice(item.code_prefix || "");
     setOpenGroups({});
     setMissingAmount(Number(item.missing_amount) || 0);
+    setDepotZones(Array.isArray(item.depot_zones) ? item.depot_zones : []);
     setShowUnplaced(false);
     let cancelled = false;
     setLoading(true);
+    loadDepotZones();
     getItemUnits(item.id, "all")
       .then((data) => {
         if (cancelled) return;
@@ -1645,6 +1664,15 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                   <strong>{item.actualAmount ?? 0}{measureMark(measureUnit)} en depósito.</strong> Este grupo se lleva por cantidad.
                   El retiro sigue siendo un número, no una pieza.
                 </p>
+                {depotZones.length > 0 && (
+                  <ul className="list-unstyled small mb-2">
+                    {depotZones.map((row) => (
+                      <li key={row.zone_id}>
+                        {row.zone_name}: {row.quantity}{measureMark(measureUnit)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <p className="text-secondary small mb-0">
                   Para pasarlo a códigos, un administrador lo cambia en Actualizar stock.
                 </p>

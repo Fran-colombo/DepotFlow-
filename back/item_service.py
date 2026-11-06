@@ -174,8 +174,9 @@ def create_item(
         raise ItemServiceError(f"Error creating item: {str(e)}", 400)
 
 
-def adjust_item_stock(db: Session, item: models.Item, quantity_change: int, codes=None, names_by_code=None):
+def adjust_item_stock(db: Session, item: models.Item, quantity_change: int, codes=None, names_by_code=None, zone_id=None):
     from unit_service import create_units_for_item, rename_unit, take_units_out
+    from zone_stock import add_item_zone_stock, assign_units_to_zone, take_item_zone_stock
 
     new_total = (item.totalAmount or 0) + quantity_change
     new_actual = (item.actualAmount or 0) + quantity_change
@@ -190,11 +191,17 @@ def adjust_item_stock(db: Session, item: models.Item, quantity_change: int, code
         if names_by_code is not None:
             for unit in units:
                 rename_unit(unit, names_by_code.get(unit.code))
+        if zone_id and zone_id != item.zone_id:
+            assign_units_to_zone(db, item, units, zone_id)
     elif item.track_units and quantity_change < 0:
         removed = take_units_out(db, item, -quantity_change, codes, consume=True)
         item._created_codes = [unit.code for unit in removed]
     else:
         item._created_codes = []
+        if quantity_change > 0:
+            add_item_zone_stock(db, item, zone_id or item.zone_id, quantity_change)
+        elif quantity_change < 0:
+            take_item_zone_stock(db, item, -quantity_change, zone_id)
 
     item.totalAmount = new_total
     item.actualAmount = new_actual

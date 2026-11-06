@@ -35,6 +35,7 @@ from notifications import NotificationService, enviar_mail_fallo_borrado, seed_d
 import zones
 from seed_admin import seed_admin_from_env
 from item_service import ItemServiceError, adjust_item_stock, create_item, item_unplaced_amount, pending_amounts, unplaced_amount
+from zone_stock import empty_duplicate_filter, item_ids_in_zone, location_zone_label, places_by_item_ids
 from item_import import build_import_template, import_items_from_excel
 from item_transfer import (
     ExportChecklistRequest,
@@ -217,6 +218,7 @@ def read_items(
             .outerjoin(models.Zone, models.Item.zone_id == models.Zone.id)
             .options(contains_eager(models.Item.zone))
             .filter(models.Item.status == 1)
+            .filter(empty_duplicate_filter())
         )
 
         if category:
@@ -224,7 +226,12 @@ def read_items(
         if shed_id:
             query = query.filter(models.Item.shed_id == shed_id)
         if zone_id:
-            query = query.filter(models.Item.zone_id == zone_id)
+            query = query.filter(
+                or_(
+                    models.Item.zone_id == zone_id,
+                    models.Item.id.in_(item_ids_in_zone(db, zone_id)),
+                )
+            )
 
         name_query = (name or "").strip()
         ranked_search = bool(search_tokens(name_query))
@@ -287,12 +294,17 @@ def read_items(
         }
         unit_by_category = category_units_by_name(db)
         pending_by_item = pending_amounts(db, [item.id for item in items])
+        places_map = places_by_item_ids(db, items)
 
         data = []
         for item in items:
             dto = ItemResponseDTO.model_validate(item)
             dto.missing_amount = unplaced_amount(item, pending_by_item.get(item.id, 0))
-            dto.zone_name = item.zone.name if item.zone else None
+            dto.depot_zones = places_map.get(item.id) or []
+            dto.zone_name = location_zone_label(
+                dto.depot_zones,
+                item.zone.name if item.zone else None,
+            ) or None
             dto.has_image = bool(item.image_filename)
             dto.track_units = bool(item.track_units)
             dto.inner_quantity = bool(item.inner_quantity)
@@ -346,6 +358,7 @@ def searchItems(
         db.query(models.Item)
         .filter(
             models.Item.status == 1,
+            empty_duplicate_filter(),
             or_(*term_filters, models.Item.id.in_(unit_ids)),
         )
         .limit(400)
@@ -659,7 +672,12 @@ def update_item_by_id(
                 names_by_code[code] = piece.name
 
         updated = adjust_item_stock(
-            db, item, quantity_change, codes=codes, names_by_code=names_by_code
+            db,
+            item,
+            quantity_change,
+            codes=codes,
+            names_by_code=names_by_code,
+            zone_id=item_update.zone_id,
         )
     except ItemServiceError as e:
         db.rollback()
@@ -749,6 +767,11 @@ def get_item_details(
         item_data["is_consumable"] = category_is_consumable(db, item.category)
         item_data["unit"] = category_units_by_name(db).get(normalize_lookup(item.category), "unidad")
         item_data["missing_amount"] = item_unplaced_amount(db, item)
+        item_data["depot_zones"] = places_by_item_ids(db, [item]).get(item.id) or []
+        item_data["zone_name"] = location_zone_label(
+            item_data["depot_zones"],
+            item.zone.name if item.zone else None,
+        ) or None
 
         response_data = {
             "item": item_data,

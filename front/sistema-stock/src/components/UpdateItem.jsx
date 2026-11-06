@@ -73,6 +73,7 @@ const UpdateItemModal = ({
     quantity: 1,
     action: "add",
     codesText: "",
+    zone_id: "",
   });
   const [newPieces, setNewPieces] = useState([]);
   const [existingPieces, setExistingPieces] = useState([]);
@@ -120,6 +121,7 @@ const UpdateItemModal = ({
       quantity: 1,
       action: "add",
       codesText: "",
+      zone_id: "",
     });
     setNewPieces([]);
     setExistingPieces([]);
@@ -230,11 +232,22 @@ const UpdateItemModal = ({
   const updateTracksUnits = Boolean(selectedUpdateItem?.track_units);
   const updateInner = Boolean(selectedUpdateItem?.inner_quantity);
   const currentCounting = !updateTracksUnits ? "quantity" : updateInner ? "inner" : "units";
+  const stockZones = (Array.isArray(selectedUpdateItem?.depot_zones) ? selectedUpdateItem.depot_zones : [])
+    .filter((row) => Number(row.quantity) > 0);
+  const askStockZone = !updateTracksUnits && updateData.action === "add" && stockZones.length > 1;
 
   useEffect(() => {
     if (!selectedUpdateItem) return;
     setCountingMode(currentCounting);
     setCountingPrefix(selectedUpdateItem.code_prefix || "");
+    setUpdateData((prev) => {
+      const zones = (Array.isArray(selectedUpdateItem.depot_zones) ? selectedUpdateItem.depot_zones : [])
+        .filter((row) => Number(row.quantity) > 0);
+      const nextZone = zones.some((row) => Number(row.zone_id) === Number(prev.zone_id))
+        ? prev.zone_id
+        : (selectedUpdateItem.zone_id || zones[0]?.zone_id || "");
+      return prev.zone_id === nextZone ? prev : { ...prev, zone_id: nextZone };
+    });
   }, [selectedUpdateItem, currentCounting]);
 
   useEffect(() => {
@@ -734,6 +747,11 @@ const UpdateItemModal = ({
           });
           return;
         }
+        if (askStockZone && !updateData.zone_id) {
+          setError("Elegí en qué zona agregar el stock");
+          setIsLoading(false);
+          return;
+        }
         const typedCodes = (updateData.codesText || "")
           .split(/[\s,;]+/)
           .map((code) => code.trim())
@@ -743,6 +761,7 @@ const UpdateItemModal = ({
           action: updateData.action,
           ...(updateTracksUnits && typedCodes.length ? { codes: typedCodes } : {}),
           ...(renames.length ? { renames } : {}),
+          ...(askStockZone || updateData.zone_id ? { zone_id: Number(updateData.zone_id) } : {}),
         });
         refreshItems?.();
         if (updated?.codes?.length && action === "add") {
@@ -1465,6 +1484,27 @@ const UpdateItemModal = ({
                       <option value="rest">Quitar stock</option>
                     </select>
                   </div>
+
+                  {askStockZone && (
+                    <div className="mb-3">
+                      <label className="form-label fw-bold">Zona:</label>
+                      <select
+                        className="form-select"
+                        value={updateData.zone_id || ""}
+                        onChange={(e) =>
+                          setUpdateData({ ...updateData, zone_id: e.target.value })
+                        }
+                        required
+                      >
+                        <option value="">Elegí una zona</option>
+                        {stockZones.map((row) => (
+                          <option key={row.zone_id} value={row.zone_id}>
+                            {row.zone_name} ({row.quantity})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {updateTracksUnits && updateData.action === "add" && (
                     <div className="mb-3">

@@ -256,8 +256,10 @@ def relocate_item(
 
     move_all = quantity == item.actualAmount
     if existing_at_dest is None and move_all:
+        from zone_stock import relocate_all_in_place
+
         item.shed_id = to_shed.id
-        item.zone_id = to_zone.id
+        relocate_all_in_place(db, item, to_zone.id)
         _record_in_place_move(
             db,
             item,

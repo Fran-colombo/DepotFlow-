@@ -17,6 +17,16 @@ from unit_service import (
     select_relocatable_units,
     unit_out_quantity,
 )
+from zone_stock import (
+    assign_units_to_zone,
+    find_zone_twin,
+    hide_empty_source,
+    move_item_zone_stock,
+    relocate_all_in_place,
+    add_item_zone_stock,
+    clear_item_depot_zones,
+    clear_unit_depot_zones,
+)
 import logging
 
 router = APIRouter(prefix="/movements", tags=["movements"])
@@ -146,88 +156,134 @@ def execute_movement(db: Session, movement_data: MovementCreateDTO, user_id: int
         elif (source_item.actualAmount or 0) < movement_data.quantity:
             raise HTTPException(status_code=400, detail="Stock insuficiente")
 
-        source_item.actualAmount -= depot_count
-        source_item.totalAmount -= moved_count
-
-        has_observations = db.query(Observation).filter(
-            Observation.item_id == source_item.id
-        ).count() > 0
-
-        target_query = db.query(Item).filter(
-            Item.name == source_item.name,
-            Item.category == source_item.category,
-            Item.zone_id == movement_data.to_zone_id,
-            Item.status == 1,
-        )
-        if not moved_units:
-            target_query = target_query.filter(
-                exists().where(Observation.item_id == Item.id) if has_observations
-                else ~exists().where(Observation.item_id == Item.id)
-            )
-        target_item = target_query.first()
-
-        if target_item:
-            target_item.actualAmount += depot_count
-            target_item.totalAmount += moved_count
-            if moved_units:
-                target_item.track_units = True
-            if source_item.inner_quantity:
-                target_item.inner_quantity = True
-            db.refresh(source_item, attribute_names=["image_filename"])
-            copy_item_image(source_item, target_item)
-        else:
-            target_item = Item(
-                name=source_item.name,
-                description=source_item.description,
-                category=source_item.category,
-                shed_id=movement_data.to_shed_id,
-                zone_id=movement_data.to_zone_id,
-                totalAmount=moved_count,
-                actualAmount=depot_count,
-                is_available=True,
-                status=1,
-                track_units=bool(source_item.track_units),
-                inner_quantity=bool(source_item.inner_quantity),
-                code_prefix=source_item.code_prefix,
-            )
-            db.add(target_item)
-            db.flush()
-            db.refresh(target_item)
-            db.refresh(source_item, attribute_names=["image_filename"])
-            copy_item_image(source_item, target_item)
-
-            if has_observations:
-                observations = db.query(Observation).filter(
-                    Observation.item_id == source_item.id,
-                    Observation.unit_id.is_(None),
-                ).all()
-                for obs in observations:
-                    new_obs = Observation(
-                        item_id=target_item.id,
-                        description=obs.description,
-                        user_id=obs.user_id,
-                        user_name=obs.user_name,
-                        observed_by=obs.observed_by,
-                        date=obs.date
-                    )
-                    db.add(new_obs)
-
-        
-        if source_item.actualAmount == 0 and has_observations and not moved_units:
-            db.query(Observation).filter(
-                Observation.item_id == source_item.id
-            ).delete()
-
+        same_shed = movement_data.from_shed_id == movement_data.to_shed_id
+        moving_all = depot_count == int(source_item.actualAmount or 0)
         relocated = moved_units
-        if moved_units:
-            for unit in moved_units:
-                unit.item_id = target_item.id
-                db.query(Observation).filter(Observation.unit_id == unit.id).update(
-                    {Observation.item_id: target_item.id},
-                    synchronize_session=False,
+        target_item = source_item
+
+        if same_shed:
+            twin = find_zone_twin(db, source_item, movement_data.to_zone_id) if moving_all else None
+            if moving_all and twin:
+                if moved_units:
+                    twin.track_units = True
+                if source_item.inner_quantity:
+                    twin.inner_quantity = True
+                db.refresh(source_item, attribute_names=["image_filename"])
+                copy_item_image(source_item, twin)
+                if not source_item.track_units:
+                    add_item_zone_stock(db, twin, movement_data.to_zone_id, depot_count)
+                    clear_item_depot_zones(db, source_item)
+                twin.actualAmount = int(twin.actualAmount or 0) + depot_count
+                twin.totalAmount = int(twin.totalAmount or 0) + moved_count
+                source_item.actualAmount -= depot_count
+                source_item.totalAmount -= moved_count
+                if moved_units:
+                    clear_unit_depot_zones(db, moved_units)
+                    for unit in moved_units:
+                        unit.item_id = twin.id
+                        db.query(Observation).filter(Observation.unit_id == unit.id).update(
+                            {Observation.item_id: twin.id},
+                            synchronize_session=False,
+                        )
+                hide_empty_source(db, source_item)
+                target_item = twin
+            elif moving_all:
+                relocate_all_in_place(db, source_item, movement_data.to_zone_id)
+                target_item = source_item
+            elif moved_units:
+                assign_units_to_zone(db, source_item, moved_units, movement_data.to_zone_id)
+                target_item = source_item
+            else:
+                move_item_zone_stock(
+                    db,
+                    source_item,
+                    from_zone_id,
+                    movement_data.to_zone_id,
+                    depot_count,
                 )
+                target_item = source_item
         else:
-            relocated = move_stock_units(db, source_item, target_item, movement_data.quantity) or []
+            source_item.actualAmount -= depot_count
+            source_item.totalAmount -= moved_count
+
+            has_observations = db.query(Observation).filter(
+                Observation.item_id == source_item.id
+            ).count() > 0
+
+            target_query = db.query(Item).filter(
+                Item.name == source_item.name,
+                Item.category == source_item.category,
+                Item.zone_id == movement_data.to_zone_id,
+                Item.status == 1,
+            )
+            if not moved_units:
+                target_query = target_query.filter(
+                    exists().where(Observation.item_id == Item.id) if has_observations
+                    else ~exists().where(Observation.item_id == Item.id)
+                )
+            target_item = target_query.first()
+
+            if target_item:
+                target_item.actualAmount += depot_count
+                target_item.totalAmount += moved_count
+                if moved_units:
+                    target_item.track_units = True
+                if source_item.inner_quantity:
+                    target_item.inner_quantity = True
+                db.refresh(source_item, attribute_names=["image_filename"])
+                copy_item_image(source_item, target_item)
+            else:
+                target_item = Item(
+                    name=source_item.name,
+                    description=source_item.description,
+                    category=source_item.category,
+                    shed_id=movement_data.to_shed_id,
+                    zone_id=movement_data.to_zone_id,
+                    totalAmount=moved_count,
+                    actualAmount=depot_count,
+                    is_available=True,
+                    status=1,
+                    track_units=bool(source_item.track_units),
+                    inner_quantity=bool(source_item.inner_quantity),
+                    code_prefix=source_item.code_prefix,
+                )
+                db.add(target_item)
+                db.flush()
+                db.refresh(target_item)
+                db.refresh(source_item, attribute_names=["image_filename"])
+                copy_item_image(source_item, target_item)
+
+                if has_observations:
+                    observations = db.query(Observation).filter(
+                        Observation.item_id == source_item.id,
+                        Observation.unit_id.is_(None),
+                    ).all()
+                    for obs in observations:
+                        new_obs = Observation(
+                            item_id=target_item.id,
+                            description=obs.description,
+                            user_id=obs.user_id,
+                            user_name=obs.user_name,
+                            observed_by=obs.observed_by,
+                            date=obs.date
+                        )
+                        db.add(new_obs)
+
+            if source_item.actualAmount == 0 and has_observations and not moved_units:
+                db.query(Observation).filter(
+                    Observation.item_id == source_item.id
+                ).delete()
+
+            if moved_units:
+                for unit in moved_units:
+                    unit.item_id = target_item.id
+                    db.query(Observation).filter(Observation.unit_id == unit.id).update(
+                        {Observation.item_id: target_item.id},
+                        synchronize_session=False,
+                    )
+            else:
+                relocated = move_stock_units(db, source_item, target_item, movement_data.quantity) or []
+                hide_empty_source(db, source_item)
 
         if relocated:
             user = db.query(User).filter(User.id == user_id).first()
