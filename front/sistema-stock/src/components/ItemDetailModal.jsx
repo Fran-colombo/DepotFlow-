@@ -1250,7 +1250,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     const max = actionUnit.unit.quantity || 0;
     const amount = !innerQuantity
       ? 1
-      : retireScope === "total"
+      : max <= 1 || retireScope === "total"
         ? max
         : parseInt(popupAmount, 10);
     if (innerQuantity && (!amount || amount < 1 || amount > max)) {
@@ -2261,7 +2261,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                   />
                 </div>
               )}
-              {innerQuantity && actionUnit.kind === "retire" && (
+              {innerQuantity && actionUnit.kind === "retire" && (actionUnit.unit.quantity || 0) > 1 && (
                 <div className="mb-3">
                   <div className="form-check">
                     <input

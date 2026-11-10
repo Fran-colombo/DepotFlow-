@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const ObraPicker = ({ obras, value, onChange }) => {
+const ObraPicker = ({ obras, value, onChange, exclude = [] }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef(null);
-  const list = (obras || []).filter((obra) => obra.stage !== "finalizada" && obra.active !== false);
+  const excluded = new Set(
+    (Array.isArray(exclude) ? exclude : [exclude])
+      .map((name) => String(name || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const openObras = (obras || []).filter(
+    (obra) => obra.stage !== "finalizada" && obra.active !== false
+  );
+  const list = openObras.filter(
+    (obra) => !excluded.has(String(obra.name || "").trim().toLowerCase())
+  );
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
     if (!term) return list;
@@ -30,7 +40,9 @@ const ObraPicker = ({ obras, value, onChange }) => {
   if (list.length === 0) {
     return (
       <div className="obra-picker-empty">
-        No hay obras abiertas. Un administrador las crea en Administración, Obras.
+        {openObras.length > 0
+          ? "No hay otra obra abierta para el destino."
+          : "No hay obras abiertas. Un administrador las crea en Administración, Obras."}
       </div>
     );
   }

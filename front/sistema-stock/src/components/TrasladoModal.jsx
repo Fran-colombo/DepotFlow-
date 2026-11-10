@@ -8,6 +8,7 @@ import { getObras } from "../api/obras";
 import FeedbackModal from "./FeedbackModal";
 import PersonPicker from "./PersonPicker";
 import NumberInput from "./NumberInput";
+import ObraPicker from "./ObraPicker";
 
 const TrasladoModal = ({
   itemId,
@@ -80,22 +81,15 @@ const TrasladoModal = ({
   const maxAmount = selectedPlace?.pending_amount ?? 0;
   const noPending = !loadingPlaces && pendingPlaces.length === 0;
 
-  const destinationOptions = obras
-    .map((obra) => obra.name)
-    .filter(
-      (name) =>
-        name &&
-        name.toLowerCase() !== (form.fromPlace || "").toLowerCase()
-    );
-
   const resolvedToPlace = form.toPlaceSelect.trim();
+  const singlePending = Boolean(form.fromPlace) && maxAmount === 1;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    const amount = parseInt(form.amount, 10);
+    const amount = singlePending ? 1 : parseInt(form.amount, 10);
     const toPlace = resolvedToPlace;
 
     if (!form.fromPlace) {
@@ -226,46 +220,37 @@ const TrasladoModal = ({
               </div>
 
               <div className="mb-3">
-                <label className="form-label">Destino</label>
-                <select
-                  className="form-select"
-                  value={form.toPlaceSelect}
-                  onChange={(e) =>
-                    setForm({
-                      ...form,
-                      toPlaceSelect: e.target.value,
-                    })
-                  }
-                  required
-                  disabled={noPending || loadingPlaces}
-                >
-                  <option value="">Seleccionar destino</option>
-                  {destinationOptions.map((place) => (
-                    <option key={place} value={place}>
-                      {place}
-                    </option>
-                  ))}
-                </select>
-                {!loadingPlaces && destinationOptions.length === 0 && (
-                  <div className="form-text">No hay otra obra abierta para el destino.</div>
+                <label className="form-label">Obra de destino</label>
+                {loadingPlaces ? (
+                  <div className="form-text">Cargando obras...</div>
+                ) : (
+                  <ObraPicker
+                    obras={obras}
+                    value={form.toPlaceSelect}
+                    exclude={form.fromPlace}
+                    onChange={(toPlaceSelect) => setForm({ ...form, toPlaceSelect })}
+                  />
                 )}
               </div>
 
-              <div className="mb-3">
-                <label className="form-label">Cantidad a trasladar</label>
-                <NumberInput
-                  className="form-control"
-                  value={form.amount}
-                  min={1}
-                  max={maxAmount || undefined}
-                  onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                  required
-                  disabled={!form.fromPlace || noPending}
-                />
-                {form.fromPlace && maxAmount > 0 && (
+              {form.fromPlace && maxAmount > 1 && (
+                <div className="mb-3">
+                  <label className="form-label">Cantidad a trasladar</label>
+                  <NumberInput
+                    className="form-control"
+                    value={form.amount}
+                    min={1}
+                    max={maxAmount}
+                    onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                    required
+                    disabled={noPending}
+                  />
                   <div className="form-text">Máximo: {maxAmount}</div>
-                )}
-              </div>
+                </div>
+              )}
+              {singlePending && (
+                <div className="form-text mb-3">Se traslada el único pendiente de {form.fromPlace}.</div>
+              )}
 
               <div className="mb-3">
                 <label className="form-label">Quién lo mueve</label>

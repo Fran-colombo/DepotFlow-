@@ -238,7 +238,7 @@ const RetirarItemModal = ({
         }
         if (innerQuantity) {
           const available = selectedUnit?.quantity ?? 0;
-          amount = form.scope === "total" ? available : amount;
+          amount = available <= 1 || form.scope === "total" ? available : amount;
           if (!amount || amount < 1 || amount > available) {
             setError(`Podés retirar hasta ${available}`);
             setLoading(false);
@@ -418,7 +418,7 @@ const RetirarItemModal = ({
                   </div>
                 )}
 
-                {item?.track_units && innerQuantity && form.code && (
+                {item?.track_units && innerQuantity && form.code && (selectedUnit?.quantity ?? 0) > 1 && (
                   <div className="mb-3">
                     <div className="form-check">
                       <input
