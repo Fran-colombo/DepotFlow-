@@ -203,7 +203,7 @@ const SysadminPage = () => {
                   <thead>
                     <tr>
                       <th>Id</th>
-                      <th>Dato</th>
+                      <th>Detalle</th>
                       <th className="text-end">Acciones</th>
                     </tr>
                   </thead>
@@ -211,7 +211,7 @@ const SysadminPage = () => {
                     {rows.map((row) => (
                       <tr key={row.id}>
                         <td>{row.id}</td>
-                        <td>{row.summary || "—"}</td>
+                        <td className="text-break">{row.summary || "—"}</td>
                         <td className="text-end">
                           <button type="button" className="btn btn-sm btn-outline-primary me-2" onClick={() => openEdit(row)}>
                             Editar

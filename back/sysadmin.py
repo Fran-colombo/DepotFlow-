@@ -1,6 +1,7 @@
 import secrets
 from datetime import datetime
 
+import pytz
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Integer, String, or_
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 import models
 from auth import bcrypt_context, get_current_user
 from database import get_db
+
+TIMEZONE = pytz.timezone("America/Argentina/Buenos_Aires")
 
 router = APIRouter(prefix="/admin/sysadmin", tags=["sysadmin"])
 
@@ -20,7 +23,7 @@ TABLES = (
     ("items", "Subcategorías", models.Item),
     ("units", "Códigos", models.ItemUnit),
     ("history", "Historial", models.History),
-    ("history_units", "Vínculo historial-código", models.HistoryUnit),
+    ("history_units", "Piezas del historial", models.HistoryUnit),
     ("observations", "Observaciones", models.Observation),
     ("movements", "Movimientos", models.Movement),
     ("sheds", "Depósitos", models.Shed),
@@ -30,7 +33,7 @@ TABLES = (
     ("users", "Usuarios", models.User),
     ("deleted_items", "Eliminados", models.DeletedItem),
     ("transportes", "Autos y carros", models.Transport),
-    ("transporte_usos", "Usos de autos", models.TransportUse),
+    ("transporte_usos", "Salidas de autos", models.TransportUse),
     ("transporte_multas", "Multas", models.TransportFine),
     ("transporte_notas", "Notas de autos", models.TransportNote),
 )
@@ -127,6 +130,16 @@ SUMMARY_KEYS = (
     "username",
     "description",
 )
+
+ACTION_LABELS = {
+    "retiro": "Retiro",
+    "devolucion": "Devolución",
+    "carga": "Carga",
+    "traslado": "Traslado",
+    "descarte": "Tirado",
+    "no_volvio": "No volvió",
+    "uso_galpon": "Usado en el galpón",
+}
 
 
 def _require_admin(current_user: dict) -> None:
@@ -230,6 +243,346 @@ def _summary(values: dict) -> str:
     return ""
 
 
+def _join_parts(*parts) -> str:
+    cleaned = []
+    for part in parts:
+        if part is None:
+            continue
+        text = str(part).strip()
+        if text:
+            cleaned.append(text)
+    return " · ".join(cleaned)
+
+
+def _clock(value) -> str:
+    if not value:
+        return ""
+    moment = value
+    if moment.tzinfo is None:
+        moment = pytz.utc.localize(moment)
+    return moment.astimezone(TIMEZONE).strftime("%d/%m %H:%M")
+
+
+def _action_label(value) -> str:
+    if value is None:
+        return ""
+    raw = value.value if hasattr(value, "value") else str(value)
+    return ACTION_LABELS.get(raw, raw)
+
+
+def _tool_label(unit) -> str:
+    if not unit:
+        return ""
+    name = (unit.name or "").strip()
+    code = (unit.code or "").strip()
+    if name and code:
+        return name
+    return name or code
+
+
+def _history_route(action, place):
+    raw = action.value if hasattr(action, "value") else str(action or "")
+    place = (place or "").strip()
+    if raw == "traslado" and "→" in place:
+        left, right = [side.strip() for side in place.split("→", 1)]
+        return left or "—", right or "—"
+    if raw in ("retiro", "uso_galpon"):
+        return "Depósito", place or "—"
+    if raw == "devolucion":
+        return place or "—", "Depósito"
+    if raw == "carga":
+        return "—", place or "Depósito"
+    if raw == "descarte":
+        return place or "Depósito", "Tirado"
+    if raw == "no_volvio":
+        return place or "Obra", "No volvió"
+    return "—", place or "—"
+
+
+def _map_by_id(db: Session, model, ids):
+    found = {}
+    clean = [item_id for item_id in set(ids) if item_id is not None]
+    if not clean:
+        return found
+    for row in db.query(model).filter(model.id.in_(clean)).all():
+        found[row.id] = row
+    return found
+
+
+def _location_label(shed_name, zone_name) -> str:
+    shed_name = (shed_name or "").strip()
+    zone_name = (zone_name or "").strip()
+    if shed_name and zone_name:
+        return f"{shed_name} / {zone_name}"
+    return zone_name or shed_name or "—"
+
+
+def _row_summaries(db: Session, key: str, rows) -> dict:
+    if not rows:
+        return {}
+    if key == "history":
+        return _history_summaries(db, rows)
+    if key == "history_units":
+        return _history_unit_summaries(db, rows)
+    if key == "observations":
+        return _observation_summaries(db, rows)
+    if key == "movements":
+        return _movement_summaries(db, rows)
+    if key == "zones":
+        return _zone_summaries(db, rows)
+    if key == "transporte_usos":
+        return _transport_use_summaries(db, rows)
+    return {row.id: _summary(_values(key, row)) for row in rows}
+
+
+def _history_summaries(db: Session, rows) -> dict:
+    history_ids = [row.id for row in rows]
+    items = _map_by_id(db, models.Item, [row.itemId for row in rows])
+    links = (
+        db.query(models.HistoryUnit)
+        .filter(models.HistoryUnit.history_id.in_(history_ids))
+        .all()
+    )
+    units = _map_by_id(db, models.ItemUnit, [link.unit_id for link in links])
+    names_by_history = {}
+    for link in links:
+        label = _tool_label(units.get(link.unit_id))
+        if not label:
+            continue
+        bucket = names_by_history.setdefault(link.history_id, [])
+        if label not in bucket:
+            bucket.append(label)
+    summaries = {}
+    for row in rows:
+        tools = names_by_history.get(row.id) or []
+        item = items.get(row.itemId)
+        tool = ", ".join(tools) if tools else (item.name if item else "Sin herramienta")
+        origin, destination = _history_route(row.action, row.place)
+        summaries[row.id] = _join_parts(
+            tool,
+            row.amountRetired,
+            f"{origin} → {destination}",
+            _clock(row.date),
+        )
+    return summaries
+
+
+def _history_unit_summaries(db: Session, rows) -> dict:
+    histories = _map_by_id(db, models.History, [row.history_id for row in rows])
+    units = _map_by_id(db, models.ItemUnit, [row.unit_id for row in rows])
+    summaries = {}
+    for row in rows:
+        history = histories.get(row.history_id)
+        unit = units.get(row.unit_id)
+        origin, destination = _history_route(
+            history.action if history else "",
+            history.place if history else "",
+        )
+        qty = row.amount if row.amount not in (None, 0) else (
+            history.amountRetired if history else None
+        )
+        summaries[row.id] = _join_parts(
+            _tool_label(unit) or (unit.code if unit else f"Código {row.unit_id}"),
+            _action_label(history.action) if history else f"Historial {row.history_id}",
+            qty,
+            f"{origin} → {destination}" if history else "",
+            _clock(history.date) if history else "",
+        )
+    return summaries
+
+
+def _observation_summaries(db: Session, rows) -> dict:
+    units = _map_by_id(db, models.ItemUnit, [row.unit_id for row in rows])
+    items = _map_by_id(db, models.Item, [row.item_id for row in rows])
+    summaries = {}
+    for row in rows:
+        unit = units.get(row.unit_id)
+        item = items.get(row.item_id)
+        tool = _tool_label(unit) or (item.name if item else "")
+        summaries[row.id] = _join_parts(tool or "Sin herramienta", row.description)
+    return summaries
+
+
+def _movement_summaries(db: Session, rows) -> dict:
+    items = _map_by_id(db, models.Item, [row.item_id for row in rows])
+    zones = _map_by_id(
+        db,
+        models.Zone,
+        [row.from_zone_id for row in rows] + [row.to_zone_id for row in rows],
+    )
+    sheds = _map_by_id(
+        db,
+        models.Shed,
+        [row.from_shed_id for row in rows] + [row.to_shed_id for row in rows],
+    )
+    item_ids = [row.item_id for row in rows if row.item_id]
+    unit_names = {}
+    if item_ids:
+        histories = (
+            db.query(models.History)
+            .filter(
+                models.History.itemId.in_(item_ids),
+                models.History.action == models.ActionEnum.traslado,
+            )
+            .all()
+        )
+        history_ids = [history.id for history in histories]
+        links = (
+            db.query(models.HistoryUnit)
+            .filter(models.HistoryUnit.history_id.in_(history_ids or [0]))
+            .all()
+        )
+        units = _map_by_id(db, models.ItemUnit, [link.unit_id for link in links])
+        names_by_history = {}
+        for link in links:
+            label = _tool_label(units.get(link.unit_id))
+            if not label:
+                continue
+            bucket = names_by_history.setdefault(link.history_id, [])
+            if label not in bucket:
+                bucket.append(label)
+        for history in histories:
+            names = names_by_history.get(history.id)
+            if not names:
+                continue
+            key = (history.itemId, _clock(history.date), history.amountRetired)
+            unit_names.setdefault(key, names)
+
+    summaries = {}
+    for row in rows:
+        from_zone = zones.get(row.from_zone_id)
+        to_zone = zones.get(row.to_zone_id)
+        from_shed = sheds.get(row.from_shed_id)
+        to_shed = sheds.get(row.to_shed_id)
+        item = items.get(row.item_id)
+        names = unit_names.get((row.item_id, _clock(row.date), row.quantity))
+        tool = ", ".join(names) if names else (row.item_name or (item.name if item else "Sin herramienta"))
+        summaries[row.id] = _join_parts(
+            tool,
+            row.quantity,
+            f"{_location_label(from_shed.name if from_shed else None, from_zone.name if from_zone else None)} → {_location_label(to_shed.name if to_shed else None, to_zone.name if to_zone else None)}",
+            _clock(row.date),
+        )
+    return summaries
+
+
+def _zone_summaries(db: Session, rows) -> dict:
+    sheds = _map_by_id(db, models.Shed, [row.shed_id for row in rows])
+    return {
+        row.id: _join_parts(
+            sheds.get(row.shed_id).name if sheds.get(row.shed_id) else "Sin depósito",
+            row.name,
+        )
+        for row in rows
+    }
+
+
+def _transport_use_summaries(db: Session, rows) -> dict:
+    transports = _map_by_id(
+        db,
+        models.Transport,
+        [row.transport_id for row in rows]
+        + [row.cart_id for row in rows]
+        + [row.with_transport_id for row in rows],
+    )
+    summaries = {}
+    for row in rows:
+        vehicle = transports.get(row.transport_id)
+        cart = transports.get(row.cart_id)
+        extra = transports.get(row.with_transport_id)
+        vehicle_label = ""
+        if vehicle:
+            vehicle_label = vehicle.plate or vehicle.name
+            if vehicle.kind == "carro":
+                vehicle_label = f"Carro {vehicle.name}"
+        cart_label = f"carro {cart.name}" if cart else ""
+        extra_label = extra.name if extra and extra.id not in (row.transport_id, row.cart_id) else ""
+        left = _clock(row.left_at)
+        back = _clock(row.returned_at) if row.returned_at else "sigue afuera"
+        route = f"{left} → {back}" if left else back
+        summaries[row.id] = _join_parts(
+            vehicle_label or f"Vehículo {row.transport_id}",
+            cart_label,
+            extra_label,
+            row.person,
+            row.obra,
+            row.external_vehicle,
+            route,
+        )
+    return summaries
+
+
+def _search_filters(db: Session, table: str, model, term: str):
+    like = f"%{term}%"
+    filters = []
+    if term.isdigit():
+        filters.append(model.id == int(term))
+    for column in model.__table__.columns:
+        if isinstance(column.type, String):
+            filters.append(column.ilike(like))
+    if table == "history":
+        filters.append(
+            model.itemId.in_(db.query(models.Item.id).filter(models.Item.name.ilike(like)))
+        )
+        filters.append(
+            model.id.in_(
+                db.query(models.HistoryUnit.history_id)
+                .join(models.ItemUnit, models.ItemUnit.id == models.HistoryUnit.unit_id)
+                .filter(or_(models.ItemUnit.name.ilike(like), models.ItemUnit.code.ilike(like)))
+            )
+        )
+    elif table == "history_units":
+        filters.append(
+            model.unit_id.in_(
+                db.query(models.ItemUnit.id).filter(
+                    or_(models.ItemUnit.name.ilike(like), models.ItemUnit.code.ilike(like))
+                )
+            )
+        )
+        if term.isdigit():
+            filters.append(model.history_id == int(term))
+    elif table == "observations":
+        filters.append(
+            model.unit_id.in_(
+                db.query(models.ItemUnit.id).filter(
+                    or_(models.ItemUnit.name.ilike(like), models.ItemUnit.code.ilike(like))
+                )
+            )
+        )
+        filters.append(
+            model.item_id.in_(db.query(models.Item.id).filter(models.Item.name.ilike(like)))
+        )
+    elif table == "movements":
+        filters.append(
+            model.from_zone_id.in_(db.query(models.Zone.id).filter(models.Zone.name.ilike(like)))
+        )
+        filters.append(
+            model.to_zone_id.in_(db.query(models.Zone.id).filter(models.Zone.name.ilike(like)))
+        )
+        filters.append(
+            model.from_shed_id.in_(db.query(models.Shed.id).filter(models.Shed.name.ilike(like)))
+        )
+        filters.append(
+            model.to_shed_id.in_(db.query(models.Shed.id).filter(models.Shed.name.ilike(like)))
+        )
+    elif table == "zones":
+        filters.append(
+            model.shed_id.in_(db.query(models.Shed.id).filter(models.Shed.name.ilike(like)))
+        )
+    elif table == "transporte_usos":
+        filters.append(
+            model.transport_id.in_(
+                db.query(models.Transport.id).filter(
+                    or_(
+                        models.Transport.name.ilike(like),
+                        models.Transport.plate.ilike(like),
+                    )
+                )
+            )
+        )
+    return filters
+
+
 def _apply(key: str, model, row, payload: dict) -> None:
     hidden = HIDDEN.get(key, set())
     columns = {column.name: column for column in model.__table__.columns}
@@ -323,12 +676,7 @@ def list_rows(
     query = db.query(model)
     term = (q or "").strip()
     if term:
-        filters = []
-        if term.isdigit():
-            filters.append(model.id == int(term))
-        for column in model.__table__.columns:
-            if isinstance(column.type, String):
-                filters.append(column.ilike(f"%{term}%"))
+        filters = _search_filters(db, table, model, term)
         if filters:
             query = query.filter(or_(*filters))
     total = query.count()
@@ -338,12 +686,13 @@ def list_rows(
         .limit(page_size)
         .all()
     )
+    summaries = _row_summaries(db, table, rows)
     data = []
     for row in rows:
         values = _values(table, row)
         data.append({
             "id": row.id,
-            "summary": _summary(values),
+            "summary": summaries.get(row.id) or _summary(values),
             "values": values,
         })
     return {
@@ -377,7 +726,11 @@ def create_row(
         raise HTTPException(status_code=400, detail=_integrity_message(exc))
     db.refresh(row)
     values = _values(table, row)
-    return {"id": row.id, "summary": _summary(values), "values": values}
+    return {
+        "id": row.id,
+        "summary": _row_summaries(db, table, [row]).get(row.id) or _summary(values),
+        "values": values,
+    }
 
 
 @router.put("/{table}/{row_id}")
@@ -401,7 +754,11 @@ def update_row(
         raise HTTPException(status_code=400, detail=_integrity_message(exc))
     db.refresh(row)
     values = _values(table, row)
-    return {"id": row.id, "summary": _summary(values), "values": values}
+    return {
+        "id": row.id,
+        "summary": _row_summaries(db, table, [row]).get(row.id) or _summary(values),
+        "values": values,
+    }
 
 
 @router.delete("/{table}/{row_id}")
