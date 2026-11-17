@@ -131,14 +131,28 @@ export function transportImageUrl(row) {
   return `${base}/transportes/${row.id}/image?v=${version}`;
 }
 
-export function fineImageUrl(fine) {
-  if (!fine?.has_image) return null;
+export function fineFileUrl(fine) {
+  if (!fine?.has_file && !fine?.has_image) return null;
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
   const version = encodeURIComponent(fine.image_filename || "1");
   return `${base}/transportes/multas/${fine.id}/image?v=${version}`;
 }
 
-export async function uploadFineImage(id, file) {
+export function fineFileKind(fine, file) {
+  if (file) {
+    const name = (file.name || "").toLowerCase();
+    const type = (file.type || "").toLowerCase();
+    if (name.endsWith(".pdf") || type.includes("pdf")) return "pdf";
+    if (type.startsWith("image/")) return "image";
+  }
+  if (fine?.file_kind) return fine.file_kind;
+  const stored = (fine?.image_filename || "").toLowerCase();
+  if (stored.endsWith(".pdf")) return "pdf";
+  if (fine?.has_file || fine?.has_image) return "image";
+  return "";
+}
+
+export async function uploadFineFile(id, file) {
   const token = localStorage.getItem("authToken");
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
   const formData = new FormData();
@@ -151,14 +165,14 @@ export async function uploadFineImage(id, file) {
     body: formData,
   });
   if (!response.ok) {
-    let message = "No se pudo cargar la foto de la multa";
+    let message = "No se pudo cargar el archivo de la multa";
     try {
       const data = await response.json();
       message = data.detail || message;
     } catch {
       /* ignore */
     }
-    throw new Error(typeof message === "string" ? message : "No se pudo cargar la foto de la multa");
+    throw new Error(typeof message === "string" ? message : "No se pudo cargar el archivo de la multa");
   }
   return response.json();
 }

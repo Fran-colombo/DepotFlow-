@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Annotated, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -67,20 +68,48 @@ def _get_fine(db: Session, fine_id: int) -> models.TransportFine:
     return fine
 
 
+def _fine_file_kind(filename: str) -> str:
+    if not filename:
+        return ""
+    return "pdf" if filename.lower().endswith(".pdf") else "image"
+
+
 def _fine_out(fine: models.TransportFine, row: models.Transport | None = None) -> dict:
+    filename = fine.image_filename or ""
+    kind = _fine_file_kind(filename)
     data = {
         "id": fine.id,
         "transport_id": fine.transport_id,
         "occurred_at": _iso(fine.occurred_at),
         "person": fine.person or "",
         "paid": bool(fine.paid),
-        "has_image": bool(fine.image_filename),
-        "image_filename": fine.image_filename or "",
+        "has_file": bool(filename),
+        "has_image": kind == "image",
+        "file_kind": kind,
+        "image_filename": filename,
     }
     if row is not None:
         data["plate"] = row.plate or ""
         data["name"] = row.name
     return data
+
+
+def _save_fine_file(fine_id: int, data: bytes, filename: str | None, content_type: str | None) -> str:
+    name = (filename or "").lower()
+    ctype = (content_type or "").lower()
+    is_pdf = name.endswith(".pdf") or "pdf" in ctype or data[:5] == b"%PDF-"
+    if is_pdf:
+        stored = f"multa{fine_id}_{uuid4().hex[:12]}.pdf"
+        stored_image_path(stored).write_bytes(data)
+        return stored
+    try:
+        img = _load_image(data)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Tiene que ser una foto (JPG, PNG, WEBP) o un PDF.",
+        ) from exc
+    return _save_processed(f"multa{fine_id}", img)
 
 
 def _open_for(db: Session, transport_id: int):
@@ -937,22 +966,28 @@ async def upload_fine_image(
     if not data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El archivo está vacío")
     if len(data) > MAX_BYTES:
-        raise HTTPException(status_code=400, detail="La imagen no puede superar los 8 MB")
-    img = _load_image(data)
+        raise HTTPException(status_code=400, detail="El archivo no puede superar los 8 MB")
     delete_stored_image(fine)
-    fine.image_filename = _save_processed(f"multa{fine.id}", img)
+    fine.image_filename = _save_fine_file(fine.id, data, file.filename, file.content_type)
     db.commit()
-    return {"ok": True, "has_image": True, "image_filename": fine.image_filename}
+    kind = _fine_file_kind(fine.image_filename)
+    return {
+        "ok": True,
+        "has_file": True,
+        "has_image": kind == "image",
+        "file_kind": kind,
+        "image_filename": fine.image_filename,
+    }
 
 
 @router.get("/multas/{fine_id}/image")
 def get_fine_image(fine_id: int, db: Annotated[Session, Depends(get_db)]):
     fine = _get_fine(db, fine_id)
     if not fine.image_filename:
-        raise HTTPException(status_code=404, detail="No tiene foto")
+        raise HTTPException(status_code=404, detail="No tiene archivo")
     path = stored_image_path(fine.image_filename)
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="No se encontró el archivo de imagen")
+        raise HTTPException(status_code=404, detail="No se encontró el archivo")
     media_type = MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=media_type)
 

@@ -14,7 +14,8 @@ import {
   createTransporte,
   deleteServicePlace,
   addPastUse,
-  fineImageUrl,
+  fineFileKind,
+  fineFileUrl,
   getTransporte,
   handOverTransporte,
   leaveTransporte,
@@ -28,18 +29,24 @@ import {
   updateServicePlace,
   updateTransporte,
   updateTransporteKm,
-  uploadFineImage,
+  uploadFineFile,
   uploadTransporteImage,
 } from "../api/transportes";
 
-function FinePhoto({ fine }) {
-  const url = fineImageUrl(fine);
+function FineFile({ fine }) {
+  const url = fineFileUrl(fine);
   if (!url) return <span className="app-muted">—</span>;
+  const kind = fineFileKind(fine);
+  if (kind === "pdf") {
+    return (
+      <a href={url} target="_blank" rel="noreferrer">PDF</a>
+    );
+  }
   return (
-    <a href={url} target="_blank" rel="noreferrer" title="Ver foto de la multa">
+    <a href={url} target="_blank" rel="noreferrer" title="Ver archivo de la multa">
       <img
         src={url}
-        alt="Foto de la multa"
+        alt="Archivo de la multa"
         style={{ height: 40, width: 56, objectFit: "cover", borderRadius: 4 }}
       />
     </a>
@@ -482,20 +489,20 @@ const Autos = () => {
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title mb-0">Multas</h5>
-                <div className="d-flex align-items-center gap-2">
-                  {isAdmin && (
+                <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={() => setFinesOpen(false)}></button>
+              </div>
+              <div className="modal-body">
+                {isAdmin && (
+                  <div className="mb-3">
                     <button
                       type="button"
-                      className="btn btn-sm btn-primary"
+                      className="btn btn-primary"
                       onClick={() => setFining("list")}
                     >
                       Cargar multa
                     </button>
-                  )}
-                  <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setFinesOpen(false)}></button>
-                </div>
-              </div>
-              <div className="modal-body">
+                  </div>
+                )}
                 <div className="row g-2 mb-3">
                   <div className="col-md-6">
                     <label className="form-label">Cuáles</label>
@@ -526,7 +533,7 @@ const Autos = () => {
                           <th>Patente</th>
                           <th>Auto</th>
                           <th>Persona</th>
-                          <th>Foto</th>
+                          <th>Archivo</th>
                           <th>Estado</th>
                           <th></th>
                         </tr>
@@ -549,7 +556,7 @@ const Autos = () => {
                               </button>
                             </td>
                             <td>{fine.person || "Falta quién la manejaba"}</td>
-                            <td><FinePhoto fine={fine} /></td>
+                            <td><FineFile fine={fine} /></td>
                             <td>{fine.paid ? "Pagada" : "A pagar"}</td>
                             <td>
                               {isAdmin && !fine.paid && (
@@ -1122,7 +1129,7 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                   {paid.map((fine) => (
                     <li key={fine.id} className="d-flex align-items-center gap-2 mb-1">
                       <span>{formatWhen(fine.occurred_at)} · {fine.person || "Falta quién la manejaba"}</span>
-                      <FinePhoto fine={fine} />
+                      <FineFile fine={fine} />
                     </li>
                   ))}
                 </ul>
@@ -1309,7 +1316,7 @@ function PendingFine({ fine, isAdmin, saving, onPaid, onPerson }) {
             {formatWhen(fine.occurred_at)}
             {fine.person ? ` · ${fine.person}` : ""}
           </span>
-          <FinePhoto fine={fine} />
+          <FineFile fine={fine} />
         </span>
         {isAdmin && (
           <button type="button" className="btn btn-sm btn-outline-success" disabled={saving} onClick={onPaid}>Marcar pagada</button>
@@ -1751,7 +1758,7 @@ function FineModal({ row, autos, onClose, onDone, onError }) {
   const [autoId, setAutoId] = useState(row?.id || "");
   const [date, setDate] = useState(suggested.date);
   const [time, setTime] = useState(suggested.time);
-  const [photo, setPhoto] = useState(null);
+  const [file, setFile] = useState(null);
   const [matches, setMatches] = useState(null);
   const [choice, setChoice] = useState("");
   const [manual, setManual] = useState("");
@@ -1760,16 +1767,17 @@ function FineModal({ row, autos, onClose, onDone, onError }) {
   const [preview, setPreview] = useState(null);
   const auto = row || (autos || []).find((item) => item.id === autoId) || null;
   const pickPlate = !row;
+  const fileKind = fineFileKind(null, file);
 
   useEffect(() => {
-    if (!photo) {
+    if (!file || fileKind === "pdf") {
       setPreview(null);
       return undefined;
     }
-    const url = URL.createObjectURL(photo);
+    const url = URL.createObjectURL(file);
     setPreview(url);
     return () => URL.revokeObjectURL(url);
-  }, [photo]);
+  }, [file, fileKind]);
 
   const resetDriver = () => {
     setMatches(null);
@@ -1779,9 +1787,9 @@ function FineModal({ row, autos, onClose, onDone, onError }) {
 
   const persist = async (payload) => {
     const created = await createFine(auto.id, payload);
-    if (photo) {
-      if (!created?.id) throw new Error("Quedó la multa, pero no se pudo guardar la foto");
-      await uploadFineImage(created.id, photo);
+    if (file) {
+      if (!created?.id) throw new Error("Quedó la multa, pero no se pudo guardar el archivo");
+      await uploadFineFile(created.id, file);
     }
   };
 
@@ -1864,7 +1872,7 @@ function FineModal({ row, autos, onClose, onDone, onError }) {
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title mb-0">{auto?.plate ? `Multa ${auto.plate}` : "Cargar multa"}</h5>
-            <button type="button" className="btn-close" aria-label="Cerrar" onClick={onClose}></button>
+            <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={onClose}></button>
           </div>
           <div className="modal-body">
             <label className="form-label">Patente</label>
@@ -1892,14 +1900,18 @@ function FineModal({ row, autos, onClose, onDone, onError }) {
               />
             </div>
             <div className="mb-3">
-              <label className="form-label">Foto de la multa</label>
+              <label className="form-label">Archivo de la multa</label>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,.pdf,application/pdf"
                 className="form-control"
                 disabled={saving}
-                onChange={(e) => setPhoto(e.target.files?.[0] || null)}
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
               />
+              <div className="form-text">PDF o foto.</div>
+              {fileKind === "pdf" && file && (
+                <div className="small mt-2">{file.name}</div>
+              )}
               {preview && (
                 <img
                   src={preview}
