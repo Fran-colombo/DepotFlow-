@@ -271,6 +271,7 @@ class TransportFine(Base):
     person = Column(String, nullable=False)
     paid = Column(Boolean, default=False, nullable=False)
     use_id = Column(Integer, ForeignKey("transporte_usos.id"), nullable=True)
+    image_filename = Column(String, nullable=True)
 
 
 class TransportNote(Base):

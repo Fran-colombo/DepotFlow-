@@ -328,6 +328,7 @@ def ensure_inventory_schema():
                 person VARCHAR NOT NULL,
                 paid BOOLEAN NOT NULL DEFAULT 0,
                 use_id INTEGER,
+                image_filename VARCHAR,
                 FOREIGN KEY(transport_id) REFERENCES transportes (id),
                 FOREIGN KEY(use_id) REFERENCES transporte_usos (id)
             )
@@ -335,6 +336,8 @@ def ensure_inventory_schema():
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_transporte_multas_transport_id ON transporte_multas (transport_id)"
         ))
+        if _column_exists("transporte_multas", "id") and not _column_exists("transporte_multas", "image_filename"):
+            conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN image_filename VARCHAR"))
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS transporte_notas (
                 id INTEGER NOT NULL PRIMARY KEY,

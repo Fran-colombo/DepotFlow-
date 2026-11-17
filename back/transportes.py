@@ -60,6 +60,29 @@ def _get(db: Session, transport_id: int) -> models.Transport:
     return row
 
 
+def _get_fine(db: Session, fine_id: int) -> models.TransportFine:
+    fine = db.query(models.TransportFine).filter(models.TransportFine.id == fine_id).first()
+    if not fine:
+        raise HTTPException(status_code=404, detail="No está esa multa")
+    return fine
+
+
+def _fine_out(fine: models.TransportFine, row: models.Transport | None = None) -> dict:
+    data = {
+        "id": fine.id,
+        "transport_id": fine.transport_id,
+        "occurred_at": _iso(fine.occurred_at),
+        "person": fine.person or "",
+        "paid": bool(fine.paid),
+        "has_image": bool(fine.image_filename),
+        "image_filename": fine.image_filename or "",
+    }
+    if row is not None:
+        data["plate"] = row.plate or ""
+        data["name"] = row.name
+    return data
+
+
 def _open_for(db: Session, transport_id: int):
     return (
         db.query(models.TransportUse)
@@ -336,18 +359,7 @@ def list_fines(
         .order_by(models.TransportFine.occurred_at.desc(), models.TransportFine.id.desc())
         .all()
     )
-    return [
-        {
-            "id": fine.id,
-            "transport_id": row.id,
-            "plate": row.plate or "",
-            "name": row.name,
-            "occurred_at": _iso(fine.occurred_at),
-            "person": fine.person or "",
-            "paid": bool(fine.paid),
-        }
-        for fine, row in rows
-    ]
+    return [_fine_out(fine, row) for fine, row in rows]
 
 
 @router.post("")
@@ -422,15 +434,7 @@ def read_transporte(
         "last_service_km": row.last_service_km,
         "damage_note": row.damage_note or "",
         "uses": [_use_row(use, names) for use in uses],
-        "fines": [
-            {
-                "id": fine.id,
-                "occurred_at": _iso(fine.occurred_at),
-                "person": fine.person,
-                "paid": bool(fine.paid),
-            }
-            for fine in fines
-        ],
+        "fines": [_fine_out(fine) for fine in fines],
         "notes": [
             {
                 "id": note.id,
@@ -886,7 +890,8 @@ def create_fine(
     )
     db.add(fine)
     db.commit()
-    return {"ok": True}
+    db.refresh(fine)
+    return {"ok": True, "id": fine.id}
 
 
 @router.post("/multas/{fine_id}/pagar")
@@ -896,9 +901,7 @@ def pay_fine(
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
     _admin(current_user)
-    fine = db.query(models.TransportFine).filter(models.TransportFine.id == fine_id).first()
-    if not fine:
-        raise HTTPException(status_code=404, detail="No está esa multa")
+    fine = _get_fine(db, fine_id)
     fine.paid = True
     db.commit()
     return {"ok": True}
@@ -912,15 +915,46 @@ def set_fine_person(
     current_user: Annotated[dict, Depends(get_current_user)],
 ):
     _admin(current_user)
-    fine = db.query(models.TransportFine).filter(models.TransportFine.id == fine_id).first()
-    if not fine:
-        raise HTTPException(status_code=404, detail="No está esa multa")
+    fine = _get_fine(db, fine_id)
     person = (body.person or "").strip()
     if not person:
         raise HTTPException(status_code=400, detail="Escribí quién la hizo")
     fine.person = person
     db.commit()
     return {"ok": True}
+
+
+@router.post("/multas/{fine_id}/image")
+async def upload_fine_image(
+    fine_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+    file: UploadFile = File(...),
+):
+    _admin(current_user)
+    fine = _get_fine(db, fine_id)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El archivo está vacío")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=400, detail="La imagen no puede superar los 8 MB")
+    img = _load_image(data)
+    delete_stored_image(fine)
+    fine.image_filename = _save_processed(f"multa{fine.id}", img)
+    db.commit()
+    return {"ok": True, "has_image": True, "image_filename": fine.image_filename}
+
+
+@router.get("/multas/{fine_id}/image")
+def get_fine_image(fine_id: int, db: Annotated[Session, Depends(get_db)]):
+    fine = _get_fine(db, fine_id)
+    if not fine.image_filename:
+        raise HTTPException(status_code=404, detail="No tiene foto")
+    path = stored_image_path(fine.image_filename)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No se encontró el archivo de imagen")
+    media_type = MEDIA_TYPES.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=media_type)
 
 
 @router.post("/{transport_id}/image")

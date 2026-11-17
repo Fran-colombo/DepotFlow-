@@ -131,6 +131,38 @@ export function transportImageUrl(row) {
   return `${base}/transportes/${row.id}/image?v=${version}`;
 }
 
+export function fineImageUrl(fine) {
+  if (!fine?.has_image) return null;
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const version = encodeURIComponent(fine.image_filename || "1");
+  return `${base}/transportes/multas/${fine.id}/image?v=${version}`;
+}
+
+export async function uploadFineImage(id, file) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${base}/transportes/multas/${id}/image`, {
+    method: "POST",
+    headers: {
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: formData,
+  });
+  if (!response.ok) {
+    let message = "No se pudo cargar la foto de la multa";
+    try {
+      const data = await response.json();
+      message = data.detail || message;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof message === "string" ? message : "No se pudo cargar la foto de la multa");
+  }
+  return response.json();
+}
+
 export async function uploadTransporteImage(id, file) {
   const token = localStorage.getItem("authToken");
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");

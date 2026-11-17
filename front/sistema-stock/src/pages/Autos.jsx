@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Dashboard from "./Dashboard";
 import useAuth from "../hooks/useAuth";
 import PersonPicker from "../components/PersonPicker";
+import PlatePicker from "../components/PlatePicker";
 import ObraPicker from "../components/ObraPicker";
 import NumberInput from "../components/NumberInput";
 import { getObras } from "../api/obras";
@@ -13,6 +14,7 @@ import {
   createTransporte,
   deleteServicePlace,
   addPastUse,
+  fineImageUrl,
   getTransporte,
   handOverTransporte,
   leaveTransporte,
@@ -26,8 +28,23 @@ import {
   updateServicePlace,
   updateTransporte,
   updateTransporteKm,
+  uploadFineImage,
   uploadTransporteImage,
 } from "../api/transportes";
+
+function FinePhoto({ fine }) {
+  const url = fineImageUrl(fine);
+  if (!url) return <span className="app-muted">—</span>;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title="Ver foto de la multa">
+      <img
+        src={url}
+        alt="Foto de la multa"
+        style={{ height: 40, width: 56, objectFit: "cover", borderRadius: 4 }}
+      />
+    </a>
+  );
+}
 
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -465,7 +482,18 @@ const Autos = () => {
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title mb-0">Multas</h5>
-                <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setFinesOpen(false)}></button>
+                <div className="d-flex align-items-center gap-2">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      onClick={() => setFining("list")}
+                    >
+                      Cargar multa
+                    </button>
+                  )}
+                  <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setFinesOpen(false)}></button>
+                </div>
               </div>
               <div className="modal-body">
                 <div className="row g-2 mb-3">
@@ -498,6 +526,7 @@ const Autos = () => {
                           <th>Patente</th>
                           <th>Auto</th>
                           <th>Persona</th>
+                          <th>Foto</th>
                           <th>Estado</th>
                           <th></th>
                         </tr>
@@ -520,6 +549,7 @@ const Autos = () => {
                               </button>
                             </td>
                             <td>{fine.person || "Falta quién la manejaba"}</td>
+                            <td><FinePhoto fine={fine} /></td>
                             <td>{fine.paid ? "Pagada" : "A pagar"}</td>
                             <td>
                               {isAdmin && !fine.paid && (
@@ -550,7 +580,7 @@ const Autos = () => {
           onReturn={() => setMove({ id: detail.id, kind: detail.kind, action: "return", row: detail })}
           onPass={() => setMove({ id: detail.id, kind: detail.kind, action: "handover", row: detail })}
           onPastUse={() => setPastUse(detail)}
-          onFine={() => setFining(true)}
+          onFine={() => setFining("detail")}
           onSaved={async (message) => {
             await refreshDetail();
             tell("success", message);
@@ -598,13 +628,15 @@ const Autos = () => {
           onError={(message) => tell("error", message)}
         />
       )}
-      {fining && detail?.kind === "auto" && (
+      {(fining === "list" || (fining === "detail" && detail?.kind === "auto")) && (
         <FineModal
-          row={detail}
+          row={fining === "detail" ? detail : null}
+          autos={autos}
           onClose={() => setFining(false)}
           onDone={async (message) => {
             setFining(false);
-            await refreshDetail();
+            await load();
+            if (detailId) await openDetail(detailId);
             tell("success", message);
           }}
           onError={(message) => tell("error", message)}
@@ -1088,7 +1120,10 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                 {paid.length === 0 && <div className="app-muted small">No hay.</div>}
                 <ul className="list-unstyled">
                   {paid.map((fine) => (
-                    <li key={fine.id}>{formatWhen(fine.occurred_at)} · {fine.person || "Falta quién la manejaba"}</li>
+                    <li key={fine.id} className="d-flex align-items-center gap-2 mb-1">
+                      <span>{formatWhen(fine.occurred_at)} · {fine.person || "Falta quién la manejaba"}</span>
+                      <FinePhoto fine={fine} />
+                    </li>
                   ))}
                 </ul>
               </div>
@@ -1269,9 +1304,12 @@ function PendingFine({ fine, isAdmin, saving, onPaid, onPerson }) {
   return (
     <li className="mb-3">
       <div className="d-flex justify-content-between gap-2">
-        <span>
-          {formatWhen(fine.occurred_at)}
-          {fine.person ? ` · ${fine.person}` : ""}
+        <span className="d-flex align-items-center gap-2">
+          <span>
+            {formatWhen(fine.occurred_at)}
+            {fine.person ? ` · ${fine.person}` : ""}
+          </span>
+          <FinePhoto fine={fine} />
         </span>
         {isAdmin && (
           <button type="button" className="btn btn-sm btn-outline-success" disabled={saving} onClick={onPaid}>Marcar pagada</button>
@@ -1708,17 +1746,50 @@ function CreateModal({ kind, onClose, onDone, onError }) {
   );
 }
 
-function FineModal({ row, onClose, onDone, onError }) {
+function FineModal({ row, autos, onClose, onDone, onError }) {
   const suggested = nowParts();
+  const [autoId, setAutoId] = useState(row?.id || "");
   const [date, setDate] = useState(suggested.date);
   const [time, setTime] = useState(suggested.time);
+  const [photo, setPhoto] = useState(null);
   const [matches, setMatches] = useState(null);
   const [choice, setChoice] = useState("");
   const [manual, setManual] = useState("");
   const [other, setOther] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const auto = row || (autos || []).find((item) => item.id === autoId) || null;
+  const pickPlate = !row;
+
+  useEffect(() => {
+    if (!photo) {
+      setPreview(null);
+      return undefined;
+    }
+    const url = URL.createObjectURL(photo);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
+
+  const resetDriver = () => {
+    setMatches(null);
+    setChoice("");
+    setOther(false);
+  };
+
+  const persist = async (payload) => {
+    const created = await createFine(auto.id, payload);
+    if (photo) {
+      if (!created?.id) throw new Error("Quedó la multa, pero no se pudo guardar la foto");
+      await uploadFineImage(created.id, photo);
+    }
+  };
 
   const search = async () => {
+    if (!auto) {
+      onError("Elegí la patente");
+      return;
+    }
     let when;
     try {
       when = toIso(date, time);
@@ -1727,11 +1798,9 @@ function FineModal({ row, onClose, onDone, onError }) {
       return;
     }
     setSaving(true);
-    setMatches(null);
-    setChoice("");
-    setOther(false);
+    resetDriver();
     try {
-      const data = await lookupFine(row.id, when);
+      const data = await lookupFine(auto.id, when);
       const found = Array.isArray(data?.matches) ? data.matches : [];
       setMatches(found);
       if (found.length === 1) setChoice(String(found[0].id));
@@ -1743,6 +1812,10 @@ function FineModal({ row, onClose, onDone, onError }) {
   };
 
   const save = async () => {
+    if (!auto) {
+      onError("Elegí la patente");
+      return;
+    }
     if (!matches) {
       onError("Buscá primero quién lo manejaba");
       return;
@@ -1757,22 +1830,22 @@ function FineModal({ row, onClose, onDone, onError }) {
     setSaving(true);
     try {
       if (matches.length === 0) {
-        await createFine(row.id, { occurred_at: when, person: manual.trim() });
+        await persist({ occurred_at: when, person: manual.trim() });
       } else if (other) {
         if (!manual.trim()) {
           onError("Escribí el nombre completo");
           return;
         }
-        await createFine(row.id, { occurred_at: when, person: manual.trim() });
+        await persist({ occurred_at: when, person: manual.trim() });
       } else if (matches.length === 1) {
-        await createFine(row.id, { occurred_at: when, person: matches[0].person, use_id: matches[0].id });
+        await persist({ occurred_at: when, person: matches[0].person, use_id: matches[0].id });
       } else {
         const picked = matches.find((item) => String(item.id) === choice);
         if (!picked) {
           onError("Elegí quién la hizo");
           return;
         }
-        await createFine(row.id, { occurred_at: when, person: picked.person, use_id: picked.id });
+        await persist({ occurred_at: when, person: picked.person, use_id: picked.id });
       }
       const pendingName = matches.length === 0 && !manual.trim();
       await onDone(pendingName ? "Quedó la multa. Falta completar quién la manejaba." : "Quedó la multa.");
@@ -1786,25 +1859,57 @@ function FineModal({ row, onClose, onDone, onError }) {
   const foundOne = matches && matches.length === 1 ? matches[0] : null;
 
   return (
-    <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }} onClick={onClose}>
+    <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1070 }} onClick={onClose}>
       <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
         <div className="modal-content">
           <div className="modal-header">
-            <h5 className="modal-title mb-0">Multa {row.plate}</h5>
+            <h5 className="modal-title mb-0">{auto?.plate ? `Multa ${auto.plate}` : "Cargar multa"}</h5>
             <button type="button" className="btn-close" aria-label="Cerrar" onClick={onClose}></button>
           </div>
           <div className="modal-body">
             <label className="form-label">Patente</label>
-            <input className="form-control mb-3" value={row.plate} readOnly />
+            {pickPlate ? (
+              <div className="mb-3">
+                <PlatePicker
+                  autos={autos}
+                  value={autoId}
+                  disabled={saving}
+                  onChange={(id) => {
+                    setAutoId(id);
+                    resetDriver();
+                  }}
+                />
+              </div>
+            ) : (
+              <input className="form-control mb-3" value={auto?.plate || ""} readOnly />
+            )}
             <div className="mb-3">
               <WhenFields
                 date={date}
                 time={time}
-                onDate={(value) => { setDate(value); setMatches(null); }}
-                onTime={(value) => { setTime(value); setMatches(null); }}
+                onDate={(value) => { setDate(value); resetDriver(); }}
+                onTime={(value) => { setTime(value); resetDriver(); }}
               />
             </div>
-            <button type="button" className="btn btn-outline-primary mb-3" disabled={saving} onClick={search}>Buscar quién lo manejaba</button>
+            <div className="mb-3">
+              <label className="form-label">Foto de la multa</label>
+              <input
+                type="file"
+                accept="image/*"
+                className="form-control"
+                disabled={saving}
+                onChange={(e) => setPhoto(e.target.files?.[0] || null)}
+              />
+              {preview && (
+                <img
+                  src={preview}
+                  alt="Vista previa de la multa"
+                  className="mt-2"
+                  style={{ maxHeight: 160, maxWidth: "100%", objectFit: "contain", borderRadius: 6 }}
+                />
+              )}
+            </div>
+            <button type="button" className="btn btn-outline-primary mb-3" disabled={saving || !auto} onClick={search}>Buscar quién lo manejaba</button>
             {matches && matches.length === 0 && (
               <div>
                 <p className="text-danger">En ese momento no hay nadie cargado. Buscalo o escribilo a mano. Si no lo sabés ahora, podés guardar la multa igual.</p>
