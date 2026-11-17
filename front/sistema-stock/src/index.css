@@ -374,6 +374,50 @@ body {
   background: #f5faff;
 }
 
+.fine-file {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.fine-file-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 52px;
+  overflow: hidden;
+  border: 1px solid #d0d5dd;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  color: inherit;
+  text-decoration: none;
+}
+
+.fine-file-preview:hover {
+  border-color: #84caff;
+  text-decoration: none;
+}
+
+.fine-file-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fine-file-pdf {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  gap: 0.15rem;
+  color: #b42318;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 table {
   font-size: 0.875rem;
 }

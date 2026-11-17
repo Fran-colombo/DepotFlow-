@@ -37,49 +37,54 @@ function FineFile({ fine, canEdit = false, busy = false, onReplace }) {
   const inputRef = useRef(null);
   const url = fineFileUrl(fine);
   const kind = fineFileKind(fine);
-  let preview = <span className="app-muted">—</span>;
-  if (url && kind === "pdf") {
-    preview = (
-      <a href={url} target="_blank" rel="noreferrer">PDF</a>
-    );
-  } else if (url) {
-    preview = (
-      <a href={url} target="_blank" rel="noreferrer" title="Ver archivo de la multa">
-        <img
-          src={url}
-          alt="Archivo de la multa"
-          style={{ height: 40, width: 56, objectFit: "cover", borderRadius: 4 }}
-        />
-      </a>
-    );
+  const picker = canEdit ? (
+    <>
+      <button
+        type="button"
+        className="btn btn-sm btn-outline-secondary"
+        disabled={busy}
+        onClick={() => inputRef.current?.click()}
+      >
+        {url ? "Actualizar" : "Subir"}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,.pdf,application/pdf"
+        hidden
+        disabled={busy}
+        onChange={(e) => {
+          const next = e.target.files?.[0];
+          e.target.value = "";
+          if (next) onReplace?.(next);
+        }}
+      />
+    </>
+  ) : null;
+
+  if (!url) {
+    return canEdit ? <div className="fine-file">{picker}</div> : <span className="app-muted">—</span>;
   }
+
   return (
-    <div className="d-flex align-items-center gap-2">
-      {preview}
-      {canEdit && (
-        <>
-          <button
-            type="button"
-            className="btn btn-sm btn-link p-0"
-            disabled={busy}
-            onClick={() => inputRef.current?.click()}
-          >
-            {url ? "Cambiar" : "Subir"}
-          </button>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*,.pdf,application/pdf"
-            hidden
-            disabled={busy}
-            onChange={(e) => {
-              const next = e.target.files?.[0];
-              e.target.value = "";
-              if (next) onReplace?.(next);
-            }}
-          />
-        </>
-      )}
+    <div className="fine-file">
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="fine-file-preview"
+        title={kind === "pdf" ? "Ver PDF" : "Ver foto"}
+      >
+        {kind === "pdf" ? (
+          <span className="fine-file-pdf">
+            <i className="bi bi-file-earmark-pdf-fill fs-4"></i>
+            PDF
+          </span>
+        ) : (
+          <img src={url} alt="Archivo de la multa" />
+        )}
+      </a>
+      {picker}
     </div>
   );
 }
@@ -1989,14 +1994,19 @@ function FineModal({ row, autos, onClose, onDone, onError }) {
               />
               <div className="form-text">PDF o foto.</div>
               {fileKind === "pdf" && file && (
-                <div className="small mt-2">{file.name}</div>
+                <div className="fine-file-preview mt-2" style={{ width: 88, height: 72 }} title={file.name}>
+                  <span className="fine-file-pdf">
+                    <i className="bi bi-file-earmark-pdf-fill fs-3"></i>
+                    PDF
+                  </span>
+                </div>
               )}
               {preview && (
                 <img
                   src={preview}
                   alt="Vista previa de la multa"
-                  className="mt-2"
-                  style={{ maxHeight: 160, maxWidth: "100%", objectFit: "contain", borderRadius: 6 }}
+                  className="fine-file-preview mt-2"
+                  style={{ width: "auto", height: 120, maxWidth: "100%" }}
                 />
               )}
             </div>
