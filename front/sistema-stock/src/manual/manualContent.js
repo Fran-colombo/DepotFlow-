@@ -954,7 +954,7 @@ export const MANUAL_SECTIONS = [
             "**Cuáles**: **Activas** (a pagar) o **Todas** (también las pagadas).",
             "**Persona**: las de alguien en particular, o **Sin nombre** si falta quién manejaba.",
             "Tocá el nombre del auto para abrir su ficha.",
-            "Si hay archivo, tocá la miniatura o **PDF** para verlo.",
+            "Si hay archivo, tocá la miniatura o **PDF** para verlo. Un administrador puede **Subir** o **Cambiar** el PDF o la foto.",
           ] },
           { type: "p", text: "Un administrador carga la multa con **Cargar multa**: busca la patente, indica fecha y hora, puede adjuntar un PDF o una foto del ticket y busca quién manejaba. También se puede cargar desde la ficha del auto. Las marca pagadas un administrador." },
         ],

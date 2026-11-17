@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Dashboard from "./Dashboard";
 import useAuth from "../hooks/useAuth";
 import PersonPicker from "../components/PersonPicker";
@@ -33,23 +33,54 @@ import {
   uploadTransporteImage,
 } from "../api/transportes";
 
-function FineFile({ fine }) {
+function FineFile({ fine, canEdit = false, busy = false, onReplace }) {
+  const inputRef = useRef(null);
   const url = fineFileUrl(fine);
-  if (!url) return <span className="app-muted">—</span>;
   const kind = fineFileKind(fine);
-  if (kind === "pdf") {
-    return (
+  let preview = <span className="app-muted">—</span>;
+  if (url && kind === "pdf") {
+    preview = (
       <a href={url} target="_blank" rel="noreferrer">PDF</a>
+    );
+  } else if (url) {
+    preview = (
+      <a href={url} target="_blank" rel="noreferrer" title="Ver archivo de la multa">
+        <img
+          src={url}
+          alt="Archivo de la multa"
+          style={{ height: 40, width: 56, objectFit: "cover", borderRadius: 4 }}
+        />
+      </a>
     );
   }
   return (
-    <a href={url} target="_blank" rel="noreferrer" title="Ver archivo de la multa">
-      <img
-        src={url}
-        alt="Archivo de la multa"
-        style={{ height: 40, width: 56, objectFit: "cover", borderRadius: 4 }}
-      />
-    </a>
+    <div className="d-flex align-items-center gap-2">
+      {preview}
+      {canEdit && (
+        <>
+          <button
+            type="button"
+            className="btn btn-sm btn-link p-0"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+          >
+            {url ? "Cambiar" : "Subir"}
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,.pdf,application/pdf"
+            hidden
+            disabled={busy}
+            onChange={(e) => {
+              const next = e.target.files?.[0];
+              e.target.value = "";
+              if (next) onReplace?.(next);
+            }}
+          />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -304,6 +335,7 @@ const Autos = () => {
   const [creating, setCreating] = useState(null);
   const [fining, setFining] = useState(false);
   const [finesOpen, setFinesOpen] = useState(false);
+  const [fineFileBusy, setFineFileBusy] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
   const load = async () => {
@@ -365,6 +397,20 @@ const Autos = () => {
       tell("success", "Quedó pagada.");
     } catch (err) {
       tell("error", err.message || "No se pudo marcar");
+    }
+  };
+
+  const replaceListedFile = async (fine, file) => {
+    setFineFileBusy(fine.id);
+    try {
+      await uploadFineFile(fine.id, file);
+      await load();
+      if (detailId) await openDetail(detailId);
+      tell("success", "Quedó el archivo.");
+    } catch (err) {
+      tell("error", err.message || "No se pudo actualizar el archivo");
+    } finally {
+      setFineFileBusy(null);
     }
   };
 
@@ -492,35 +538,35 @@ const Autos = () => {
                 <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={() => setFinesOpen(false)}></button>
               </div>
               <div className="modal-body">
-                {isAdmin && (
-                  <div className="mb-3">
+                <div className="d-flex flex-wrap align-items-end gap-2 mb-3">
+                  <div className="row g-2 flex-grow-1">
+                    <div className="col-md-6">
+                      <label className="form-label">Cuáles</label>
+                      <select className="form-select" value={fineScope} onChange={(e) => setFineScope(e.target.value)}>
+                        <option value="activas">Activas</option>
+                        <option value="todas">Todas</option>
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label">Persona</label>
+                      <select className="form-select" value={finePerson} onChange={(e) => setFinePerson(e.target.value)}>
+                        <option value="">Todas</option>
+                        {finePeople.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                        {hasNameless && <option value="__none__">Sin nombre</option>}
+                      </select>
+                    </div>
+                  </div>
+                  {isAdmin && (
                     <button
                       type="button"
-                      className="btn btn-primary"
+                      className="btn btn-primary ms-auto"
                       onClick={() => setFining("list")}
                     >
                       Cargar multa
                     </button>
-                  </div>
-                )}
-                <div className="row g-2 mb-3">
-                  <div className="col-md-6">
-                    <label className="form-label">Cuáles</label>
-                    <select className="form-select" value={fineScope} onChange={(e) => setFineScope(e.target.value)}>
-                      <option value="activas">Activas</option>
-                      <option value="todas">Todas</option>
-                    </select>
-                  </div>
-                  <div className="col-md-6">
-                    <label className="form-label">Persona</label>
-                    <select className="form-select" value={finePerson} onChange={(e) => setFinePerson(e.target.value)}>
-                      <option value="">Todas</option>
-                      {finePeople.map((name) => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                      {hasNameless && <option value="__none__">Sin nombre</option>}
-                    </select>
-                  </div>
+                  )}
                 </div>
                 {shownFines.length === 0 ? (
                   <p className="app-muted mb-0">No hay multas con ese filtro.</p>
@@ -556,7 +602,14 @@ const Autos = () => {
                               </button>
                             </td>
                             <td>{fine.person || "Falta quién la manejaba"}</td>
-                            <td><FineFile fine={fine} /></td>
+                            <td>
+                              <FineFile
+                                fine={fine}
+                                canEdit={isAdmin}
+                                busy={fineFileBusy === fine.id}
+                                onReplace={(file) => replaceListedFile(fine, file)}
+                              />
+                            </td>
                             <td>{fine.paid ? "Pagada" : "A pagar"}</td>
                             <td>
                               {isAdmin && !fine.paid && (
@@ -1109,6 +1162,17 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                       isAdmin={isAdmin}
                       saving={saving}
                       onPaid={() => markPaid(fine)}
+                      onReplace={async (file) => {
+                        setSaving(true);
+                        try {
+                          await uploadFineFile(fine.id, file);
+                          await onSaved("Quedó el archivo.");
+                        } catch (err) {
+                          onError(err.message || "No se pudo actualizar el archivo");
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
                       onPerson={async (name) => {
                         setSaving(true);
                         try {
@@ -1129,7 +1193,22 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                   {paid.map((fine) => (
                     <li key={fine.id} className="d-flex align-items-center gap-2 mb-1">
                       <span>{formatWhen(fine.occurred_at)} · {fine.person || "Falta quién la manejaba"}</span>
-                      <FineFile fine={fine} />
+                      <FineFile
+                        fine={fine}
+                        canEdit={isAdmin}
+                        busy={saving}
+                        onReplace={async (file) => {
+                          setSaving(true);
+                          try {
+                            await uploadFineFile(fine.id, file);
+                            await onSaved("Quedó el archivo.");
+                          } catch (err) {
+                            onError(err.message || "No se pudo actualizar el archivo");
+                          } finally {
+                            setSaving(false);
+                          }
+                        }}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -1306,7 +1385,7 @@ function ServicePlacesModal({ row, isAdmin, onClose, onSaved, onError }) {
   );
 }
 
-function PendingFine({ fine, isAdmin, saving, onPaid, onPerson }) {
+function PendingFine({ fine, isAdmin, saving, onPaid, onPerson, onReplace }) {
   const [name, setName] = useState("");
   return (
     <li className="mb-3">
@@ -1316,7 +1395,7 @@ function PendingFine({ fine, isAdmin, saving, onPaid, onPerson }) {
             {formatWhen(fine.occurred_at)}
             {fine.person ? ` · ${fine.person}` : ""}
           </span>
-          <FineFile fine={fine} />
+          <FineFile fine={fine} canEdit={isAdmin} busy={saving} onReplace={onReplace} />
         </span>
         {isAdmin && (
           <button type="button" className="btn btn-sm btn-outline-success" disabled={saving} onClick={onPaid}>Marcar pagada</button>
