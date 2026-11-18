@@ -288,7 +288,7 @@ const SysadminPage = () => {
                           value={String(draft[column.name] || "").slice(0, 16)}
                           onChange={(event) => setField(column.name, event.target.value)}
                         />
-                      ) : ["description", "damage_note", "repair_note", "deletion_reason"].includes(column.name) ? (
+                      ) : ["description", "damage_note", "repair_note", "deletion_reason", "claim_reason", "infraccion"].includes(column.name) ? (
                         <textarea
                           id={`field-${column.name}`}
                           className="form-control"

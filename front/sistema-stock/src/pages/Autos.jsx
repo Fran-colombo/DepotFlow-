@@ -116,6 +116,17 @@ function formatPesos(amount) {
   return `$${Number(amount).toLocaleString("es-AR")}`;
 }
 
+function sumFineAmounts(list) {
+  return (list || []).reduce((total, fine) => {
+    const amount = Number(fine?.amount);
+    return Number.isFinite(amount) ? total + amount : total;
+  }, 0);
+}
+
+function unpaidFines(list) {
+  return (list || []).filter((fine) => fineStatus(fine) !== "pagada");
+}
+
 function voluntaryLabel(value) {
   if (value === true) return "Sí";
   if (value === false) return "No";
@@ -482,7 +493,18 @@ const Autos = () => {
     if (wanted && fineDayKey(fine.occurred_at) !== wanted) return false;
     return true;
   });
-  const activeFineCount = fines.filter((fine) => fineStatus(fine) !== "pagada").length;
+  const unpaidShown = unpaidFines(shownFines);
+  const dueTotal = sumFineAmounts(unpaidShown);
+  const withoutAmount = unpaidShown.filter((fine) => fine.amount == null || fine.amount === "").length;
+  const paidShownTotal = sumFineAmounts(shownFines.filter((fine) => fineStatus(fine) === "pagada"));
+  const activeFines = unpaidFines(fines);
+  const activeFineCount = activeFines.length;
+  const activeDueTotal = sumFineAmounts(activeFines);
+  const fineMoneyCar = autos.find((row) => row.id === fineAutoId);
+  const fineMoneyFilter = [
+    fineAutoId && (fineMoneyCar?.plate || fineMoneyCar?.name),
+    finePerson === "__none__" ? "sin nombre" : finePerson,
+  ].filter(Boolean).join(" · ");
   const finePages = Math.max(1, Math.ceil(shownFines.length / FINES_PER_PAGE));
   const currentFinePage = Math.min(finePage, finePages);
   const pagedFines = shownFines.slice((currentFinePage - 1) * FINES_PER_PAGE, currentFinePage * FINES_PER_PAGE);
@@ -555,7 +577,7 @@ const Autos = () => {
       <div className="d-flex justify-content-end align-items-center mb-3">
         <div className="d-flex gap-2">
           <button type="button" className="btn btn-outline-secondary" onClick={() => setFinesOpen(true)}>
-            Ver multas{activeFineCount > 0 ? ` (${activeFineCount})` : ""}
+            Ver multas{activeFineCount > 0 ? ` (${activeFineCount}${activeDueTotal ? ` · ${formatPesos(activeDueTotal)}` : ""})` : ""}
           </button>
           {isAdmin && (
             <button type="button" className="btn btn-primary" onClick={() => setCreating("auto")}>
@@ -744,6 +766,21 @@ const Autos = () => {
                         ))}
                       </ul>
                     )}
+                  </div>
+                )}
+                {shownFines.length > 0 && (
+                  <div className="border rounded px-3 py-2 mb-3 d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+                    <div>
+                      <div className="small app-muted">Hay que poner{fineMoneyFilter ? ` · ${fineMoneyFilter}` : ""}</div>
+                      <div className="fs-4 fw-semibold">
+                        {dueTotal > 0 ? formatPesos(dueTotal) : withoutAmount ? "Falta cargar precios" : formatPesos(0)}
+                      </div>
+                    </div>
+                    <div className="small app-muted">
+                      {unpaidShown.length === 1 ? "1 multa" : `${unpaidShown.length} multas`}
+                      {withoutAmount ? ` · ${withoutAmount} sin precio` : ""}
+                      {fineScope === "todas" && paidShownTotal > 0 ? ` · pagado ${formatPesos(paidShownTotal)}` : ""}
+                    </div>
                   </div>
                 )}
                 {shownFines.length === 0 ? (
@@ -1187,6 +1224,7 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
   const fines = Array.isArray(row.fines) ? row.fines : [];
   const pending = fines.filter((fine) => fineStatus(fine) !== "pagada");
   const paid = fines.filter((fine) => fineStatus(fine) === "pagada");
+  const pendingDue = sumFineAmounts(pending);
 
   const savePhoto = async (file) => {
     if (!file) return;
@@ -1394,7 +1432,12 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
             {row.kind === "auto" && (
               <div className="mb-3">
                 <div className="d-flex justify-content-between align-items-center">
-                  <div className="fw-semibold">Multas</div>
+                  <div>
+                    <div className="fw-semibold">Multas</div>
+                    {pending.length > 0 && (
+                      <div className="small app-muted">Hay que poner {pendingDue > 0 ? formatPesos(pendingDue) : "sin precios"}</div>
+                    )}
+                  </div>
                   {isAdmin && (
                     <button type="button" className="btn btn-sm btn-outline-primary" onClick={onFine}>Cargar</button>
                   )}

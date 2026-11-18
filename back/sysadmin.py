@@ -151,6 +151,13 @@ ACTION_LABELS = {
     "uso_galpon": "Usado en el galpón",
 }
 
+FINE_STATUS_LABELS = {
+    "a_pagar": "A pagar",
+    "a_reclamar": "A reclamar",
+    "reclamo": "Reclamada",
+    "pagada": "Pagada",
+}
+
 
 def _require_admin(current_user: dict) -> None:
     if not current_user or current_user.get("role") != "sysadmin":
@@ -342,6 +349,8 @@ def _row_summaries(db: Session, key: str, rows) -> dict:
         return _zone_summaries(db, rows)
     if key == "transporte_usos":
         return _transport_use_summaries(db, rows)
+    if key == "transporte_multas":
+        return _transport_fine_summaries(db, rows)
     return {row.id: _summary(_values(key, row)) for row in rows}
 
 
@@ -522,6 +531,28 @@ def _transport_use_summaries(db: Session, rows) -> dict:
     return summaries
 
 
+def _transport_fine_summaries(db: Session, rows) -> dict:
+    transports = _map_by_id(db, models.Transport, [row.transport_id for row in rows])
+    summaries = {}
+    for row in rows:
+        vehicle = transports.get(row.transport_id)
+        plate = ""
+        if vehicle:
+            plate = vehicle.plate or vehicle.name or ""
+        person = (row.person or "").strip() or "Sin quién la hizo"
+        status = FINE_STATUS_LABELS.get((row.status or "").strip(), row.status or "")
+        amount = f"${int(row.amount):,}".replace(",", ".") if row.amount is not None else ""
+        summaries[row.id] = _join_parts(
+            person,
+            plate,
+            _clock(row.occurred_at),
+            status,
+            amount,
+            row.infraccion,
+        )
+    return summaries
+
+
 def _search_filters(db: Session, table: str, model, term: str):
     like = f"%{term}%"
     filters = []
@@ -579,7 +610,7 @@ def _search_filters(db: Session, table: str, model, term: str):
         filters.append(
             model.shed_id.in_(db.query(models.Shed.id).filter(models.Shed.name.ilike(like)))
         )
-    elif table == "transporte_usos":
+    elif table in ("transporte_usos", "transporte_multas"):
         filters.append(
             model.transport_id.in_(
                 db.query(models.Transport.id).filter(
