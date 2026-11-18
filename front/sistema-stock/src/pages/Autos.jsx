@@ -99,6 +99,7 @@ const FINE_STATUSES = [
   { id: "reclamo", label: "Reclamada", badge: "bg-info text-dark" },
   { id: "pagada", label: "Pagada", badge: "bg-success" },
 ];
+const FINES_PER_PAGE = 10;
 
 function fineStatus(fine) {
   if (FINE_STATUSES.some((item) => item.id === fine?.status)) return fine.status;
@@ -416,6 +417,7 @@ const Autos = () => {
   const [selectedFineIds, setSelectedFineIds] = useState([]);
   const [exportingFines, setExportingFines] = useState(false);
   const [claimingFine, setClaimingFine] = useState(null);
+  const [finePage, setFinePage] = useState(1);
   const [feedback, setFeedback] = useState(null);
 
   const load = async () => {
@@ -471,10 +473,13 @@ const Autos = () => {
     return true;
   });
   const activeFineCount = fines.filter((fine) => fineStatus(fine) !== "pagada").length;
-  const shownFineIds = shownFines.map((fine) => fine.id);
+  const finePages = Math.max(1, Math.ceil(shownFines.length / FINES_PER_PAGE));
+  const currentFinePage = Math.min(finePage, finePages);
+  const pagedFines = shownFines.slice((currentFinePage - 1) * FINES_PER_PAGE, currentFinePage * FINES_PER_PAGE);
+  const pagedFineIds = pagedFines.map((fine) => fine.id);
   const selectedFines = fines.filter((fine) => selectedFineIds.includes(fine.id));
-  const selectedShownCount = shownFines.filter((fine) => selectedFineIds.includes(fine.id)).length;
-  const allShownSelected = shownFines.length > 0 && selectedShownCount === shownFines.length;
+  const selectedPagedCount = pagedFines.filter((fine) => selectedFineIds.includes(fine.id)).length;
+  const allPagedSelected = pagedFines.length > 0 && selectedPagedCount === pagedFines.length;
 
   const toggleFine = (id) => {
     setSelectedFineIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -482,8 +487,8 @@ const Autos = () => {
 
   const toggleAllShownFines = () => {
     setSelectedFineIds((prev) => {
-      if (allShownSelected) return prev.filter((id) => !shownFineIds.includes(id));
-      return [...new Set([...prev, ...shownFineIds])];
+      if (allPagedSelected) return prev.filter((id) => !pagedFineIds.includes(id));
+      return [...new Set([...prev, ...pagedFineIds])];
     });
   };
 
@@ -661,14 +666,14 @@ const Autos = () => {
                   <div className="row g-2 flex-grow-1">
                     <div className="col-md-3 col-6">
                       <label className="form-label">Cuáles</label>
-                      <select className="form-select" value={fineScope} onChange={(e) => setFineScope(e.target.value)}>
+                      <select className="form-select" value={fineScope} onChange={(e) => { setFineScope(e.target.value); setFinePage(1); }}>
                         <option value="activas">Activas</option>
                         <option value="todas">Todas</option>
                       </select>
                     </div>
                     <div className="col-md-3 col-6">
                       <label className="form-label">Auto</label>
-                      <PlatePicker autos={autos} value={fineAutoId} onChange={setFineAutoId} allowEmpty placeholder="Todos" />
+                      <PlatePicker autos={autos} value={fineAutoId} onChange={(value) => { setFineAutoId(value); setFinePage(1); }} allowEmpty placeholder="Todos" />
                     </div>
                     <div className="col-md-3 col-6">
                       <label className="form-label">Fecha</label>
@@ -679,13 +684,13 @@ const Autos = () => {
                         value={fineDate}
                         onFocus={selectDatePart}
                         onClick={selectDatePart}
-                        onChange={(e) => setFineDate(e.target.value)}
+                        onChange={(e) => { setFineDate(e.target.value); setFinePage(1); }}
                         onBlur={() => setFineDate(formatDateText(fineDate))}
                       />
                     </div>
                     <div className="col-md-3 col-6">
                       <label className="form-label">Persona</label>
-                      <select className="form-select" value={finePerson} onChange={(e) => setFinePerson(e.target.value)}>
+                      <select className="form-select" value={finePerson} onChange={(e) => { setFinePerson(e.target.value); setFinePage(1); }}>
                         <option value="">Todas</option>
                         {finePeople.map((name) => (
                           <option key={name} value={name}>{name}</option>
@@ -742,7 +747,7 @@ const Autos = () => {
                             <input
                               type="checkbox"
                               className="form-check-input"
-                              checked={allShownSelected}
+                              checked={allPagedSelected}
                               onChange={toggleAllShownFines}
                               aria-label="Seleccionar todas"
                             />
@@ -759,7 +764,7 @@ const Autos = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {shownFines.map((fine) => (
+                        {pagedFines.map((fine) => (
                           <tr key={fine.id}>
                             <td>
                               <input
@@ -814,6 +819,27 @@ const Autos = () => {
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                {shownFines.length > 0 && (
+                  <div className="d-flex justify-content-between align-items-center mt-2">
+                    <span className="small app-muted">
+                      {shownFines.length === 1 ? "1 multa" : `${shownFines.length} multas`}
+                      {finePages > 1 ? ` · ${((currentFinePage - 1) * FINES_PER_PAGE) + 1}–${Math.min(currentFinePage * FINES_PER_PAGE, shownFines.length)}` : ""}
+                    </span>
+                    {finePages > 1 && (
+                      <div className="btn-group btn-group-sm">
+                        <button type="button" className="btn btn-outline-secondary" disabled={currentFinePage <= 1} onClick={() => setFinePage(currentFinePage - 1)}>
+                          Anterior
+                        </button>
+                        <button type="button" className="btn btn-light border" disabled>
+                          {currentFinePage} / {finePages}
+                        </button>
+                        <button type="button" className="btn btn-outline-secondary" disabled={currentFinePage >= finePages} onClick={() => setFinePage(currentFinePage + 1)}>
+                          Siguiente
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -939,7 +965,7 @@ function dayKey(value) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-function formatDay(value) {
+function formatUseDay(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Sin fecha";
   const text = date.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -1040,7 +1066,7 @@ function UseHistory({ row }) {
     const key = dayKey(use.left_at);
     const last = groups[groups.length - 1];
     if (last && last.key === key) last.items.push(use);
-    else groups.push({ key, label: formatDay(use.left_at), items: [use] });
+    else groups.push({ key, label: formatUseDay(use.left_at), items: [use] });
   });
   const filtering = Boolean(person || state || from || to);
   const change = (setter) => (event) => {
