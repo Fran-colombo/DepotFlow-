@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from typing import Annotated, Optional
 from uuid import uuid4
 
@@ -20,6 +20,7 @@ from item_images import (
     delete_stored_image,
     stored_image_path,
 )
+from rosario_multas import RosarioError, fetch_hits, match_hits
 
 router = APIRouter(prefix="/transportes", tags=["transportes"])
 
@@ -68,21 +69,73 @@ def _get_fine(db: Session, fine_id: int) -> models.TransportFine:
     return fine
 
 
+FINE_STATUSES = ("a_pagar", "reclamo", "pagada")
+
+
 def _fine_file_kind(filename: str) -> str:
     if not filename:
         return ""
     return "pdf" if filename.lower().endswith(".pdf") else "image"
 
 
+def _fine_status(fine: models.TransportFine) -> str:
+    status = (getattr(fine, "status", None) or "").strip()
+    if status in FINE_STATUSES:
+        return status
+    return "pagada" if fine.paid else "a_pagar"
+
+
+def _set_fine_status(fine: models.TransportFine, status: str) -> None:
+    value = (status or "").strip()
+    if value not in FINE_STATUSES:
+        raise HTTPException(status_code=400, detail="El estado no es válido")
+    fine.status = value
+    fine.paid = value == "pagada"
+
+
+def _apply_rosario_hit(fine: models.TransportFine, hit: dict) -> None:
+    fine.acta = (hit.get("acta") or "").strip() or None
+    fine.infraccion = (hit.get("infraccion") or "").strip() or None
+    fine.lugar_infraccion = (hit.get("lugar") or "").strip() or None
+    fine.municipal_section = (hit.get("section") or "").strip() or None
+    if "voluntary" in hit:
+        fine.voluntary = hit.get("voluntary")
+    if "amount" in hit:
+        amount = hit.get("amount")
+        fine.amount = None if amount is None else int(amount)
+    fine.consulted_at = datetime.now()
+
+
+def _day(value: str):
+    text = (value or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Indicá la fecha")
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail="La fecha es día/mes/año")
+
+
 def _fine_out(fine: models.TransportFine, row: models.Transport | None = None) -> dict:
     filename = fine.image_filename or ""
     kind = _fine_file_kind(filename)
+    status = _fine_status(fine)
     data = {
         "id": fine.id,
         "transport_id": fine.transport_id,
         "occurred_at": _iso(fine.occurred_at),
         "person": fine.person or "",
-        "paid": bool(fine.paid),
+        "paid": status == "pagada",
+        "status": status,
+        "amount": fine.amount,
+        "voluntary": None if fine.voluntary is None else bool(fine.voluntary),
+        "acta": fine.acta or "",
+        "infraccion": fine.infraccion or "",
+        "lugar_infraccion": fine.lugar_infraccion or "",
+        "municipal_section": fine.municipal_section or "",
+        "consulted_at": _iso(fine.consulted_at),
         "has_file": bool(filename),
         "has_image": kind == "image",
         "file_kind": kind,
@@ -263,6 +316,28 @@ class FinePersonBody(BaseModel):
     person: str
 
 
+class FineUpdateBody(BaseModel):
+    status: Optional[str] = None
+    person: Optional[str] = None
+    amount: Optional[int] = None
+    voluntary: Optional[bool] = None
+    acta: Optional[str] = None
+    infraccion: Optional[str] = None
+    lugar_infraccion: Optional[str] = None
+    municipal_section: Optional[str] = None
+
+
+class RosarioBody(BaseModel):
+    acta: Optional[str] = None
+    occurred_at: Optional[str] = None
+    infraccion: Optional[str] = None
+    lugar: Optional[str] = None
+    section: Optional[str] = None
+    voluntary: Optional[bool] = None
+    amount: Optional[int] = None
+    apply: bool = False
+
+
 class KmBody(BaseModel):
     km: int
 
@@ -391,6 +466,45 @@ def list_fines(
     return [_fine_out(fine, row) for fine, row in rows]
 
 
+@router.get("/usos")
+def list_uses_on_day(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+    fecha: str = "",
+    transport_id: Optional[int] = None,
+):
+    day = _day(fecha)
+    start = datetime.combine(day, time.min)
+    end = start + timedelta(days=1)
+    query = (
+        db.query(models.TransportUse, models.Transport)
+        .join(models.Transport, models.Transport.id == models.TransportUse.transport_id)
+        .filter(
+            models.Transport.kind == "auto",
+            models.TransportUse.left_at < end,
+            or_(
+                models.TransportUse.returned_at.is_(None),
+                models.TransportUse.returned_at >= start,
+            ),
+        )
+    )
+    if transport_id:
+        query = query.filter(models.TransportUse.transport_id == transport_id)
+    rows = query.order_by(models.TransportUse.left_at.asc(), models.TransportUse.id.asc()).all()
+    return [
+        {
+            "id": use.id,
+            "transport_id": row.id,
+            "plate": row.plate or "",
+            "name": row.name,
+            "person": use.person,
+            "left_at": _iso(use.left_at),
+            "returned_at": _iso(use.returned_at),
+        }
+        for use, row in rows
+    ]
+
+
 @router.post("")
 def create_transporte(
     body: CreateBody,
@@ -463,7 +577,7 @@ def read_transporte(
         "last_service_km": row.last_service_km,
         "damage_note": row.damage_note or "",
         "uses": [_use_row(use, names) for use in uses],
-        "fines": [_fine_out(fine) for fine in fines],
+        "fines": [_fine_out(fine, row) for fine in fines],
         "notes": [
             {
                 "id": note.id,
@@ -915,6 +1029,7 @@ def create_fine(
         occurred_at=moment,
         person=person or "",
         paid=False,
+        status="a_pagar",
         use_id=use_id,
     )
     db.add(fine)
@@ -931,9 +1046,42 @@ def pay_fine(
 ):
     _admin(current_user)
     fine = _get_fine(db, fine_id)
-    fine.paid = True
+    _set_fine_status(fine, "pagada")
     db.commit()
     return {"ok": True}
+
+
+@router.put("/multas/{fine_id}")
+def update_fine(
+    fine_id: int,
+    body: FineUpdateBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    _admin(current_user)
+    fine = _get_fine(db, fine_id)
+    if body.status is not None:
+        _set_fine_status(fine, body.status)
+    if body.person is not None:
+        fine.person = (body.person or "").strip()
+    if body.amount is not None:
+        if body.amount < 0:
+            raise HTTPException(status_code=400, detail="El importe no puede ser negativo")
+        fine.amount = body.amount
+    if "voluntary" in body.model_fields_set:
+        fine.voluntary = body.voluntary
+    if body.acta is not None:
+        fine.acta = (body.acta or "").strip() or None
+    if body.infraccion is not None:
+        fine.infraccion = (body.infraccion or "").strip() or None
+    if body.lugar_infraccion is not None:
+        fine.lugar_infraccion = (body.lugar_infraccion or "").strip() or None
+    if body.municipal_section is not None:
+        fine.municipal_section = (body.municipal_section or "").strip() or None
+    db.commit()
+    db.refresh(fine)
+    row = _get(db, fine.transport_id)
+    return _fine_out(fine, row)
 
 
 @router.put("/multas/{fine_id}/persona")
@@ -951,6 +1099,44 @@ def set_fine_person(
     fine.person = person
     db.commit()
     return {"ok": True}
+
+
+@router.post("/multas/{fine_id}/rosario")
+def consult_rosario(
+    fine_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+    body: Optional[RosarioBody] = None,
+):
+    _admin(current_user)
+    fine = _get_fine(db, fine_id)
+    row = _get(db, fine.transport_id)
+    if row.kind != "auto":
+        raise HTTPException(status_code=400, detail="La multa es de un auto")
+    plate = (row.plate or "").strip()
+    if not plate:
+        raise HTTPException(status_code=400, detail="Ese auto no tiene patente")
+    payload = body or RosarioBody()
+    if payload.apply:
+        _apply_rosario_hit(fine, payload.model_dump())
+        db.commit()
+        db.refresh(fine)
+        return {"matched": True, "fine": _fine_out(fine, row), "candidates": []}
+    try:
+        hits = fetch_hits(plate)
+    except RosarioError as exc:
+        raise HTTPException(status_code=502, detail=exc.message) from exc
+    matched, candidates = match_hits(hits, fine.occurred_at)
+    if matched:
+        _apply_rosario_hit(fine, matched)
+        db.commit()
+        db.refresh(fine)
+        return {"matched": True, "fine": _fine_out(fine, row), "candidates": []}
+    return {
+        "matched": False,
+        "fine": _fine_out(fine, row),
+        "candidates": candidates or hits,
+    }
 
 
 @router.post("/multas/{fine_id}/image")

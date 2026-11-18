@@ -418,6 +418,33 @@ body {
   letter-spacing: 0.02em;
 }
 
+.fine-file-preview-sm {
+  width: 36px;
+  height: 32px;
+}
+
+.fine-file-preview-sm .fine-file-pdf {
+  font-size: 0.5rem;
+}
+
+.fine-file-preview-sm .fine-file-pdf .fs-4 {
+  font-size: 1rem !important;
+}
+
+.fine-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #eaecf0;
+  font-size: 0.875rem;
+}
+
+.fine-row:last-child {
+  border-bottom: 0;
+}
+
 table {
   font-size: 0.875rem;
 }

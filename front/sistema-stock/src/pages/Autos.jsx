@@ -21,19 +21,21 @@ import {
   leaveTransporte,
   listFines,
   listTransportes,
+  listUsesOnDay,
   lookupFine,
-  payFine,
+  consultRosario,
   returnTransporte,
   setFinePerson,
   transportImageUrl,
   updateServicePlace,
   updateTransporte,
   updateTransporteKm,
+  updateFine,
   uploadFineFile,
   uploadTransporteImage,
 } from "../api/transportes";
 
-function FineFile({ fine, canEdit = false, busy = false, onReplace }) {
+function FineFile({ fine, canEdit = false, busy = false, onReplace, compact = false }) {
   const inputRef = useRef(null);
   const url = fineFileUrl(fine);
   const kind = fineFileKind(fine);
@@ -63,6 +65,7 @@ function FineFile({ fine, canEdit = false, busy = false, onReplace }) {
   ) : null;
 
   if (!url) {
+    if (compact) return <span className="app-muted">—</span>;
     return canEdit ? <div className="fine-file">{picker}</div> : <span className="app-muted">—</span>;
   }
 
@@ -72,7 +75,7 @@ function FineFile({ fine, canEdit = false, busy = false, onReplace }) {
         href={url}
         target="_blank"
         rel="noreferrer"
-        className="fine-file-preview"
+        className={`fine-file-preview${compact ? " fine-file-preview-sm" : ""}`}
         title={kind === "pdf" ? "Ver PDF" : "Ver foto"}
       >
         {kind === "pdf" ? (
@@ -84,9 +87,49 @@ function FineFile({ fine, canEdit = false, busy = false, onReplace }) {
           <img src={url} alt="Archivo de la multa" />
         )}
       </a>
-      {picker}
+      {!compact && picker}
     </div>
   );
+}
+
+const FINE_STATUSES = [
+  { id: "a_pagar", label: "A pagar", badge: "bg-warning text-dark" },
+  { id: "reclamo", label: "Reclamo en proceso", badge: "bg-info text-dark" },
+  { id: "pagada", label: "Pagada", badge: "bg-success" },
+];
+
+function fineStatus(fine) {
+  if (FINE_STATUSES.some((item) => item.id === fine?.status)) return fine.status;
+  return fine?.paid ? "pagada" : "a_pagar";
+}
+
+function fineStatusMeta(fine) {
+  const id = fineStatus(fine);
+  return FINE_STATUSES.find((item) => item.id === id) || FINE_STATUSES[0];
+}
+
+function formatPesos(amount) {
+  if (amount == null || amount === "") return "—";
+  return `$${Number(amount).toLocaleString("es-AR")}`;
+}
+
+function voluntaryLabel(value) {
+  if (value === true) return "Sí";
+  if (value === false) return "No";
+  return "—";
+}
+
+function fineDayKey(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function parsedDayKey(text) {
+  const date = parseDate(text);
+  if (!date || date.invalid) return "";
+  return `${date.year}-${pad2(date.month)}-${pad2(date.day)}`;
 }
 
 function pad2(n) {
@@ -332,6 +375,11 @@ const Autos = () => {
   const [fines, setFines] = useState([]);
   const [fineScope, setFineScope] = useState("activas");
   const [finePerson, setFinePerson] = useState("");
+  const [fineAutoId, setFineAutoId] = useState("");
+  const [fineDate, setFineDate] = useState("");
+  const [drivers, setDrivers] = useState(null);
+  const [driversBusy, setDriversBusy] = useState(false);
+  const [viewingFine, setViewingFine] = useState(null);
   const [loading, setLoading] = useState(true);
   const [detailId, setDetailId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -340,7 +388,6 @@ const Autos = () => {
   const [creating, setCreating] = useState(null);
   const [fining, setFining] = useState(false);
   const [finesOpen, setFinesOpen] = useState(false);
-  const [fineFileBusy, setFineFileBusy] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
   const load = async () => {
@@ -387,35 +434,42 @@ const Autos = () => {
   const finePeople = [...new Set(fines.map((fine) => fine.person).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
   const hasNameless = fines.some((fine) => !fine.person);
   const shownFines = fines.filter((fine) => {
-    if (fineScope === "activas" && fine.paid) return false;
+    if (fineScope === "activas" && fineStatus(fine) === "pagada") return false;
     if (finePerson === "__none__") return !fine.person;
     if (finePerson && fine.person !== finePerson) return false;
+    if (fineAutoId && fine.transport_id !== fineAutoId) return false;
+    const wanted = parsedDayKey(fineDate);
+    if (wanted && fineDayKey(fine.occurred_at) !== wanted) return false;
     return true;
   });
-  const activeFineCount = fines.filter((fine) => !fine.paid).length;
+  const activeFineCount = fines.filter((fine) => fineStatus(fine) !== "pagada").length;
 
-  const markListed = async (fine) => {
+  const changeFineStatus = async (fine, status) => {
     try {
-      await payFine(fine.id);
+      const updated = await updateFine(fine.id, { status });
       await load();
       if (detailId) await openDetail(detailId);
-      tell("success", "Quedó pagada.");
+      if (viewingFine?.id === fine.id) setViewingFine(updated);
+      tell("success", "Quedó el estado.");
     } catch (err) {
-      tell("error", err.message || "No se pudo marcar");
+      tell("error", err.message || "No se pudo actualizar el estado");
     }
   };
 
-  const replaceListedFile = async (fine, file) => {
-    setFineFileBusy(fine.id);
+  const searchDrivers = async () => {
+    const date = formatDateText(fineDate);
+    if (!parsedDayKey(date)) {
+      tell("error", "Indicá la fecha para buscar quién manejaba");
+      return;
+    }
+    setDriversBusy(true);
     try {
-      await uploadFineFile(fine.id, file);
-      await load();
-      if (detailId) await openDetail(detailId);
-      tell("success", "Quedó el archivo.");
+      const data = await listUsesOnDay(date, fineAutoId || undefined);
+      setDrivers(Array.isArray(data) ? data : []);
     } catch (err) {
-      tell("error", err.message || "No se pudo actualizar el archivo");
+      tell("error", err.message || "No se pudo buscar quién manejaba");
     } finally {
-      setFineFileBusy(null);
+      setDriversBusy(false);
     }
   };
 
@@ -536,7 +590,7 @@ const Autos = () => {
 
       {finesOpen && (
         <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1050 }} onClick={() => setFinesOpen(false)}>
-          <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title mb-0">Multas</h5>
@@ -545,14 +599,31 @@ const Autos = () => {
               <div className="modal-body">
                 <div className="d-flex flex-wrap align-items-end gap-2 mb-3">
                   <div className="row g-2 flex-grow-1">
-                    <div className="col-md-6">
+                    <div className="col-md-3 col-6">
                       <label className="form-label">Cuáles</label>
                       <select className="form-select" value={fineScope} onChange={(e) => setFineScope(e.target.value)}>
                         <option value="activas">Activas</option>
                         <option value="todas">Todas</option>
                       </select>
                     </div>
-                    <div className="col-md-6">
+                    <div className="col-md-3 col-6">
+                      <label className="form-label">Auto</label>
+                      <PlatePicker autos={autos} value={fineAutoId} onChange={setFineAutoId} allowEmpty placeholder="Todos" />
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <label className="form-label">Fecha</label>
+                      <input
+                        className="form-control"
+                        inputMode="decimal"
+                        placeholder="15/10/2026"
+                        value={fineDate}
+                        onFocus={selectDatePart}
+                        onClick={selectDatePart}
+                        onChange={(e) => setFineDate(e.target.value)}
+                        onBlur={() => setFineDate(formatDateText(fineDate))}
+                      />
+                    </div>
+                    <div className="col-md-3 col-6">
                       <label className="form-label">Persona</label>
                       <select className="form-select" value={finePerson} onChange={(e) => setFinePerson(e.target.value)}>
                         <option value="">Todas</option>
@@ -563,28 +634,47 @@ const Autos = () => {
                       </select>
                     </div>
                   </div>
+                  <button type="button" className="btn btn-outline-secondary" disabled={driversBusy} onClick={searchDrivers}>
+                    Quién manejaba
+                  </button>
                   {isAdmin && (
-                    <button
-                      type="button"
-                      className="btn btn-primary ms-auto"
-                      onClick={() => setFining("list")}
-                    >
+                    <button type="button" className="btn btn-primary" onClick={() => setFining("list")}>
                       Cargar multa
                     </button>
                   )}
                 </div>
+                {drivers && (
+                  <div className="border rounded p-2 mb-3 small">
+                    <div className="d-flex justify-content-between align-items-center mb-1">
+                      <div className="fw-semibold">Quién manejaba el {formatDateText(fineDate) || "ese día"}</div>
+                      <button type="button" className="btn-close btn-close-sm" aria-label="Cerrar" onClick={() => setDrivers(null)}></button>
+                    </div>
+                    {drivers.length === 0 ? (
+                      <div className="app-muted">Nadie tiene un auto cargado ese día.</div>
+                    ) : (
+                      <ul className="list-unstyled mb-0">
+                        {drivers.map((use) => (
+                          <li key={use.id}>
+                            {use.plate} · {use.name} · {use.person} · {formatWhen(use.left_at)}
+                            {use.returned_at ? ` → ${formatWhen(use.returned_at)}` : " → sigue afuera"}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 {shownFines.length === 0 ? (
                   <p className="app-muted mb-0">No hay multas con ese filtro.</p>
                 ) : (
                   <div className="table-responsive">
-                    <table className="table table-bordered align-middle mb-0">
+                    <table className="table table-sm table-bordered align-middle mb-0">
                       <thead>
                         <tr>
                           <th>Fecha</th>
-                          <th>Patente</th>
                           <th>Auto</th>
                           <th>Persona</th>
-                          <th>Archivo</th>
+                          <th>$</th>
+                          <th>Voluntario</th>
                           <th>Estado</th>
                           <th></th>
                         </tr>
@@ -593,11 +683,11 @@ const Autos = () => {
                         {shownFines.map((fine) => (
                           <tr key={fine.id}>
                             <td>{formatWhen(fine.occurred_at)}</td>
-                            <td>{fine.plate}</td>
                             <td>
+                              <div>{fine.plate}</div>
                               <button
                                 type="button"
-                                className="btn btn-link p-0"
+                                className="btn btn-link p-0 small"
                                 onClick={() => {
                                   setFinesOpen(false);
                                   openDetail(fine.transport_id).catch((err) => tell("error", err.message));
@@ -606,20 +696,28 @@ const Autos = () => {
                                 {fine.name}
                               </button>
                             </td>
-                            <td>{fine.person || "Falta quién la manejaba"}</td>
+                            <td>{fine.person || "Falta quién"}</td>
+                            <td>{formatPesos(fine.amount)}</td>
+                            <td>{voluntaryLabel(fine.voluntary)}</td>
                             <td>
-                              <FineFile
-                                fine={fine}
-                                canEdit={isAdmin}
-                                busy={fineFileBusy === fine.id}
-                                onReplace={(file) => replaceListedFile(fine, file)}
-                              />
-                            </td>
-                            <td>{fine.paid ? "Pagada" : "A pagar"}</td>
-                            <td>
-                              {isAdmin && !fine.paid && (
-                                <button type="button" className="btn btn-sm btn-outline-success" onClick={() => markListed(fine)}>Marcar pagada</button>
+                              {isAdmin ? (
+                                <select
+                                  className="form-select form-select-sm"
+                                  value={fineStatus(fine)}
+                                  onChange={(e) => changeFineStatus(fine, e.target.value)}
+                                >
+                                  {FINE_STATUSES.map((item) => (
+                                    <option key={item.id} value={item.id}>{item.label}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className={`badge ${fineStatusMeta(fine).badge}`}>{fineStatusMeta(fine).label}</span>
                               )}
+                            </td>
+                            <td>
+                              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setViewingFine(fine)}>
+                                Ver
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -631,6 +729,22 @@ const Autos = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {viewingFine && (
+        <FineDetailModal
+          fine={viewingFine}
+          isAdmin={isAdmin}
+          onClose={() => setViewingFine(null)}
+          onChange={(next) => setViewingFine(next)}
+          onSaved={async (message, next) => {
+            if (next) setViewingFine(next);
+            await load();
+            if (detailId) await openDetail(detailId);
+            tell("success", message);
+          }}
+          onError={(message) => tell("error", message)}
+        />
       )}
 
       {detail && (
@@ -646,6 +760,7 @@ const Autos = () => {
           onPass={() => setMove({ id: detail.id, kind: detail.kind, action: "handover", row: detail })}
           onPastUse={() => setPastUse(detail)}
           onFine={() => setFining("detail")}
+          onOpenFine={(fine) => setViewingFine(fine)}
           onSaved={async (message) => {
             await refreshDetail();
             tell("success", message);
@@ -918,7 +1033,7 @@ function UseHistory({ row }) {
   );
 }
 
-function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, onFine, onSaved, onError }) {
+function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, onFine, onOpenFine, onSaved, onError }) {
   const [shownNotes, setShownNotes] = useState(3);
   const [note, setNote] = useState("");
   const [noteBy, setNoteBy] = useState("");
@@ -937,8 +1052,8 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
   });
   const notes = Array.isArray(row.notes) ? row.notes : [];
   const fines = Array.isArray(row.fines) ? row.fines : [];
-  const pending = fines.filter((fine) => !fine.paid);
-  const paid = fines.filter((fine) => fine.paid);
+  const pending = fines.filter((fine) => fineStatus(fine) !== "pagada");
+  const paid = fines.filter((fine) => fineStatus(fine) === "pagada");
 
   const savePhoto = async (file) => {
     if (!file) return;
@@ -999,18 +1114,6 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
       await onSaved("Se anotó.");
     } catch (err) {
       onError(err.message || "No se pudo anotar");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const markPaid = async (fine) => {
-    setSaving(true);
-    try {
-      await payFine(fine.id);
-      await onSaved("Quedó pagada.");
-    } catch (err) {
-      onError(err.message || "No se pudo marcar");
     } finally {
       setSaving(false);
     }
@@ -1157,66 +1260,20 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
 
             {row.kind === "auto" && (
               <div className="mb-3">
-                <div className="fw-semibold">Multas a pagar</div>
-                {pending.length === 0 && <div className="app-muted small">No hay.</div>}
-                <ul className="list-unstyled">
-                  {pending.map((fine) => (
-                    <PendingFine
-                      key={fine.id}
-                      fine={fine}
-                      isAdmin={isAdmin}
-                      saving={saving}
-                      onPaid={() => markPaid(fine)}
-                      onReplace={async (file) => {
-                        setSaving(true);
-                        try {
-                          await uploadFineFile(fine.id, file);
-                          await onSaved("Quedó el archivo.");
-                        } catch (err) {
-                          onError(err.message || "No se pudo actualizar el archivo");
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                      onPerson={async (name) => {
-                        setSaving(true);
-                        try {
-                          await setFinePerson(fine.id, name);
-                          await onSaved("Quedó quién la manejaba.");
-                        } catch (err) {
-                          onError(err.message || "No se pudo completar");
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                    />
-                  ))}
-                </ul>
-                <div className="fw-semibold">Pagadas</div>
-                {paid.length === 0 && <div className="app-muted small">No hay.</div>}
-                <ul className="list-unstyled">
-                  {paid.map((fine) => (
-                    <li key={fine.id} className="d-flex align-items-center gap-2 mb-1">
-                      <span>{formatWhen(fine.occurred_at)} · {fine.person || "Falta quién la manejaba"}</span>
-                      <FineFile
-                        fine={fine}
-                        canEdit={isAdmin}
-                        busy={saving}
-                        onReplace={async (file) => {
-                          setSaving(true);
-                          try {
-                            await uploadFineFile(fine.id, file);
-                            await onSaved("Quedó el archivo.");
-                          } catch (err) {
-                            onError(err.message || "No se pudo actualizar el archivo");
-                          } finally {
-                            setSaving(false);
-                          }
-                        }}
-                      />
-                    </li>
-                  ))}
-                </ul>
+                <div className="d-flex justify-content-between align-items-center">
+                  <div className="fw-semibold">Multas</div>
+                  {isAdmin && (
+                    <button type="button" className="btn btn-sm btn-outline-primary" onClick={onFine}>Cargar</button>
+                  )}
+                </div>
+                {fines.length === 0 && <div className="app-muted small">No hay.</div>}
+                {pending.map((fine) => (
+                  <FineSummaryRow key={fine.id} fine={fine} onOpen={() => onOpenFine?.(fine)} />
+                ))}
+                {paid.length > 0 && <div className="fw-semibold small mt-2">Pagadas</div>}
+                {paid.map((fine) => (
+                  <FineSummaryRow key={fine.id} fine={fine} onOpen={() => onOpenFine?.(fine)} />
+                ))}
               </div>
             )}
 
@@ -1390,36 +1447,229 @@ function ServicePlacesModal({ row, isAdmin, onClose, onSaved, onError }) {
   );
 }
 
-function PendingFine({ fine, isAdmin, saving, onPaid, onPerson, onReplace }) {
-  const [name, setName] = useState("");
+function FineSummaryRow({ fine, onOpen }) {
+  const meta = fineStatusMeta(fine);
   return (
-    <li className="mb-3">
-      <div className="d-flex justify-content-between gap-2">
-        <span className="d-flex align-items-center gap-2">
-          <span>
-            {formatWhen(fine.occurred_at)}
-            {fine.person ? ` · ${fine.person}` : ""}
-          </span>
-          <FineFile fine={fine} canEdit={isAdmin} busy={saving} onReplace={onReplace} />
-        </span>
-        {isAdmin && (
-          <button type="button" className="btn btn-sm btn-outline-success" disabled={saving} onClick={onPaid}>Marcar pagada</button>
-        )}
-      </div>
-      {!fine.person && (
-        <div className="mt-1">
-          <div className="small text-danger">Pendiente completar quién la manejaba.</div>
-          {isAdmin && (
-            <div className="d-flex gap-2 mt-1">
-              <div className="flex-grow-1">
-                <PersonPicker value={name} onChange={setName} disabled={saving} />
-              </div>
-              <button type="button" className="btn btn-sm btn-outline-primary" disabled={saving || !name.trim()} onClick={() => onPerson(name.trim())}>Completar</button>
+    <div className="fine-row">
+      <span>{formatWhen(fine.occurred_at)}</span>
+      <span>{fine.person || "Falta quién"}</span>
+      <FineFile fine={fine} compact />
+      <span className={`badge ${meta.badge}`}>{meta.label}</span>
+      <span>{formatPesos(fine.amount)}</span>
+      <button type="button" className="btn btn-sm btn-link p-0 ms-auto" onClick={onOpen}>Ver</button>
+    </div>
+  );
+}
+
+function FineDetailModal({ fine, isAdmin, onClose, onChange, onSaved, onError }) {
+  const [saving, setSaving] = useState(false);
+  const [manual, setManual] = useState("");
+  const [matches, setMatches] = useState(null);
+  const [choice, setChoice] = useState("");
+  const [other, setOther] = useState(false);
+  const [candidates, setCandidates] = useState([]);
+  const meta = fineStatusMeta(fine);
+
+  const run = async (work, message) => {
+    setSaving(true);
+    try {
+      const next = await work();
+      await onSaved(message, next);
+    } catch (err) {
+      onError(err.message || "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const searchDriver = async () => {
+    setSaving(true);
+    setMatches(null);
+    setChoice("");
+    setOther(false);
+    try {
+      const data = await lookupFine(fine.transport_id, fine.occurred_at);
+      const found = Array.isArray(data?.matches) ? data.matches : [];
+      setMatches(found);
+      if (found.length === 1) setChoice(String(found[0].id));
+    } catch (err) {
+      onError(err.message || "No se pudo buscar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const savePerson = async () => {
+    let person = manual.trim();
+    if (matches && matches.length > 0 && !other) {
+      const picked = matches.length === 1 ? matches[0] : matches.find((item) => String(item.id) === choice);
+      if (!picked) {
+        onError("Elegí quién la hizo");
+        return;
+      }
+      person = picked.person;
+    }
+    if (!person) {
+      onError("Escribí o elegí quién la manejaba");
+      return;
+    }
+    await run(() => setFinePerson(fine.id, person).then(() => updateFine(fine.id, {})), "Quedó quién la manejaba.");
+  };
+
+  const consult = async () => {
+    setSaving(true);
+    try {
+      const data = await consultRosario(fine.id, {});
+      if (data?.fine) onChange(data.fine);
+      if (data?.matched) {
+        await onSaved("Quedaron los datos de Rosario.", data.fine);
+        setCandidates([]);
+      } else {
+        setCandidates(Array.isArray(data?.candidates) ? data.candidates : []);
+        if (!data?.candidates?.length) onError("Rosario no trajo un acta para esa fecha. Cargá los datos a mano.");
+      }
+    } catch (err) {
+      onError(err.message || "No se pudo consultar Rosario");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const applyCandidate = async (hit) => {
+    await run(
+      () => consultRosario(fine.id, { apply: true, ...hit }).then((data) => data.fine),
+      "Quedó el acta de Rosario.",
+    );
+    setCandidates([]);
+  };
+
+  const consulted = fine.consulted_at ? formatWhen(fine.consulted_at) : "";
+
+  return (
+    <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1080 }} onClick={onClose}>
+      <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title mb-0">Multa {fine.plate || ""}</h5>
+            <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={onClose}></button>
+          </div>
+          <div className="modal-body">
+            <div className="mb-2"><span className="fw-semibold">Fecha:</span> {formatWhen(fine.occurred_at)}</div>
+            <div className="mb-2"><span className="fw-semibold">Auto:</span> {fine.plate} {fine.name ? `· ${fine.name}` : ""}</div>
+            <div className="mb-3">
+              <span className="fw-semibold">Persona:</span> {fine.person || "Falta quién la manejaba"}
+              {isAdmin && !fine.person && (
+                <div className="mt-2">
+                  <button type="button" className="btn btn-sm btn-outline-primary mb-2" disabled={saving} onClick={searchDriver}>
+                    Buscar quién lo manejaba
+                  </button>
+                  {matches && matches.length === 0 && (
+                    <PersonPicker value={manual} onChange={setManual} disabled={saving} />
+                  )}
+                  {matches && matches.length === 1 && !other && (
+                    <div>
+                      <p className="mb-1">En ese momento manejaba {matches[0].person}.</p>
+                      <button type="button" className="btn btn-link p-0" onClick={() => setOther(true)}>Escribir otro</button>
+                    </div>
+                  )}
+                  {matches && matches.length === 1 && other && (
+                    <PersonPicker value={manual} onChange={setManual} disabled={saving} />
+                  )}
+                  {matches && matches.length > 1 && (
+                    <div>
+                      {matches.map((item) => (
+                        <div className="form-check" key={item.id}>
+                          <input
+                            id={`detail-fine-${item.id}`}
+                            type="radio"
+                            className="form-check-input"
+                            name="detail-fine-person"
+                            checked={!other && choice === String(item.id)}
+                            onChange={() => { setChoice(String(item.id)); setOther(false); }}
+                          />
+                          <label className="form-check-label" htmlFor={`detail-fine-${item.id}`}>{item.person}</label>
+                        </div>
+                      ))}
+                      <div className="form-check">
+                        <input id="detail-fine-other" type="radio" className="form-check-input" name="detail-fine-person" checked={other} onChange={() => { setOther(true); setChoice(""); }} />
+                        <label className="form-check-label" htmlFor="detail-fine-other">Escribir otro</label>
+                      </div>
+                      {other && <div className="mt-2"><PersonPicker value={manual} onChange={setManual} disabled={saving} /></div>}
+                    </div>
+                  )}
+                  {matches && (
+                    <button type="button" className="btn btn-sm btn-primary mt-2" disabled={saving} onClick={savePerson}>
+                      Completar
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          )}
+            <div className="mb-3">
+              <div className="fw-semibold mb-1">Archivo</div>
+              <FineFile
+                fine={fine}
+                canEdit={isAdmin}
+                busy={saving}
+                onReplace={(file) => run(async () => {
+                  await uploadFineFile(fine.id, file);
+                  return updateFine(fine.id, {});
+                }, "Quedó el archivo.")}
+              />
+            </div>
+            <div className="mb-3">
+              <label className="form-label">Estado</label>
+              {isAdmin ? (
+                <select
+                  className="form-select"
+                  value={fineStatus(fine)}
+                  disabled={saving}
+                  onChange={(e) => run(() => updateFine(fine.id, { status: e.target.value }), "Quedó el estado.")}
+                >
+                  {FINE_STATUSES.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+              ) : (
+                <div><span className={`badge ${meta.badge}`}>{meta.label}</span></div>
+              )}
+            </div>
+            <div className="mb-2"><span className="fw-semibold">Precio:</span> {formatPesos(fine.amount)}</div>
+            <div className="mb-2"><span className="fw-semibold">Pago voluntario:</span> {voluntaryLabel(fine.voluntary)}</div>
+            {consulted && <div className="app-muted small mb-2">Consultado el {consulted}</div>}
+            {fine.acta && <div className="mb-1"><span className="fw-semibold">Acta:</span> {fine.acta}</div>}
+            {fine.infraccion && <div className="mb-1"><span className="fw-semibold">Infracción:</span> {fine.infraccion}</div>}
+            {fine.lugar_infraccion && <div className="mb-1"><span className="fw-semibold">Lugar:</span> {fine.lugar_infraccion}</div>}
+            {fine.municipal_section && <div className="mb-1"><span className="fw-semibold">En Rosario:</span> {fine.municipal_section}</div>}
+            {isAdmin && (
+              <button type="button" className="btn btn-outline-primary mt-2" disabled={saving} onClick={consult}>
+                {saving ? "Consultando…" : "Consultar Rosario"}
+              </button>
+            )}
+            {candidates.length > 0 && (
+              <div className="mt-3">
+                <div className="fw-semibold mb-2">Elegí el acta</div>
+                {candidates.map((hit) => (
+                  <div key={`${hit.acta}-${hit.occurred_at}`} className="border rounded p-2 mb-2">
+                    <div>{hit.acta || "Sin acta"} · {hit.occurred_display || formatWhen(hit.occurred_at)}</div>
+                    {hit.infraccion && <div className="small">{hit.infraccion}</div>}
+                    <div className="small">{formatPesos(hit.amount)} · Voluntario: {voluntaryLabel(hit.voluntary)}</div>
+                    {isAdmin && (
+                      <button type="button" className="btn btn-sm btn-primary mt-1" disabled={saving} onClick={() => applyCandidate(hit)}>
+                        Usar esta
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-outline-secondary" onClick={onClose}>Cerrar</button>
+          </div>
         </div>
-      )}
-    </li>
+      </div>
+    </div>
   );
 }
 

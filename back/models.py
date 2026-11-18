@@ -272,6 +272,14 @@ class TransportFine(Base):
     paid = Column(Boolean, default=False, nullable=False)
     use_id = Column(Integer, ForeignKey("transporte_usos.id"), nullable=True)
     image_filename = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="a_pagar")
+    amount = Column(Integer, nullable=True)
+    voluntary = Column(Boolean, nullable=True)
+    acta = Column(String, nullable=True)
+    infraccion = Column(String, nullable=True)
+    lugar_infraccion = Column(String, nullable=True)
+    municipal_section = Column(String, nullable=True)
+    consulted_at = Column(DateTime, nullable=True)
 
 
 class TransportNote(Base):

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const PlatePicker = ({ autos, value, onChange, disabled = false }) => {
+const PlatePicker = ({ autos, value, onChange, disabled = false, allowEmpty = false, placeholder = "Elegir patente" }) => {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef(null);
@@ -39,9 +39,15 @@ const PlatePicker = ({ autos, value, onChange, disabled = false }) => {
     setOpen(false);
   };
 
+  const chooseEmpty = () => {
+    onChange("");
+    setQuery("");
+    setOpen(false);
+  };
+
   const label = selected
     ? `${selected.plate || "Sin patente"}${selected.name ? ` · ${selected.name}` : ""}`
-    : "Elegir patente";
+    : placeholder;
 
   return (
     <div className="obra-picker" ref={rootRef}>
@@ -70,6 +76,17 @@ const PlatePicker = ({ autos, value, onChange, disabled = false }) => {
             }}
           />
           <div className="obra-picker-list" role="listbox" aria-label="Patente">
+            {allowEmpty && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={!selected}
+                className={`obra-picker-option${!selected ? " is-selected" : ""}`}
+                onClick={chooseEmpty}
+              >
+                <span className="obra-picker-name">{placeholder}</span>
+              </button>
+            )}
             {filtered.length === 0 ? (
               <div className="obra-picker-empty">No hay autos con esa patente</div>
             ) : (

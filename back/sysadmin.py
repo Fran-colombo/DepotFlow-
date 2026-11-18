@@ -117,6 +117,13 @@ COLUMN_LABELS = {
     "external_vehicle": "Auto de afuera",
     "occurred_at": "Fecha de la multa",
     "paid": "Pagada",
+    "amount": "Importe",
+    "voluntary": "Pago voluntario",
+    "acta": "Acta",
+    "infraccion": "Infracción",
+    "lugar_infraccion": "Lugar de la infracción",
+    "municipal_section": "Sección municipal",
+    "consulted_at": "Consultado en Rosario",
     "use_id": "Uso",
 }
 

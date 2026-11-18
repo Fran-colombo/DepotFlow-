@@ -329,6 +329,14 @@ def ensure_inventory_schema():
                 paid BOOLEAN NOT NULL DEFAULT 0,
                 use_id INTEGER,
                 image_filename VARCHAR,
+                status VARCHAR NOT NULL DEFAULT 'a_pagar',
+                amount INTEGER,
+                voluntary BOOLEAN,
+                acta VARCHAR,
+                infraccion VARCHAR,
+                lugar_infraccion VARCHAR,
+                municipal_section VARCHAR,
+                consulted_at DATETIME,
                 FOREIGN KEY(transport_id) REFERENCES transportes (id),
                 FOREIGN KEY(use_id) REFERENCES transporte_usos (id)
             )
@@ -338,6 +346,29 @@ def ensure_inventory_schema():
         ))
         if _column_exists("transporte_multas", "id") and not _column_exists("transporte_multas", "image_filename"):
             conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN image_filename VARCHAR"))
+        if _column_exists("transporte_multas", "id"):
+            if not _column_exists("transporte_multas", "status"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN status VARCHAR NOT NULL DEFAULT 'a_pagar'"))
+            if not _column_exists("transporte_multas", "amount"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN amount INTEGER"))
+            if not _column_exists("transporte_multas", "voluntary"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN voluntary BOOLEAN"))
+            if not _column_exists("transporte_multas", "acta"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN acta VARCHAR"))
+            if not _column_exists("transporte_multas", "infraccion"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN infraccion VARCHAR"))
+            if not _column_exists("transporte_multas", "lugar_infraccion"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN lugar_infraccion VARCHAR"))
+            if not _column_exists("transporte_multas", "municipal_section"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN municipal_section VARCHAR"))
+            if not _column_exists("transporte_multas", "consulted_at"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN consulted_at DATETIME"))
+            conn.execute(text(
+                "UPDATE transporte_multas SET status = 'pagada' WHERE paid = 1 AND (status IS NULL OR status = '' OR status = 'a_pagar')"
+            ))
+            conn.execute(text(
+                "UPDATE transporte_multas SET status = 'a_pagar' WHERE (paid = 0 OR paid IS NULL) AND (status IS NULL OR status = '')"
+            ))
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS transporte_notas (
                 id INTEGER NOT NULL PRIMARY KEY,

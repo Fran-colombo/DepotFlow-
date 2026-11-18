@@ -116,12 +116,34 @@ export function payFine(id) {
   return apiFetch(`/transportes/multas/${id}/pagar`, { method: "POST" });
 }
 
+export function updateFine(id, data) {
+  return apiFetch(`/transportes/multas/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export function setFinePerson(id, person) {
   return apiFetch(`/transportes/multas/${id}/persona`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ person }),
   });
+}
+
+export function consultRosario(id, data = {}) {
+  return apiFetch(`/transportes/multas/${id}/rosario`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function listUsesOnDay(fecha, transportId) {
+  const params = new URLSearchParams({ fecha });
+  if (transportId) params.set("transport_id", String(transportId));
+  return apiFetch(`/transportes/usos?${params.toString()}`);
 }
 
 export function transportImageUrl(row) {
