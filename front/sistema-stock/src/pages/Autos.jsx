@@ -24,6 +24,7 @@ import {
   listUsesOnDay,
   lookupFine,
   consultRosario,
+  exportFines,
   returnTransporte,
   setFinePerson,
   transportImageUrl,
@@ -292,6 +293,29 @@ function formatWhen(value) {
   });
 }
 
+function formatDay(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function isoToDateText(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
+function dateTextToIso(text, label) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  const date = parseDate(raw);
+  if (!date) throw new Error(`${label} es día/mes/año`);
+  if (date.invalid) throw new Error(`Esa ${label.toLowerCase()} no existe`);
+  return `${date.year}-${pad2(date.month)}-${pad2(date.day)}`;
+}
+
 function optionalKm(value) {
   const text = String(value ?? "").trim();
   if (!text) return null;
@@ -389,6 +413,9 @@ const Autos = () => {
   const [creating, setCreating] = useState(null);
   const [fining, setFining] = useState(false);
   const [finesOpen, setFinesOpen] = useState(false);
+  const [selectedFineIds, setSelectedFineIds] = useState([]);
+  const [exportingFines, setExportingFines] = useState(false);
+  const [claimingFine, setClaimingFine] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
   const load = async () => {
@@ -444,10 +471,42 @@ const Autos = () => {
     return true;
   });
   const activeFineCount = fines.filter((fine) => fineStatus(fine) !== "pagada").length;
+  const shownFineIds = shownFines.map((fine) => fine.id);
+  const selectedFines = fines.filter((fine) => selectedFineIds.includes(fine.id));
+  const selectedShownCount = shownFines.filter((fine) => selectedFineIds.includes(fine.id)).length;
+  const allShownSelected = shownFines.length > 0 && selectedShownCount === shownFines.length;
 
-  const changeFineStatus = async (fine, status) => {
+  const toggleFine = (id) => {
+    setSelectedFineIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
+
+  const toggleAllShownFines = () => {
+    setSelectedFineIds((prev) => {
+      if (allShownSelected) return prev.filter((id) => !shownFineIds.includes(id));
+      return [...new Set([...prev, ...shownFineIds])];
+    });
+  };
+
+  const exportSelectedFines = async () => {
+    if (!selectedFines.length || exportingFines) return;
+    setExportingFines(true);
     try {
-      const updated = await updateFine(fine.id, { status });
+      await exportFines(selectedFines.map((fine) => fine.id));
+    } catch (err) {
+      tell("error", err.message || "No se pudo exportar");
+    } finally {
+      setExportingFines(false);
+    }
+  };
+
+  const changeFineStatus = async (fine, status, extra = {}) => {
+    if (status === "a_reclamar" && extra.claim_reason == null) {
+      setClaimingFine(fine);
+      return;
+    }
+    try {
+      const updated = await updateFine(fine.id, { status, ...extra });
+      setClaimingFine(null);
       await load();
       if (detailId) await openDetail(detailId);
       if (viewingFine?.id === fine.id) setViewingFine(updated);
@@ -638,6 +697,14 @@ const Autos = () => {
                   <button type="button" className="btn btn-outline-secondary" disabled={driversBusy} onClick={searchDrivers}>
                     Quién manejaba
                   </button>
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary"
+                    disabled={!selectedFines.length || exportingFines}
+                    onClick={exportSelectedFines}
+                  >
+                    {exportingFines ? "Exportando…" : `Exportar${selectedFines.length ? ` (${selectedFines.length})` : ""}`}
+                  </button>
                   {isAdmin && (
                     <button type="button" className="btn btn-primary" onClick={() => setFining("list")}>
                       Cargar multa
@@ -671,12 +738,22 @@ const Autos = () => {
                     <table className="table table-sm table-bordered align-middle mb-0">
                       <thead>
                         <tr>
+                          <th style={{ width: 36 }}>
+                            <input
+                              type="checkbox"
+                              className="form-check-input"
+                              checked={allShownSelected}
+                              onChange={toggleAllShownFines}
+                              aria-label="Seleccionar todas"
+                            />
+                          </th>
                           <th>Fecha</th>
                           <th>Auto</th>
                           <th>Persona</th>
                           <th>Ubicación</th>
                           <th>$</th>
                           <th>Voluntario</th>
+                          <th>Vence</th>
                           <th>Estado</th>
                           <th></th>
                         </tr>
@@ -684,6 +761,15 @@ const Autos = () => {
                       <tbody>
                         {shownFines.map((fine) => (
                           <tr key={fine.id}>
+                            <td>
+                              <input
+                                type="checkbox"
+                                className="form-check-input"
+                                checked={selectedFineIds.includes(fine.id)}
+                                onChange={() => toggleFine(fine.id)}
+                                aria-label={`Seleccionar multa ${fine.plate || fine.id}`}
+                              />
+                            </td>
                             <td>{formatWhen(fine.occurred_at)}</td>
                             <td>
                               <div>{fine.plate}</div>
@@ -702,11 +788,13 @@ const Autos = () => {
                             <td className="small">{fine.lugar_infraccion || "—"}</td>
                             <td>{formatPesos(fine.amount)}</td>
                             <td>{voluntaryLabel(fine.voluntary)}</td>
+                            <td>{formatDay(fine.due_at)}</td>
                             <td>
                               {isAdmin ? (
                                 <select
                                   className="form-select form-select-sm"
                                   value={fineStatus(fine)}
+                                  title={fine.claim_reason || undefined}
                                   onChange={(e) => changeFineStatus(fine, e.target.value)}
                                 >
                                   {FINE_STATUSES.map((item) => (
@@ -714,7 +802,7 @@ const Autos = () => {
                                   ))}
                                 </select>
                               ) : (
-                                <span className={`badge ${fineStatusMeta(fine).badge}`}>{fineStatusMeta(fine).label}</span>
+                                <span className={`badge ${fineStatusMeta(fine).badge}`} title={fine.claim_reason || undefined}>{fineStatusMeta(fine).label}</span>
                               )}
                             </td>
                             <td>
@@ -745,6 +833,14 @@ const Autos = () => {
             await load();
             if (detailId) await openDetail(detailId);
           }}
+        />
+      )}
+
+      {claimingFine && (
+        <ClaimReasonModal
+          fine={claimingFine}
+          onClose={() => setClaimingFine(null)}
+          onSave={(reason) => changeFineStatus(claimingFine, "a_reclamar", { claim_reason: reason })}
         />
       )}
 
@@ -1455,6 +1551,8 @@ function FineSummaryRow({ fine, onOpen }) {
       <span>{formatWhen(fine.occurred_at)}</span>
       <span>{fine.person || "Falta quién"}</span>
       {fine.lugar_infraccion && <span className="app-muted">{fine.lugar_infraccion}</span>}
+      {fine.due_at && <span className="app-muted">Vence {formatDay(fine.due_at)}</span>}
+      {fine.claim_reason && <span className="app-muted" title={fine.claim_reason}>Motivo: {fine.claim_reason}</span>}
       <FineFile fine={fine} compact />
       <span className={`badge ${meta.badge}`}>{meta.label}</span>
       <span>{formatPesos(fine.amount)}</span>
@@ -1473,12 +1571,16 @@ function draftFromFine(fine) {
     acta: fine.acta || "",
     infraccion: fine.infraccion || "",
     municipal_section: fine.municipal_section || "",
+    issued: isoToDateText(fine.issued_at),
+    due: isoToDateText(fine.due_at),
+    reason: fine.claim_reason || "",
   };
 }
 
 function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [savedOpen, setSavedOpen] = useState(false);
   const [draft, setDraft] = useState(() => draftFromFine(fine));
   const [matches, setMatches] = useState(null);
   const [choice, setChoice] = useState("");
@@ -1502,6 +1604,20 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
       }
       amount = Math.round(amount);
     }
+    let issuedAt;
+    let dueAt;
+    try {
+      issuedAt = dateTextToIso(draft.issued, "La emisión");
+      dueAt = dateTextToIso(draft.due, "El vencimiento");
+    } catch (err) {
+      setNotice({ type: "error", text: err.message || "Revisá las fechas" });
+      return;
+    }
+    const reason = String(draft.reason || "").trim();
+    if (draft.status === "a_reclamar" && !reason) {
+      setNotice({ type: "error", text: "Indicá el motivo del reclamo" });
+      return;
+    }
     setSaving(true);
     setNotice(null);
     try {
@@ -1514,9 +1630,12 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
         acta: draft.acta,
         infraccion: draft.infraccion,
         municipal_section: draft.municipal_section,
+        issued_at: issuedAt,
+        due_at: dueAt,
+        claim_reason: reason,
       });
       await onRefresh?.(next);
-      setNotice({ type: "ok", text: "Se guardó." });
+      setSavedOpen(true);
     } catch (err) {
       setNotice({ type: "error", text: err.message || "No se pudo guardar" });
     } finally {
@@ -1613,6 +1732,7 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
   const consulted = fine.consulted_at ? formatWhen(fine.consulted_at) : "";
 
   return (
+    <>
     <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1080 }} onClick={onClose}>
       <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
         <div className="modal-content">
@@ -1647,6 +1767,23 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
                   <div><span className={`badge ${meta.badge}`}>{meta.label}</span></div>
                 )}
               </div>
+              {draft.status === "a_reclamar" && (
+                <div className="col-12">
+                  <label className="form-label">Motivo del reclamo</label>
+                  {isAdmin ? (
+                    <textarea
+                      className="form-control"
+                      rows={2}
+                      value={draft.reason}
+                      disabled={saving}
+                      onChange={(e) => setField("reason")(e.target.value)}
+                      placeholder="Por qué se va a reclamar"
+                    />
+                  ) : (
+                    <div>{fine.claim_reason || "—"}</div>
+                  )}
+                </div>
+              )}
               <div className="col-md-6">
                 <label className="form-label">Precio</label>
                 {isAdmin ? (
@@ -1665,6 +1802,45 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
                   </select>
                 ) : (
                   <div>{voluntaryLabel(fine.voluntary)}</div>
+                )}
+              </div>
+              <div className="col-md-6">
+                <label className="form-label">Emisión</label>
+                {isAdmin ? (
+                  <input
+                    className="form-control"
+                    inputMode="decimal"
+                    placeholder="15/10/2026"
+                    value={draft.issued}
+                    disabled={saving}
+                    onFocus={selectDatePart}
+                    onClick={selectDatePart}
+                    onChange={(e) => setField("issued")(e.target.value)}
+                    onBlur={() => setField("issued")(formatDateText(draft.issued))}
+                  />
+                ) : (
+                  <div>{formatDay(fine.issued_at)}</div>
+                )}
+              </div>
+              <div className="col-md-6">
+                <label className="form-label">Vencimiento</label>
+                {isAdmin ? (
+                  <>
+                    <input
+                      className="form-control"
+                      inputMode="decimal"
+                      placeholder="30/10/2026"
+                      value={draft.due}
+                      disabled={saving}
+                      onFocus={selectDatePart}
+                      onClick={selectDatePart}
+                      onChange={(e) => setField("due")(e.target.value)}
+                      onBlur={() => setField("due")(formatDateText(draft.due))}
+                    />
+                    <div className="form-text">Ahí se termina el pago voluntario.</div>
+                  </>
+                ) : (
+                  <div>{formatDay(fine.due_at)}</div>
                 )}
               </div>
               <div className="col-12">
@@ -1754,7 +1930,10 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
                     <div>{hit.acta || "Sin acta"} · {hit.occurred_display || formatWhen(hit.occurred_at)}</div>
                     {hit.infraccion && <div className="small">{hit.infraccion}</div>}
                     {hit.lugar && <div className="small">{hit.lugar}</div>}
-                    <div className="small">{formatPesos(hit.amount)} · Voluntario: {voluntaryLabel(hit.voluntary)}</div>
+                    <div className="small">
+                      {formatPesos(hit.amount)} · Voluntario: {voluntaryLabel(hit.voluntary)}
+                      {hit.due_at ? ` · Vence ${formatDay(hit.due_at)}` : ""}
+                    </div>
                     {isAdmin && (
                       <button type="button" className="btn btn-sm btn-primary mt-1" disabled={saving} onClick={() => applyCandidate(hit)}>
                         Usar esta
@@ -1772,6 +1951,69 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
                 {saving ? "Guardando…" : "Guardar"}
               </button>
             )}
+          </div>
+        </div>
+      </div>
+    </div>
+    <FeedbackModal
+      open={savedOpen}
+      type="success"
+      message="Se guardó."
+      zIndex={1090}
+      onClose={() => setSavedOpen(false)}
+    />
+    </>
+  );
+}
+
+function ClaimReasonModal({ fine, onClose, onSave }) {
+  const [reason, setReason] = useState(fine.claim_reason || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    const text = String(reason || "").trim();
+    if (!text) {
+      setError("Indicá el motivo del reclamo");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(text);
+    } catch (err) {
+      setError(err.message || "No se pudo guardar el motivo");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }} onClick={onClose}>
+      <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title mb-0">Motivo del reclamo</h5>
+            <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={onClose}></button>
+          </div>
+          <div className="modal-body">
+            {error && <div className="alert alert-warning py-2">{error}</div>}
+            <p className="small mb-2">{fine.plate || fine.name || "Esta multa"} pasa a <strong>A reclamar</strong>. Comentá por qué.</p>
+            <textarea
+              className="form-control"
+              rows={3}
+              value={reason}
+              disabled={saving}
+              autoFocus
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Por qué se va a reclamar"
+            />
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={saving}>Cancelar</button>
+            <button type="button" className="btn btn-primary" onClick={submit} disabled={saving}>
+              {saving ? "Guardando…" : "Guardar"}
+            </button>
           </div>
         </div>
       </div>

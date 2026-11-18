@@ -947,7 +947,7 @@ export const MANUAL_SECTIONS = [
         id: "multas",
         title: "Ver multas",
         summary: "Filtros, estados, precio de Rosario y quién manejaba.",
-        keywords: ["multa", "multas", "infracción", "activas", "pagadas", "a pagar", "rosario", "reclamo", "pago voluntario"],
+        keywords: ["multa", "multas", "infracción", "activas", "pagadas", "a pagar", "rosario", "reclamo", "pago voluntario", "vencimiento", "emisión", "exportar"],
         body: [
           { type: "p", text: "Tocá **Ver multas**. El número entre paréntesis son las que no están pagadas (incluye a reclamar y reclamadas)." },
           { type: "list", items: [
@@ -955,10 +955,11 @@ export const MANUAL_SECTIONS = [
             "**Auto** y **Fecha**: para ver un auto o un día.",
             "**Persona**: las de alguien, o **Sin nombre** si falta quién manejaba.",
             "**Quién manejaba**: con una fecha, muestra quién tenía cada auto ese día, aunque no haya multa.",
-            "**Ver**: abre el detalle (archivo, estado, precio, ubicación, acta).",
+            "**Ver**: abre el detalle (archivo, estado, precio, ubicación, emisión, vencimiento, acta).",
+            "**Exportar**: marcá las que quieras y bajá un Excel con pago voluntario, precio, día de infracción, emisión y vencimiento.",
           ] },
-          { type: "p", text: "Estados: **A pagar**, **A reclamar**, **Reclamada** y **Pagada**. Un administrador los cambia desde el listado o el detalle." },
-          { type: "p", text: "En el detalle un administrador puede cargar o corregir a mano el precio, si admite pago voluntario, la ubicación, el acta y la infracción. **Consultar Rosario** intenta completar eso; si el municipio pide captcha, se carga a mano." },
+          { type: "p", text: "Estados: **A pagar**, **A reclamar**, **Reclamada** y **Pagada**. Un administrador los cambia desde el listado o el detalle. Si pasa a **A reclamar**, hay que comentar el motivo." },
+          { type: "p", text: "En el detalle un administrador puede cargar o corregir a mano el precio, si admite pago voluntario, la emisión, el vencimiento (cuando se termina el pago voluntario), la ubicación, el acta y la infracción. Al guardar aparece un cartel de que ya quedó. **Consultar Rosario** intenta completar eso; si el municipio pide captcha, se carga a mano." },
           { type: "p", text: "Un administrador carga la multa con **Cargar multa**: busca la patente, indica fecha y hora y puede adjuntar un PDF o una foto. También se puede cargar desde la ficha del auto." },
         ],
         related: ["autos-ver"],

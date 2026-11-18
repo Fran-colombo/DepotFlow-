@@ -123,7 +123,10 @@ COLUMN_LABELS = {
     "infraccion": "Infracción",
     "lugar_infraccion": "Lugar de la infracción",
     "municipal_section": "Sección municipal",
+    "issued_at": "Emisión",
+    "due_at": "Vencimiento",
     "consulted_at": "Consultado en Rosario",
+    "claim_reason": "Motivo del reclamo",
     "use_id": "Uso",
 }
 

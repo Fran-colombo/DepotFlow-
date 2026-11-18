@@ -1,11 +1,11 @@
-const FeedbackModal = ({ open, type = "success", message, onClose }) => {
+const FeedbackModal = ({ open, type = "success", message, onClose, zIndex = 1080 }) => {
   if (!open) return null;
   const success = type === "success";
   return (
     <div
       className="modal show d-block fade"
       tabIndex="-1"
-      style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1080 }}
+      style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex }}
       onClick={onClose}
     >
       <div

@@ -18,6 +18,8 @@ _LABELS = {
     "lugar": ("lugar",),
     "fecha": ("fecha de infracción", "fecha de infraccion", "fecha infracción", "fecha infraccion"),
     "infraccion": ("infracción", "infraccion"),
+    "emision": ("fecha de emision", "fecha emision", "emision"),
+    "vencimiento": ("fecha de vencimiento", "fecha vencimiento", "vencimiento", "vence"),
 }
 _HEADING_TAGS = ("h1", "h2", "h3", "h4", "legend", "caption")
 
@@ -120,7 +122,14 @@ def _voluntary(text: str) -> bool | None:
 
 
 def _hit_from_pairs(pairs: list[tuple[str, str]], section: str, extra: str) -> dict | None:
-    data = {"acta": "", "lugar": "", "fecha": "", "infraccion": ""}
+    data = {
+        "acta": "",
+        "lugar": "",
+        "fecha": "",
+        "infraccion": "",
+        "emision": "",
+        "vencimiento": "",
+    }
     blob = " ".join(value for _, value in pairs) + " " + extra
     for label, value in pairs:
         key = _label_key(label)
@@ -129,6 +138,8 @@ def _hit_from_pairs(pairs: list[tuple[str, str]], section: str, extra: str) -> d
     if not data["acta"] and not data["fecha"]:
         return None
     occurred = parse_datetime(data["fecha"]) if data["fecha"] else None
+    issued = parse_datetime(data["emision"]) if data["emision"] else None
+    due = parse_datetime(data["vencimiento"]) if data["vencimiento"] else None
     voluntary = _voluntary(blob)
     amount = parse_amount(blob) if voluntary is not False else None
     return {
@@ -140,6 +151,8 @@ def _hit_from_pairs(pairs: list[tuple[str, str]], section: str, extra: str) -> d
         "section": section,
         "voluntary": voluntary,
         "amount": amount,
+        "issued_at": issued.isoformat() if issued else None,
+        "due_at": due.isoformat() if due else None,
     }
 
 

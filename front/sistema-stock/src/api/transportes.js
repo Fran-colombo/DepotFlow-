@@ -146,6 +146,41 @@ export function listUsesOnDay(fecha, transportId) {
   return apiFetch(`/transportes/usos?${params.toString()}`);
 }
 
+export async function exportFines(ids) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const response = await fetch(`${base}/transportes/multas/export`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify({ ids }),
+  });
+  if (!response.ok) {
+    let message = "No se pudo exportar las multas";
+    try {
+      const data = await response.json();
+      message = data.detail || message;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof message === "string" ? message : "No se pudo exportar las multas");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+  const filename = match ? match[1].replace(/['"]/g, "") : "multas.xlsx";
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export function transportImageUrl(row) {
   if (!row?.has_image) return null;
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");

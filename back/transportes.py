@@ -1,9 +1,13 @@
 from datetime import datetime, time, timedelta
+from io import BytesIO
 from typing import Annotated, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -20,7 +24,7 @@ from item_images import (
     delete_stored_image,
     stored_image_path,
 )
-from rosario_multas import RosarioError, fetch_hits, match_hits
+from rosario_multas import RosarioError, fetch_hits, match_hits, parse_datetime
 
 router = APIRouter(prefix="/transportes", tags=["transportes"])
 
@@ -70,6 +74,12 @@ def _get_fine(db: Session, fine_id: int) -> models.TransportFine:
 
 
 FINE_STATUSES = ("a_pagar", "a_reclamar", "reclamo", "pagada")
+FINE_STATUS_LABELS = {
+    "a_pagar": "A pagar",
+    "a_reclamar": "A reclamar",
+    "reclamo": "Reclamada",
+    "pagada": "Pagada",
+}
 
 
 def _fine_file_kind(filename: str) -> str:
@@ -103,6 +113,12 @@ def _apply_rosario_hit(fine: models.TransportFine, hit: dict) -> None:
     if "amount" in hit:
         amount = hit.get("amount")
         fine.amount = None if amount is None else int(amount)
+    issued = parse_datetime(hit.get("issued_at") or "")
+    if issued:
+        fine.issued_at = issued
+    due = parse_datetime(hit.get("due_at") or "")
+    if due:
+        fine.due_at = due
     fine.consulted_at = datetime.now()
 
 
@@ -116,6 +132,32 @@ def _day(value: str):
         except ValueError:
             continue
     raise HTTPException(status_code=400, detail="La fecha es día/mes/año")
+
+
+def _optional_moment(value: Optional[str], label: str) -> Optional[datetime]:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return None
+    parsed = parse_datetime(text)
+    if parsed:
+        return parsed
+    raise HTTPException(status_code=400, detail=f"{label} es día/mes/año")
+
+
+def _excel_day(value: Optional[datetime], with_time: bool = False) -> str:
+    if not value:
+        return ""
+    if with_time:
+        return value.strftime("%d/%m/%Y %H:%M")
+    return value.strftime("%d/%m/%Y")
+
+
+def _voluntary_label(value) -> str:
+    if value is True:
+        return "Sí"
+    if value is False:
+        return "No"
+    return ""
 
 
 def _fine_out(fine: models.TransportFine, row: models.Transport | None = None) -> dict:
@@ -135,7 +177,10 @@ def _fine_out(fine: models.TransportFine, row: models.Transport | None = None) -
         "infraccion": fine.infraccion or "",
         "lugar_infraccion": fine.lugar_infraccion or "",
         "municipal_section": fine.municipal_section or "",
+        "issued_at": _iso(fine.issued_at),
+        "due_at": _iso(fine.due_at),
         "consulted_at": _iso(fine.consulted_at),
+        "claim_reason": fine.claim_reason or "",
         "has_file": bool(filename),
         "has_image": kind == "image",
         "file_kind": kind,
@@ -325,6 +370,13 @@ class FineUpdateBody(BaseModel):
     infraccion: Optional[str] = None
     lugar_infraccion: Optional[str] = None
     municipal_section: Optional[str] = None
+    issued_at: Optional[str] = None
+    due_at: Optional[str] = None
+    claim_reason: Optional[str] = None
+
+
+class FineExportBody(BaseModel):
+    ids: list[int]
 
 
 class RosarioBody(BaseModel):
@@ -335,6 +387,8 @@ class RosarioBody(BaseModel):
     section: Optional[str] = None
     voluntary: Optional[bool] = None
     amount: Optional[int] = None
+    issued_at: Optional[str] = None
+    due_at: Optional[str] = None
     apply: bool = False
 
 
@@ -464,6 +518,97 @@ def list_fines(
         .all()
     )
     return [_fine_out(fine, row) for fine, row in rows]
+
+
+@router.post("/multas/export")
+def export_fines(
+    body: FineExportBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    wanted = []
+    seen = set()
+    for fine_id in body.ids or []:
+        if fine_id in seen:
+            continue
+        seen.add(fine_id)
+        wanted.append(fine_id)
+    if not wanted:
+        raise HTTPException(status_code=400, detail="Seleccioná al menos una multa")
+    if len(wanted) > 500:
+        raise HTTPException(status_code=400, detail="Demasiadas multas para exportar")
+    rows = (
+        db.query(models.TransportFine, models.Transport)
+        .join(models.Transport, models.Transport.id == models.TransportFine.transport_id)
+        .filter(models.TransportFine.id.in_(wanted))
+        .all()
+    )
+    by_id = {fine.id: (fine, row) for fine, row in rows}
+    ordered = [by_id[fine_id] for fine_id in wanted if fine_id in by_id]
+    if not ordered:
+        raise HTTPException(status_code=400, detail="No están esas multas")
+    wb = Workbook()
+    sheet = wb.active
+    sheet.title = "Multas"
+    headers = [
+        "Patente",
+        "Auto",
+        "Persona",
+        "Estado",
+        "Pago voluntario",
+        "Precio",
+        "Día de infracción",
+        "Emisión",
+        "Vencimiento",
+        "Ubicación",
+        "Acta",
+        "Infracción",
+        "En Rosario",
+        "Consultada",
+        "Motivo del reclamo",
+    ]
+    header_fill = PatternFill("solid", fgColor="228BE6")
+    header_font = Font(bold=True, color="FFFFFF")
+    for col, header in enumerate(headers, start=1):
+        cell = sheet.cell(1, col, header)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+    for index, (fine, row) in enumerate(ordered, start=2):
+        status = _fine_status(fine)
+        values = [
+            row.plate or "",
+            row.name or "",
+            fine.person or "",
+            FINE_STATUS_LABELS.get(status, status),
+            _voluntary_label(None if fine.voluntary is None else bool(fine.voluntary)),
+            fine.amount if fine.amount is not None else "",
+            _excel_day(fine.occurred_at, with_time=True),
+            _excel_day(fine.issued_at),
+            _excel_day(fine.due_at),
+            fine.lugar_infraccion or "",
+            fine.acta or "",
+            fine.infraccion or "",
+            fine.municipal_section or "",
+            _excel_day(fine.consulted_at, with_time=True),
+            fine.claim_reason or "",
+        ]
+        for col, value in enumerate(values, start=1):
+            sheet.cell(index, col, value)
+    widths = (12, 22, 18, 14, 16, 12, 20, 14, 14, 28, 16, 36, 16, 20, 36)
+    for col, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(col)].width = width
+    sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{max(len(ordered) + 1, 1)}"
+    sheet.freeze_panes = "A2"
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"multas_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/usos")
@@ -1078,6 +1223,14 @@ def update_fine(
         fine.lugar_infraccion = (body.lugar_infraccion or "").strip() or None
     if body.municipal_section is not None:
         fine.municipal_section = (body.municipal_section or "").strip() or None
+    if "issued_at" in body.model_fields_set:
+        fine.issued_at = _optional_moment(body.issued_at, "La emisión")
+    if "due_at" in body.model_fields_set:
+        fine.due_at = _optional_moment(body.due_at, "El vencimiento")
+    if "claim_reason" in body.model_fields_set:
+        fine.claim_reason = (body.claim_reason or "").strip() or None
+    if _fine_status(fine) == "a_reclamar" and not (fine.claim_reason or "").strip():
+        raise HTTPException(status_code=400, detail="Indicá el motivo del reclamo")
     db.commit()
     db.refresh(fine)
     row = _get(db, fine.transport_id)

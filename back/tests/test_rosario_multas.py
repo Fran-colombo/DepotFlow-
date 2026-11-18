@@ -17,6 +17,8 @@ SAMPLE = """
 <table>
   <tr><td>Acta</td><td>12-111-A</td></tr>
   <tr><td>Fecha de Infracción</td><td>06/08/2026 14:40</td></tr>
+  <tr><td>Fecha de emisión</td><td>07/08/2026</td></tr>
+  <tr><td>Vencimiento</td><td>21/08/2026</td></tr>
   <tr><td>Infracción</td><td>EXCESO DE VELOCIDAD</td></tr>
   <tr><td>Importe pago voluntario</td><td>$ 12.345,50</td></tr>
 </table>
@@ -35,6 +37,8 @@ def test_parse_hits_and_voluntary():
     second = next(hit for hit in hits if hit["acta"] == "12-111-A")
     assert second["voluntary"] is True
     assert second["amount"] == 12346
+    assert parse_datetime(second["issued_at"]) == datetime(2026, 8, 7)
+    assert parse_datetime(second["due_at"]) == datetime(2026, 8, 21)
 
 
 def test_match_same_day_closest():

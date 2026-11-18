@@ -279,7 +279,10 @@ class TransportFine(Base):
     infraccion = Column(String, nullable=True)
     lugar_infraccion = Column(String, nullable=True)
     municipal_section = Column(String, nullable=True)
+    issued_at = Column(DateTime, nullable=True)
+    due_at = Column(DateTime, nullable=True)
     consulted_at = Column(DateTime, nullable=True)
+    claim_reason = Column(String, nullable=True)
 
 
 class TransportNote(Base):

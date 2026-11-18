@@ -336,7 +336,10 @@ def ensure_inventory_schema():
                 infraccion VARCHAR,
                 lugar_infraccion VARCHAR,
                 municipal_section VARCHAR,
+                issued_at DATETIME,
+                due_at DATETIME,
                 consulted_at DATETIME,
+                claim_reason VARCHAR,
                 FOREIGN KEY(transport_id) REFERENCES transportes (id),
                 FOREIGN KEY(use_id) REFERENCES transporte_usos (id)
             )
@@ -361,8 +364,14 @@ def ensure_inventory_schema():
                 conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN lugar_infraccion VARCHAR"))
             if not _column_exists("transporte_multas", "municipal_section"):
                 conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN municipal_section VARCHAR"))
+            if not _column_exists("transporte_multas", "issued_at"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN issued_at DATETIME"))
+            if not _column_exists("transporte_multas", "due_at"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN due_at DATETIME"))
             if not _column_exists("transporte_multas", "consulted_at"):
                 conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN consulted_at DATETIME"))
+            if not _column_exists("transporte_multas", "claim_reason"):
+                conn.execute(text("ALTER TABLE transporte_multas ADD COLUMN claim_reason VARCHAR"))
             conn.execute(text(
                 "UPDATE transporte_multas SET status = 'pagada' WHERE paid = 1 AND (status IS NULL OR status = '' OR status = 'a_pagar')"
             ))
