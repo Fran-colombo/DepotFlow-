@@ -69,7 +69,7 @@ def _get_fine(db: Session, fine_id: int) -> models.TransportFine:
     return fine
 
 
-FINE_STATUSES = ("a_pagar", "reclamo", "pagada")
+FINE_STATUSES = ("a_pagar", "a_reclamar", "reclamo", "pagada")
 
 
 def _fine_file_kind(filename: str) -> str:
@@ -1064,8 +1064,8 @@ def update_fine(
         _set_fine_status(fine, body.status)
     if body.person is not None:
         fine.person = (body.person or "").strip()
-    if body.amount is not None:
-        if body.amount < 0:
+    if "amount" in body.model_fields_set:
+        if body.amount is not None and body.amount < 0:
             raise HTTPException(status_code=400, detail="El importe no puede ser negativo")
         fine.amount = body.amount
     if "voluntary" in body.model_fields_set:

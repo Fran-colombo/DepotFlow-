@@ -94,7 +94,8 @@ function FineFile({ fine, canEdit = false, busy = false, onReplace, compact = fa
 
 const FINE_STATUSES = [
   { id: "a_pagar", label: "A pagar", badge: "bg-warning text-dark" },
-  { id: "reclamo", label: "Reclamo en proceso", badge: "bg-info text-dark" },
+  { id: "a_reclamar", label: "A reclamar", badge: "bg-secondary" },
+  { id: "reclamo", label: "Reclamada", badge: "bg-info text-dark" },
   { id: "pagada", label: "Pagada", badge: "bg-success" },
 ];
 
@@ -673,6 +674,7 @@ const Autos = () => {
                           <th>Fecha</th>
                           <th>Auto</th>
                           <th>Persona</th>
+                          <th>Ubicación</th>
                           <th>$</th>
                           <th>Voluntario</th>
                           <th>Estado</th>
@@ -697,6 +699,7 @@ const Autos = () => {
                               </button>
                             </td>
                             <td>{fine.person || "Falta quién"}</td>
+                            <td className="small">{fine.lugar_infraccion || "—"}</td>
                             <td>{formatPesos(fine.amount)}</td>
                             <td>{voluntaryLabel(fine.voluntary)}</td>
                             <td>
@@ -737,13 +740,11 @@ const Autos = () => {
           isAdmin={isAdmin}
           onClose={() => setViewingFine(null)}
           onChange={(next) => setViewingFine(next)}
-          onSaved={async (message, next) => {
+          onRefresh={async (next) => {
             if (next) setViewingFine(next);
             await load();
             if (detailId) await openDetail(detailId);
-            tell("success", message);
           }}
-          onError={(message) => tell("error", message)}
         />
       )}
 
@@ -1453,6 +1454,7 @@ function FineSummaryRow({ fine, onOpen }) {
     <div className="fine-row">
       <span>{formatWhen(fine.occurred_at)}</span>
       <span>{fine.person || "Falta quién"}</span>
+      {fine.lugar_infraccion && <span className="app-muted">{fine.lugar_infraccion}</span>}
       <FineFile fine={fine} compact />
       <span className={`badge ${meta.badge}`}>{meta.label}</span>
       <span>{formatPesos(fine.amount)}</span>
@@ -1461,22 +1463,62 @@ function FineSummaryRow({ fine, onOpen }) {
   );
 }
 
-function FineDetailModal({ fine, isAdmin, onClose, onChange, onSaved, onError }) {
+function draftFromFine(fine) {
+  return {
+    person: fine.person || "",
+    status: fineStatus(fine),
+    amount: fine.amount == null ? "" : String(fine.amount),
+    voluntary: fine.voluntary === true ? "yes" : fine.voluntary === false ? "no" : "",
+    lugar: fine.lugar_infraccion || "",
+    acta: fine.acta || "",
+    infraccion: fine.infraccion || "",
+    municipal_section: fine.municipal_section || "",
+  };
+}
+
+function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
   const [saving, setSaving] = useState(false);
-  const [manual, setManual] = useState("");
+  const [notice, setNotice] = useState(null);
+  const [draft, setDraft] = useState(() => draftFromFine(fine));
   const [matches, setMatches] = useState(null);
   const [choice, setChoice] = useState("");
-  const [other, setOther] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const meta = fineStatusMeta(fine);
 
-  const run = async (work, message) => {
+  useEffect(() => {
+    setDraft(draftFromFine(fine));
+  }, [fine]);
+
+  const setField = (field) => (value) => setDraft((current) => ({ ...current, [field]: value }));
+
+  const save = async () => {
+    const amountText = String(draft.amount ?? "").trim();
+    let amount = null;
+    if (amountText !== "") {
+      amount = Number(amountText);
+      if (!Number.isFinite(amount) || amount < 0) {
+        setNotice({ type: "error", text: "El precio tiene que ser un número" });
+        return;
+      }
+      amount = Math.round(amount);
+    }
     setSaving(true);
+    setNotice(null);
     try {
-      const next = await work();
-      await onSaved(message, next);
+      const next = await updateFine(fine.id, {
+        person: draft.person,
+        status: draft.status,
+        amount,
+        voluntary: draft.voluntary === "yes" ? true : draft.voluntary === "no" ? false : null,
+        lugar_infraccion: draft.lugar,
+        acta: draft.acta,
+        infraccion: draft.infraccion,
+        municipal_section: draft.municipal_section,
+      });
+      await onRefresh?.(next);
+      setNotice({ type: "ok", text: "Se guardó." });
     } catch (err) {
-      onError(err.message || "No se pudo guardar");
+      setNotice({ type: "error", text: err.message || "No se pudo guardar" });
     } finally {
       setSaving(false);
     }
@@ -1486,163 +1528,221 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onSaved, onError })
     setSaving(true);
     setMatches(null);
     setChoice("");
-    setOther(false);
+    setNotice(null);
     try {
       const data = await lookupFine(fine.transport_id, fine.occurred_at);
       const found = Array.isArray(data?.matches) ? data.matches : [];
       setMatches(found);
-      if (found.length === 1) setChoice(String(found[0].id));
+      if (found.length === 1) {
+        setChoice(String(found[0].id));
+        setDraft((current) => ({ ...current, person: found[0].person }));
+      }
     } catch (err) {
-      onError(err.message || "No se pudo buscar");
+      setNotice({ type: "error", text: err.message || "No se pudo buscar" });
     } finally {
       setSaving(false);
     }
   };
 
-  const savePerson = async () => {
-    let person = manual.trim();
-    if (matches && matches.length > 0 && !other) {
-      const picked = matches.length === 1 ? matches[0] : matches.find((item) => String(item.id) === choice);
-      if (!picked) {
-        onError("Elegí quién la hizo");
-        return;
-      }
-      person = picked.person;
-    }
-    if (!person) {
-      onError("Escribí o elegí quién la manejaba");
-      return;
-    }
-    await run(() => setFinePerson(fine.id, person).then(() => updateFine(fine.id, {})), "Quedó quién la manejaba.");
+  const pickMatch = (item) => {
+    setChoice(String(item.id));
+    setDraft((current) => ({ ...current, person: item.person }));
   };
 
   const consult = async () => {
     setSaving(true);
+    setNotice(null);
     try {
       const data = await consultRosario(fine.id, {});
       if (data?.fine) onChange(data.fine);
       if (data?.matched) {
-        await onSaved("Quedaron los datos de Rosario.", data.fine);
         setCandidates([]);
+        await onRefresh?.(data.fine);
+        setNotice({ type: "ok", text: "Quedaron los datos de Rosario." });
       } else {
-        setCandidates(Array.isArray(data?.candidates) ? data.candidates : []);
-        if (!data?.candidates?.length) onError("Rosario no trajo un acta para esa fecha. Cargá los datos a mano.");
+        const rows = Array.isArray(data?.candidates) ? data.candidates : [];
+        setCandidates(rows);
+        setNotice({
+          type: rows.length ? "ok" : "error",
+          text: rows.length
+            ? "Hay varias actas. Elegí una o cargá los datos a mano."
+            : "Rosario no trajo un acta para esa fecha. Cargá los datos a mano.",
+        });
       }
     } catch (err) {
-      onError(err.message || "No se pudo consultar Rosario");
+      setCandidates([]);
+      setNotice({
+        type: "error",
+        text: `${err.message || "No se pudo consultar Rosario"} Cargá precio, ubicación y el resto a mano.`,
+      });
     } finally {
       setSaving(false);
     }
   };
 
   const applyCandidate = async (hit) => {
-    await run(
-      () => consultRosario(fine.id, { apply: true, ...hit }).then((data) => data.fine),
-      "Quedó el acta de Rosario.",
-    );
-    setCandidates([]);
+    setSaving(true);
+    setNotice(null);
+    try {
+      const data = await consultRosario(fine.id, { apply: true, ...hit });
+      setCandidates([]);
+      await onRefresh?.(data.fine);
+      setNotice({ type: "ok", text: "Quedó el acta." });
+    } catch (err) {
+      setNotice({ type: "error", text: err.message || "No se pudo usar esa acta" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const replaceFile = async (file) => {
+    setSaving(true);
+    setNotice(null);
+    try {
+      await uploadFineFile(fine.id, file);
+      const next = await updateFine(fine.id, {});
+      await onRefresh?.(next);
+      setNotice({ type: "ok", text: "Quedó el archivo." });
+    } catch (err) {
+      setNotice({ type: "error", text: err.message || "No se pudo actualizar el archivo" });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const consulted = fine.consulted_at ? formatWhen(fine.consulted_at) : "";
 
   return (
     <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1080 }} onClick={onClose}>
-      <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title mb-0">Multa {fine.plate || ""}</h5>
             <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={onClose}></button>
           </div>
           <div className="modal-body">
-            <div className="mb-2"><span className="fw-semibold">Fecha:</span> {formatWhen(fine.occurred_at)}</div>
-            <div className="mb-2"><span className="fw-semibold">Auto:</span> {fine.plate} {fine.name ? `· ${fine.name}` : ""}</div>
-            <div className="mb-3">
-              <span className="fw-semibold">Persona:</span> {fine.person || "Falta quién la manejaba"}
-              {isAdmin && !fine.person && (
-                <div className="mt-2">
-                  <button type="button" className="btn btn-sm btn-outline-primary mb-2" disabled={saving} onClick={searchDriver}>
-                    Buscar quién lo manejaba
-                  </button>
-                  {matches && matches.length === 0 && (
-                    <PersonPicker value={manual} onChange={setManual} disabled={saving} />
-                  )}
-                  {matches && matches.length === 1 && !other && (
-                    <div>
-                      <p className="mb-1">En ese momento manejaba {matches[0].person}.</p>
-                      <button type="button" className="btn btn-link p-0" onClick={() => setOther(true)}>Escribir otro</button>
-                    </div>
-                  )}
-                  {matches && matches.length === 1 && other && (
-                    <PersonPicker value={manual} onChange={setManual} disabled={saving} />
-                  )}
-                  {matches && matches.length > 1 && (
-                    <div>
-                      {matches.map((item) => (
-                        <div className="form-check" key={item.id}>
-                          <input
-                            id={`detail-fine-${item.id}`}
-                            type="radio"
-                            className="form-check-input"
-                            name="detail-fine-person"
-                            checked={!other && choice === String(item.id)}
-                            onChange={() => { setChoice(String(item.id)); setOther(false); }}
-                          />
-                          <label className="form-check-label" htmlFor={`detail-fine-${item.id}`}>{item.person}</label>
-                        </div>
-                      ))}
-                      <div className="form-check">
-                        <input id="detail-fine-other" type="radio" className="form-check-input" name="detail-fine-person" checked={other} onChange={() => { setOther(true); setChoice(""); }} />
-                        <label className="form-check-label" htmlFor="detail-fine-other">Escribir otro</label>
-                      </div>
-                      {other && <div className="mt-2"><PersonPicker value={manual} onChange={setManual} disabled={saving} /></div>}
-                    </div>
-                  )}
-                  {matches && (
-                    <button type="button" className="btn btn-sm btn-primary mt-2" disabled={saving} onClick={savePerson}>
-                      Completar
+            {notice && (
+              <div className={`alert ${notice.type === "ok" ? "alert-success" : "alert-warning"} py-2`} role="status">
+                {notice.text}
+              </div>
+            )}
+            <div className="row g-3">
+              <div className="col-md-6">
+                <div className="form-label">Fecha</div>
+                <div>{formatWhen(fine.occurred_at)}</div>
+              </div>
+              <div className="col-md-6">
+                <div className="form-label">Auto</div>
+                <div>{fine.plate}{fine.name ? ` · ${fine.name}` : ""}</div>
+              </div>
+              <div className="col-md-6">
+                <label className="form-label">Estado</label>
+                {isAdmin ? (
+                  <select className="form-select" value={draft.status} disabled={saving} onChange={(e) => setField("status")(e.target.value)}>
+                    {FINE_STATUSES.map((item) => (
+                      <option key={item.id} value={item.id}>{item.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div><span className={`badge ${meta.badge}`}>{meta.label}</span></div>
+                )}
+              </div>
+              <div className="col-md-6">
+                <label className="form-label">Precio</label>
+                {isAdmin ? (
+                  <NumberInput className="form-control" value={draft.amount} min={0} disabled={saving} onChange={(e) => setField("amount")(e.target.value)} placeholder="0" />
+                ) : (
+                  <div>{formatPesos(fine.amount)}</div>
+                )}
+              </div>
+              <div className="col-md-6">
+                <label className="form-label">Pago voluntario</label>
+                {isAdmin ? (
+                  <select className="form-select" value={draft.voluntary} disabled={saving} onChange={(e) => setField("voluntary")(e.target.value)}>
+                    <option value="">Sin dato</option>
+                    <option value="yes">Sí</option>
+                    <option value="no">No</option>
+                  </select>
+                ) : (
+                  <div>{voluntaryLabel(fine.voluntary)}</div>
+                )}
+              </div>
+              <div className="col-12">
+                <label className="form-label">Ubicación</label>
+                {isAdmin ? (
+                  <input className="form-control" value={draft.lugar} disabled={saving} onChange={(e) => setField("lugar")(e.target.value)} placeholder="Dónde se hizo la multa" />
+                ) : (
+                  <div>{fine.lugar_infraccion || "—"}</div>
+                )}
+              </div>
+              <div className="col-12">
+                <label className="form-label">Persona</label>
+                {isAdmin ? (
+                  <>
+                    <PersonPicker value={draft.person} onChange={setField("person")} disabled={saving} />
+                    <button type="button" className="btn btn-link btn-sm p-0 mt-1" disabled={saving} onClick={searchDriver}>
+                      Buscar quién lo manejaba en esa fecha
                     </button>
-                  )}
-                </div>
-              )}
+                    {matches && matches.length === 1 && (
+                      <div className="small mt-1">En ese momento manejaba {matches[0].person}.</div>
+                    )}
+                    {matches && matches.length > 1 && (
+                      <div className="mt-2">
+                        {matches.map((item) => (
+                          <div className="form-check" key={item.id}>
+                            <input
+                              id={`detail-fine-${item.id}`}
+                              type="radio"
+                              className="form-check-input"
+                              name="detail-fine-person"
+                              checked={choice === String(item.id)}
+                              onChange={() => pickMatch(item)}
+                            />
+                            <label className="form-check-label" htmlFor={`detail-fine-${item.id}`}>{item.person}</label>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {matches && matches.length === 0 && (
+                      <div className="small text-danger mt-1">En ese momento no hay nadie cargado. Completalo a mano.</div>
+                    )}
+                  </>
+                ) : (
+                  <div>{fine.person || "Falta quién la manejaba"}</div>
+                )}
+              </div>
+              <div className="col-md-6">
+                <label className="form-label">Acta</label>
+                {isAdmin ? (
+                  <input className="form-control" value={draft.acta} disabled={saving} onChange={(e) => setField("acta")(e.target.value)} />
+                ) : (
+                  <div>{fine.acta || "—"}</div>
+                )}
+              </div>
+              <div className="col-md-6">
+                <label className="form-label">En Rosario</label>
+                {isAdmin ? (
+                  <input className="form-control" value={draft.municipal_section} disabled={saving} onChange={(e) => setField("municipal_section")(e.target.value)} placeholder="Sin juzgar, etc." />
+                ) : (
+                  <div>{fine.municipal_section || "—"}</div>
+                )}
+              </div>
+              <div className="col-12">
+                <label className="form-label">Infracción</label>
+                {isAdmin ? (
+                  <input className="form-control" value={draft.infraccion} disabled={saving} onChange={(e) => setField("infraccion")(e.target.value)} />
+                ) : (
+                  <div>{fine.infraccion || "—"}</div>
+                )}
+              </div>
+              <div className="col-12">
+                <div className="form-label">Archivo</div>
+                <FineFile fine={fine} canEdit={isAdmin} busy={saving} onReplace={replaceFile} />
+              </div>
             </div>
-            <div className="mb-3">
-              <div className="fw-semibold mb-1">Archivo</div>
-              <FineFile
-                fine={fine}
-                canEdit={isAdmin}
-                busy={saving}
-                onReplace={(file) => run(async () => {
-                  await uploadFineFile(fine.id, file);
-                  return updateFine(fine.id, {});
-                }, "Quedó el archivo.")}
-              />
-            </div>
-            <div className="mb-3">
-              <label className="form-label">Estado</label>
-              {isAdmin ? (
-                <select
-                  className="form-select"
-                  value={fineStatus(fine)}
-                  disabled={saving}
-                  onChange={(e) => run(() => updateFine(fine.id, { status: e.target.value }), "Quedó el estado.")}
-                >
-                  {FINE_STATUSES.map((item) => (
-                    <option key={item.id} value={item.id}>{item.label}</option>
-                  ))}
-                </select>
-              ) : (
-                <div><span className={`badge ${meta.badge}`}>{meta.label}</span></div>
-              )}
-            </div>
-            <div className="mb-2"><span className="fw-semibold">Precio:</span> {formatPesos(fine.amount)}</div>
-            <div className="mb-2"><span className="fw-semibold">Pago voluntario:</span> {voluntaryLabel(fine.voluntary)}</div>
-            {consulted && <div className="app-muted small mb-2">Consultado el {consulted}</div>}
-            {fine.acta && <div className="mb-1"><span className="fw-semibold">Acta:</span> {fine.acta}</div>}
-            {fine.infraccion && <div className="mb-1"><span className="fw-semibold">Infracción:</span> {fine.infraccion}</div>}
-            {fine.lugar_infraccion && <div className="mb-1"><span className="fw-semibold">Lugar:</span> {fine.lugar_infraccion}</div>}
-            {fine.municipal_section && <div className="mb-1"><span className="fw-semibold">En Rosario:</span> {fine.municipal_section}</div>}
+            {consulted && <div className="app-muted small mt-3">Última consulta a Rosario: {consulted}</div>}
             {isAdmin && (
-              <button type="button" className="btn btn-outline-primary mt-2" disabled={saving} onClick={consult}>
+              <button type="button" className="btn btn-outline-primary mt-3" disabled={saving} onClick={consult}>
                 {saving ? "Consultando…" : "Consultar Rosario"}
               </button>
             )}
@@ -1653,6 +1753,7 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onSaved, onError })
                   <div key={`${hit.acta}-${hit.occurred_at}`} className="border rounded p-2 mb-2">
                     <div>{hit.acta || "Sin acta"} · {hit.occurred_display || formatWhen(hit.occurred_at)}</div>
                     {hit.infraccion && <div className="small">{hit.infraccion}</div>}
+                    {hit.lugar && <div className="small">{hit.lugar}</div>}
                     <div className="small">{formatPesos(hit.amount)} · Voluntario: {voluntaryLabel(hit.voluntary)}</div>
                     {isAdmin && (
                       <button type="button" className="btn btn-sm btn-primary mt-1" disabled={saving} onClick={() => applyCandidate(hit)}>
@@ -1666,6 +1767,11 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onSaved, onError })
           </div>
           <div className="modal-footer">
             <button type="button" className="btn btn-outline-secondary" onClick={onClose}>Cerrar</button>
+            {isAdmin && (
+              <button type="button" className="btn btn-primary" disabled={saving} onClick={save}>
+                {saving ? "Guardando…" : "Guardar"}
+              </button>
+            )}
           </div>
         </div>
       </div>
