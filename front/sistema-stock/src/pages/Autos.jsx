@@ -301,6 +301,16 @@ function formatDay(value) {
   return date.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function fineDueSoon(fine) {
+  if (!fine?.due_at || fineStatus(fine) === "pagada") return false;
+  const due = new Date(fine.due_at);
+  if (Number.isNaN(due.getTime())) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  due.setHours(0, 0, 0, 0);
+  return (due - today) / 86400000 < 10;
+}
+
 function isoToDateText(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -655,50 +665,50 @@ const Autos = () => {
 
       {finesOpen && (
         <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1050 }} onClick={() => setFinesOpen(false)}>
-          <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-dialog modal-xl modal-dialog-centered fines-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-content">
               <div className="modal-header">
                 <h5 className="modal-title mb-0">Multas</h5>
                 <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={() => setFinesOpen(false)}></button>
               </div>
               <div className="modal-body">
-                <div className="d-flex flex-wrap align-items-end gap-2 mb-3">
-                  <div className="row g-2 flex-grow-1">
-                    <div className="col-md-3 col-6">
-                      <label className="form-label">Cuáles</label>
-                      <select className="form-select" value={fineScope} onChange={(e) => { setFineScope(e.target.value); setFinePage(1); }}>
-                        <option value="activas">Activas</option>
-                        <option value="todas">Todas</option>
-                      </select>
-                    </div>
-                    <div className="col-md-3 col-6">
-                      <label className="form-label">Auto</label>
-                      <PlatePicker autos={autos} value={fineAutoId} onChange={(value) => { setFineAutoId(value); setFinePage(1); }} allowEmpty placeholder="Todos" />
-                    </div>
-                    <div className="col-md-3 col-6">
-                      <label className="form-label">Fecha</label>
-                      <input
-                        className="form-control"
-                        inputMode="decimal"
-                        placeholder="15/10/2026"
-                        value={fineDate}
-                        onFocus={selectDatePart}
-                        onClick={selectDatePart}
-                        onChange={(e) => { setFineDate(e.target.value); setFinePage(1); }}
-                        onBlur={() => setFineDate(formatDateText(fineDate))}
-                      />
-                    </div>
-                    <div className="col-md-3 col-6">
-                      <label className="form-label">Persona</label>
-                      <select className="form-select" value={finePerson} onChange={(e) => { setFinePerson(e.target.value); setFinePage(1); }}>
-                        <option value="">Todas</option>
-                        {finePeople.map((name) => (
-                          <option key={name} value={name}>{name}</option>
-                        ))}
-                        {hasNameless && <option value="__none__">Sin nombre</option>}
-                      </select>
-                    </div>
+                <div className="row g-2">
+                  <div className="col-md-3 col-6">
+                    <label className="form-label">Cuáles</label>
+                    <select className="form-select" value={fineScope} onChange={(e) => { setFineScope(e.target.value); setFinePage(1); }}>
+                      <option value="activas">Activas</option>
+                      <option value="todas">Todas</option>
+                    </select>
                   </div>
+                  <div className="col-md-3 col-6">
+                    <label className="form-label">Auto</label>
+                    <PlatePicker autos={autos} value={fineAutoId} onChange={(value) => { setFineAutoId(value); setFinePage(1); }} allowEmpty placeholder="Todos" />
+                  </div>
+                  <div className="col-md-3 col-6">
+                    <label className="form-label">Fecha</label>
+                    <input
+                      className="form-control"
+                      inputMode="decimal"
+                      placeholder="15/10/2026"
+                      value={fineDate}
+                      onFocus={selectDatePart}
+                      onClick={selectDatePart}
+                      onChange={(e) => { setFineDate(e.target.value); setFinePage(1); }}
+                      onBlur={() => setFineDate(formatDateText(fineDate))}
+                    />
+                  </div>
+                  <div className="col-md-3 col-6">
+                    <label className="form-label">Persona</label>
+                    <select className="form-select" value={finePerson} onChange={(e) => { setFinePerson(e.target.value); setFinePage(1); }}>
+                      <option value="">Todas</option>
+                      {finePeople.map((name) => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
+                      {hasNameless && <option value="__none__">Sin nombre</option>}
+                    </select>
+                  </div>
+                </div>
+                <div className="d-flex flex-wrap gap-2 mt-2 mb-3">
                   <button type="button" className="btn btn-outline-secondary" disabled={driversBusy} onClick={searchDrivers}>
                     Quién manejaba
                   </button>
@@ -711,7 +721,7 @@ const Autos = () => {
                     {exportingFines ? "Exportando…" : `Exportar${selectedFines.length ? ` (${selectedFines.length})` : ""}`}
                   </button>
                   {isAdmin && (
-                    <button type="button" className="btn btn-primary" onClick={() => setFining("list")}>
+                    <button type="button" className="btn btn-primary ms-auto" onClick={() => setFining("list")}>
                       Cargar multa
                     </button>
                   )}
@@ -739,7 +749,7 @@ const Autos = () => {
                 {shownFines.length === 0 ? (
                   <p className="app-muted mb-0">No hay multas con ese filtro.</p>
                 ) : (
-                  <div className="table-responsive">
+                  <div className="table-responsive fines-table-wrap">
                     <table className="table table-sm table-bordered align-middle mb-0">
                       <thead>
                         <tr>
@@ -765,7 +775,7 @@ const Autos = () => {
                       </thead>
                       <tbody>
                         {pagedFines.map((fine) => (
-                          <tr key={fine.id}>
+                          <tr key={fine.id} className={fineDueSoon(fine) ? "text-danger" : undefined}>
                             <td>
                               <input
                                 type="checkbox"
@@ -793,7 +803,7 @@ const Autos = () => {
                             <td className="small">{fine.lugar_infraccion || "—"}</td>
                             <td>{formatPesos(fine.amount)}</td>
                             <td>{voluntaryLabel(fine.voluntary)}</td>
-                            <td>{formatDay(fine.due_at)}</td>
+                            <td className={fineDueSoon(fine) ? "fw-semibold" : undefined}>{formatDay(fine.due_at)}</td>
                             <td>
                               {isAdmin ? (
                                 <select
@@ -1572,12 +1582,13 @@ function ServicePlacesModal({ row, isAdmin, onClose, onSaved, onError }) {
 
 function FineSummaryRow({ fine, onOpen }) {
   const meta = fineStatusMeta(fine);
+  const dueSoon = fineDueSoon(fine);
   return (
-    <div className="fine-row">
+    <div className={`fine-row${dueSoon ? " text-danger" : ""}`}>
       <span>{formatWhen(fine.occurred_at)}</span>
       <span>{fine.person || "Falta quién"}</span>
-      {fine.lugar_infraccion && <span className="app-muted">{fine.lugar_infraccion}</span>}
-      {fine.due_at && <span className="app-muted">Vence {formatDay(fine.due_at)}</span>}
+      {fine.lugar_infraccion && <span className={dueSoon ? "" : "app-muted"}>{fine.lugar_infraccion}</span>}
+      {fine.due_at && <span className={dueSoon ? "fw-semibold" : "app-muted"}>Vence {formatDay(fine.due_at)}</span>}
       {fine.claim_reason && <span className="app-muted" title={fine.claim_reason}>Motivo: {fine.claim_reason}</span>}
       <FineFile fine={fine} compact />
       <span className={`badge ${meta.badge}`}>{meta.label}</span>
@@ -1612,6 +1623,7 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
   const [choice, setChoice] = useState("");
   const [candidates, setCandidates] = useState([]);
   const meta = fineStatusMeta(fine);
+  const dueSoon = fineDueSoon(fine);
 
   useEffect(() => {
     setDraft(draftFromFine(fine));
@@ -1849,11 +1861,11 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
                 )}
               </div>
               <div className="col-md-6">
-                <label className="form-label">Vencimiento</label>
+                <label className={`form-label${dueSoon ? " text-danger" : ""}`}>Vencimiento</label>
                 {isAdmin ? (
                   <>
                     <input
-                      className="form-control"
+                      className={`form-control${dueSoon ? " text-danger" : ""}`}
                       inputMode="decimal"
                       placeholder="30/10/2026"
                       value={draft.due}
@@ -1863,10 +1875,12 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
                       onChange={(e) => setField("due")(e.target.value)}
                       onBlur={() => setField("due")(formatDateText(draft.due))}
                     />
-                    <div className="form-text">Ahí se termina el pago voluntario.</div>
+                    <div className={`form-text${dueSoon ? " text-danger" : ""}`}>
+                      {dueSoon ? "Faltan menos de 10 días. Ahí se termina el pago voluntario." : "Ahí se termina el pago voluntario."}
+                    </div>
                   </>
                 ) : (
-                  <div>{formatDay(fine.due_at)}</div>
+                  <div className={dueSoon ? "text-danger fw-semibold" : undefined}>{formatDay(fine.due_at)}</div>
                 )}
               </div>
               <div className="col-12">

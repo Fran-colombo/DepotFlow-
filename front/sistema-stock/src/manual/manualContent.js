@@ -958,6 +958,7 @@ export const MANUAL_SECTIONS = [
             "**Ver**: abre el detalle (archivo, estado, precio, ubicación, emisión, vencimiento, acta).",
             "**Exportar**: marcá las que quieras y bajá un Excel con pago voluntario, precio, día de infracción, emisión y vencimiento.",
             "Si hay muchas, se ven de a 10. Usá **Anterior** y **Siguiente** para pasar de página.",
+            "Si faltan menos de 10 días para el vencimiento, la multa se ve en rojo (salvo que ya esté pagada).",
           ] },
           { type: "p", text: "Estados: **A pagar**, **A reclamar**, **Reclamada** y **Pagada**. Un administrador los cambia desde el listado o el detalle. Si pasa a **A reclamar**, hay que comentar el motivo." },
           { type: "p", text: "En el detalle un administrador puede cargar o corregir a mano el precio, si admite pago voluntario, la emisión, el vencimiento (cuando se termina el pago voluntario), la ubicación, el acta y la infracción. Al guardar aparece un cartel de que ya quedó. **Consultar Rosario** intenta completar eso; si el municipio pide captcha, se carga a mano." },

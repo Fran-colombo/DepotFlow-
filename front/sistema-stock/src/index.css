@@ -285,7 +285,10 @@ body {
   z-index: 30;
   top: calc(100% + 0.35rem);
   left: 0;
-  right: 0;
+  right: auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: min(28rem, calc(100vw - 2rem));
   padding: 0.5rem;
   background: #fff;
   border: 1px solid #d0d5dd;
@@ -294,9 +297,7 @@ body {
 }
 
 .modal-body .obra-picker-panel {
-  position: static;
-  margin-top: 0.35rem;
-  box-shadow: none;
+  z-index: 1085;
 }
 
 .obra-picker-list {
@@ -311,6 +312,7 @@ body {
 .obra-picker-option {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 0.75rem;
   width: 100%;
   text-align: left;
@@ -329,13 +331,19 @@ body {
 }
 
 .obra-picker-name {
-  flex: 1;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .obra-picker-tag {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 0.75rem;
   font-weight: 600;
   color: #667085;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .obra-picker-option.is-selected .obra-picker-tag,
@@ -443,6 +451,19 @@ body {
 
 .fine-row:last-child {
   border-bottom: 0;
+}
+
+.fines-modal .modal-content {
+  max-height: 90vh;
+}
+
+.fines-modal .modal-body {
+  overflow: visible;
+}
+
+.fines-modal .fines-table-wrap {
+  overflow: auto;
+  max-height: min(55vh, 32rem);
 }
 
 table {
