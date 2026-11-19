@@ -1,4 +1,4 @@
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from io import BytesIO
 from typing import Annotated, Optional
 from uuid import uuid4
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user, get_user_name_by_id, has_admin_access
 from database import get_db
+from feriados import holidays_in_range, working_days
 from obras import require_active_obra
 from item_images import (
     MAX_BYTES,
@@ -25,6 +26,16 @@ from item_images import (
     stored_image_path,
 )
 from rosario_multas import RosarioError, fetch_hits, match_hits, parse_datetime
+
+WEEKDAY_ES = (
+    "Lunes",
+    "Martes",
+    "Miércoles",
+    "Jueves",
+    "Viernes",
+    "Sábado",
+    "Domingo",
+)
 
 router = APIRouter(prefix="/transportes", tags=["transportes"])
 
@@ -379,6 +390,13 @@ class FineExportBody(BaseModel):
     ids: list[int]
 
 
+class UseReportBody(BaseModel):
+    persona: Optional[str] = None
+    transport_id: Optional[int] = None
+    desde: Optional[str] = None
+    hasta: Optional[str] = None
+
+
 class RosarioBody(BaseModel):
     acta: Optional[str] = None
     occurred_at: Optional[str] = None
@@ -611,6 +629,187 @@ def export_fines(
     )
 
 
+def _optional_day(value: Optional[str], label: str) -> Optional[date]:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail=f"{label} es día/mes/año")
+
+
+def _clock_hm(value: datetime) -> str:
+    return value.strftime("%H:%M")
+
+
+def _weekday_label(day: date) -> str:
+    return f"{WEEKDAY_ES[day.weekday()]} {day.strftime('%d/%m/%Y')}"
+
+
+def _use_covers_day(use: models.TransportUse, day: date) -> bool:
+    if not use.left_at:
+        return False
+    start = use.left_at.date()
+    end = use.returned_at.date() if use.returned_at else date.today()
+    return start <= day <= end
+
+
+def _hours_for_day(use: models.TransportUse, day: date) -> dict:
+    left = use.left_at
+    back = use.returned_at
+    day_start = datetime.combine(day, time.min)
+    day_end = datetime.combine(day, time(23, 59))
+    start = left if left.date() == day else day_start
+    if back is None:
+        if day < date.today():
+            end = day_end
+            end_label = "23:59"
+        elif day == date.today():
+            end = datetime.now().replace(second=0, microsecond=0)
+            end_label = "sigue afuera"
+        else:
+            end = day_end
+            end_label = "23:59"
+    elif back.date() == day:
+        end = back
+        end_label = _clock_hm(back)
+    else:
+        end = day_end
+        end_label = "23:59"
+    return {
+        "use_id": use.id,
+        "from": _clock_hm(start),
+        "to": end_label,
+        "label": f"{_clock_hm(start)} → {end_label}",
+        "left_at": _iso(left),
+        "returned_at": _iso(back),
+    }
+
+
+def _build_use_report(
+    db: Session,
+    persona: Optional[str] = None,
+    transport_id: Optional[int] = None,
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+) -> dict:
+    person = " ".join((persona or "").split())
+    start_day = _optional_day(desde, "La fecha desde")
+    end_day = _optional_day(hasta, "La fecha hasta")
+    if start_day and end_day and end_day < start_day:
+        raise HTTPException(status_code=400, detail="La fecha hasta no puede ser anterior a la desde")
+    query = (
+        db.query(models.TransportUse, models.Transport)
+        .join(models.Transport, models.Transport.id == models.TransportUse.transport_id)
+        .filter(models.Transport.kind == "auto")
+    )
+    if person:
+        query = query.filter(models.TransportUse.person == person)
+    if transport_id:
+        query = query.filter(models.TransportUse.transport_id == transport_id)
+    rows = query.order_by(
+        models.TransportUse.person.asc(),
+        models.Transport.name.asc(),
+        models.TransportUse.left_at.asc(),
+        models.TransportUse.id.asc(),
+    ).all()
+    if not rows:
+        raise HTTPException(status_code=400, detail="No hay usos con ese filtro")
+    today = date.today()
+    if not start_day:
+        start_day = min(use.left_at.date() for use, _row in rows if use.left_at)
+    if not end_day:
+        end_candidates = []
+        for use, _row in rows:
+            if use.returned_at:
+                end_candidates.append(use.returned_at.date())
+            else:
+                end_candidates.append(today)
+        end_day = max(end_candidates) if end_candidates else today
+    if end_day > today:
+        end_day = today
+    holidays, holidays_incomplete = holidays_in_range(start_day, end_day)
+    habiles = working_days(start_day, end_day, holidays)
+    groups: dict[tuple[str, int], dict] = {}
+    for use, row in rows:
+        key = ((use.person or "").strip(), row.id)
+        group = groups.get(key)
+        if not group:
+            group = {
+                "person": (use.person or "").strip() or "Sin nombre",
+                "transport_id": row.id,
+                "plate": row.plate or "",
+                "name": row.name or "",
+                "uses": [],
+            }
+            groups[key] = group
+        group["uses"].append(use)
+    groups_out = []
+    for group in groups.values():
+        used_days = []
+        unused_days = []
+        calendar = []
+        for day in habiles:
+            slots = [_hours_for_day(use, day) for use in group["uses"] if _use_covers_day(use, day)]
+            entry = {
+                "date": day.isoformat(),
+                "label": _weekday_label(day),
+                "used": bool(slots),
+                "hours": slots,
+                "hours_label": " · ".join(slot["label"] for slot in slots) if slots else "",
+            }
+            calendar.append(entry)
+            if slots:
+                used_days.append(entry)
+            else:
+                unused_days.append(entry)
+        groups_out.append(
+            {
+                "person": group["person"],
+                "transport_id": group["transport_id"],
+                "plate": group["plate"],
+                "name": group["name"],
+                "working_days": len(habiles),
+                "days_with_car": len(used_days),
+                "days_without_car": len(unused_days),
+                "summary": (
+                    f"De {len(habiles)} días hábiles, {len(used_days)} se llevó el auto"
+                    f" y {len(unused_days)} no."
+                ),
+                "used_days": used_days,
+                "unused_days": unused_days,
+                "calendar": calendar,
+                "trips": [
+                    {
+                        "id": use.id,
+                        "left_at": _iso(use.left_at),
+                        "returned_at": _iso(use.returned_at),
+                        "label": (
+                            f"{_weekday_label(use.left_at.date())} {_clock_hm(use.left_at)}"
+                            f" → "
+                            f"{('sigue afuera' if not use.returned_at else _weekday_label(use.returned_at.date()) + ' ' + _clock_hm(use.returned_at))}"
+                        ),
+                    }
+                    for use in group["uses"]
+                ],
+            }
+        )
+    groups_out.sort(key=lambda item: (item["person"].lower(), item["plate"] or item["name"]))
+    return {
+        "from": start_day.isoformat(),
+        "to": end_day.isoformat(),
+        "from_display": start_day.strftime("%d/%m/%Y"),
+        "to_display": end_day.strftime("%d/%m/%Y"),
+        "working_days": len(habiles),
+        "holidays": [day.isoformat() for day in sorted(holidays)],
+        "holidays_incomplete": holidays_incomplete,
+        "groups": groups_out,
+    }
+
+
 @router.get("/usos")
 def list_uses_on_day(
     db: Annotated[Session, Depends(get_db)],
@@ -648,6 +847,132 @@ def list_uses_on_day(
         }
         for use, row in rows
     ]
+
+
+@router.get("/usos/informe")
+def use_report(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+    persona: str = "",
+    transport_id: Optional[int] = None,
+    desde: str = "",
+    hasta: str = "",
+):
+    return _build_use_report(
+        db,
+        persona=persona,
+        transport_id=transport_id,
+        desde=desde,
+        hasta=hasta,
+    )
+
+
+@router.post("/usos/informe/export")
+def export_use_report(
+    body: UseReportBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    report = _build_use_report(
+        db,
+        persona=body.persona,
+        transport_id=body.transport_id,
+        desde=body.desde,
+        hasta=body.hasta,
+    )
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Resumen"
+    calendar = wb.create_sheet("Calendario")
+    trips = wb.create_sheet("Salidas")
+    header_fill = PatternFill("solid", fgColor="228BE6")
+    header_font = Font(bold=True, color="FFFFFF")
+
+    def write_header(sheet, headers):
+        for col, header in enumerate(headers, start=1):
+            cell = sheet.cell(1, col, header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center")
+
+    write_header(
+        summary,
+        ["Persona", "Patente", "Auto", "Días hábiles", "Con auto", "Sin auto", "Resumen"],
+    )
+    for index, group in enumerate(report["groups"], start=2):
+        values = [
+            group["person"],
+            group["plate"],
+            group["name"],
+            group["working_days"],
+            group["days_with_car"],
+            group["days_without_car"],
+            group["summary"],
+        ]
+        for col, value in enumerate(values, start=1):
+            summary.cell(index, col, value)
+    for col, width in enumerate((18, 12, 22, 12, 12, 12, 48), start=1):
+        summary.column_dimensions[get_column_letter(col)].width = width
+    summary.freeze_panes = "A2"
+
+    write_header(
+        calendar,
+        ["Persona", "Patente", "Auto", "Día", "Fecha", "Se lo llevó", "Horarios"],
+    )
+    row_index = 2
+    for group in report["groups"]:
+        for day in group["calendar"]:
+            values = [
+                group["person"],
+                group["plate"],
+                group["name"],
+                day["label"],
+                day["date"],
+                "Sí" if day["used"] else "No",
+                day["hours_label"],
+            ]
+            for col, value in enumerate(values, start=1):
+                calendar.cell(row_index, col, value)
+            row_index += 1
+    for col, width in enumerate((18, 12, 22, 22, 12, 12, 36), start=1):
+        calendar.column_dimensions[get_column_letter(col)].width = width
+    calendar.freeze_panes = "A2"
+
+    write_header(
+        trips,
+        ["Persona", "Patente", "Auto", "Salida", "Devolución", "Detalle"],
+    )
+    trip_index = 2
+    for group in report["groups"]:
+        for trip in group["trips"]:
+            values = [
+                group["person"],
+                group["plate"],
+                group["name"],
+                trip["left_at"] or "",
+                trip["returned_at"] or "sigue afuera",
+                trip["label"],
+            ]
+            for col, value in enumerate(values, start=1):
+                trips.cell(trip_index, col, value)
+            trip_index += 1
+    for col, width in enumerate((18, 12, 22, 20, 20, 40), start=1):
+        trips.column_dimensions[get_column_letter(col)].width = width
+    trips.freeze_panes = "A2"
+
+    if report["holidays_incomplete"]:
+        note = wb.create_sheet("Aviso")
+        note["A1"] = "No se pudieron cargar todos los feriados. El informe cuenta lunes a viernes igual."
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"informe_usos_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("")

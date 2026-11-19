@@ -146,6 +146,56 @@ export function listUsesOnDay(fecha, transportId) {
   return apiFetch(`/transportes/usos?${params.toString()}`);
 }
 
+export function getUseReport({ persona = "", transportId = "", desde = "", hasta = "" } = {}) {
+  const params = new URLSearchParams();
+  if (persona) params.set("persona", persona);
+  if (transportId) params.set("transport_id", String(transportId));
+  if (desde) params.set("desde", desde);
+  if (hasta) params.set("hasta", hasta);
+  const query = params.toString();
+  return apiFetch(`/transportes/usos/informe${query ? `?${query}` : ""}`);
+}
+
+export async function exportUseReport({ persona = "", transportId = "", desde = "", hasta = "" } = {}) {
+  const token = localStorage.getItem("authToken");
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+  const response = await fetch(`${base}/transportes/usos/informe/export`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify({
+      persona: persona || null,
+      transport_id: transportId || null,
+      desde: desde || null,
+      hasta: hasta || null,
+    }),
+  });
+  if (!response.ok) {
+    let message = "No se pudo exportar el informe";
+    try {
+      const data = await response.json();
+      message = data.detail || message;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(typeof message === "string" ? message : "No se pudo exportar el informe");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+  const filename = match ? match[1].replace(/['"]/g, "") : "informe_usos.xlsx";
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export async function exportFines(ids) {
   const token = localStorage.getItem("authToken");
   const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");

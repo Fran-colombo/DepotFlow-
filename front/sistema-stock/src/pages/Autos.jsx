@@ -25,6 +25,8 @@ import {
   lookupFine,
   consultRosario,
   exportFines,
+  exportUseReport,
+  getUseReport,
   returnTransporte,
   setFinePerson,
   transportImageUrl,
@@ -99,7 +101,7 @@ const FINE_STATUSES = [
   { id: "reclamo", label: "Reclamada", badge: "bg-info text-dark" },
   { id: "pagada", label: "Pagada", badge: "bg-success" },
 ];
-const FINES_PER_PAGE = 10;
+const FINES_PER_PAGE = 12;
 
 function fineStatus(fine) {
   if (FINE_STATUSES.some((item) => item.id === fine?.status)) return fine.status;
@@ -114,6 +116,16 @@ function fineStatusMeta(fine) {
 function formatPesos(amount) {
   if (amount == null || amount === "") return "—";
   return `$${Number(amount).toLocaleString("es-AR")}`;
+}
+
+function fineNeedsDescargo(fine) {
+  if (!fine || fineStatus(fine) === "pagada") return false;
+  return fine.amount == null || fine.amount === "";
+}
+
+function fineAmountLabel(fine) {
+  if (fineNeedsDescargo(fine)) return "A descargar";
+  return formatPesos(fine?.amount);
 }
 
 function sumFineAmounts(list) {
@@ -439,6 +451,7 @@ const Autos = () => {
   const [exportingFines, setExportingFines] = useState(false);
   const [claimingFine, setClaimingFine] = useState(null);
   const [finePage, setFinePage] = useState(1);
+  const [useReportOpen, setUseReportOpen] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
   const load = async () => {
@@ -486,6 +499,7 @@ const Autos = () => {
   const hasNameless = fines.some((fine) => !fine.person);
   const shownFines = fines.filter((fine) => {
     if (fineScope === "activas" && fineStatus(fine) === "pagada") return false;
+    if (fineScope === "a_descargar" && !fineNeedsDescargo(fine)) return false;
     if (finePerson === "__none__") return !fine.person;
     if (finePerson && fine.person !== finePerson) return false;
     if (fineAutoId && fine.transport_id !== fineAutoId) return false;
@@ -495,11 +509,12 @@ const Autos = () => {
   });
   const unpaidShown = unpaidFines(shownFines);
   const dueTotal = sumFineAmounts(unpaidShown);
-  const withoutAmount = unpaidShown.filter((fine) => fine.amount == null || fine.amount === "").length;
+  const toDischarge = unpaidShown.filter((fine) => fineNeedsDescargo(fine)).length;
   const paidShownTotal = sumFineAmounts(shownFines.filter((fine) => fineStatus(fine) === "pagada"));
   const activeFines = unpaidFines(fines);
   const activeFineCount = activeFines.length;
   const activeDueTotal = sumFineAmounts(activeFines);
+  const activeDescargo = activeFines.filter((fine) => fineNeedsDescargo(fine)).length;
   const fineMoneyCar = autos.find((row) => row.id === fineAutoId);
   const fineMoneyFilter = [
     fineAutoId && (fineMoneyCar?.plate || fineMoneyCar?.name),
@@ -577,7 +592,10 @@ const Autos = () => {
       <div className="d-flex justify-content-end align-items-center mb-3">
         <div className="d-flex gap-2">
           <button type="button" className="btn btn-outline-secondary" onClick={() => setFinesOpen(true)}>
-            Ver multas{activeFineCount > 0 ? ` (${activeFineCount}${activeDueTotal ? ` · ${formatPesos(activeDueTotal)}` : ""})` : ""}
+            Ver multas{activeFineCount > 0 ? ` (${activeFineCount}${activeDueTotal ? ` · ${formatPesos(activeDueTotal)}` : ""}${activeDescargo ? ` · ${activeDescargo} a descargar` : ""})` : ""}
+          </button>
+          <button type="button" className="btn btn-outline-secondary" onClick={() => setUseReportOpen(true)}>
+            Informe de usos
           </button>
           {isAdmin && (
             <button type="button" className="btn btn-primary" onClick={() => setCreating("auto")}>
@@ -699,6 +717,7 @@ const Autos = () => {
                     <label className="form-label">Cuáles</label>
                     <select className="form-select" value={fineScope} onChange={(e) => { setFineScope(e.target.value); setFinePage(1); }}>
                       <option value="activas">Activas</option>
+                      <option value="a_descargar">A descargar</option>
                       <option value="todas">Todas</option>
                     </select>
                   </div>
@@ -711,7 +730,7 @@ const Autos = () => {
                     <input
                       className="form-control"
                       inputMode="decimal"
-                      placeholder="15/10/2026"
+                      placeholder="día/mes/año"
                       value={fineDate}
                       onFocus={selectDatePart}
                       onClick={selectDatePart}
@@ -769,16 +788,19 @@ const Autos = () => {
                   </div>
                 )}
                 {shownFines.length > 0 && (
-                  <div className="border rounded px-3 py-2 mb-3 d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+                  <div className="d-flex flex-wrap justify-content-between align-items-baseline gap-2 mb-2">
                     <div>
-                      <div className="small app-muted">Hay que poner{fineMoneyFilter ? ` · ${fineMoneyFilter}` : ""}</div>
-                      <div className="fs-4 fw-semibold">
-                        {dueTotal > 0 ? formatPesos(dueTotal) : withoutAmount ? "Falta cargar precios" : formatPesos(0)}
-                      </div>
+                      <span className="fw-semibold">{formatPesos(dueTotal)}</span>
+                      <span className="app-muted small"> hay que poner{fineMoneyFilter ? ` · ${fineMoneyFilter}` : ""}</span>
+                      {toDischarge > 0 && (
+                        <div className="small text-warning-emphasis">
+                          {toDischarge === 1 ? "1 a descargar" : `${toDischarge} a descargar`} para poder pagarlas
+                        </div>
+                      )}
                     </div>
                     <div className="small app-muted">
                       {unpaidShown.length === 1 ? "1 multa" : `${unpaidShown.length} multas`}
-                      {withoutAmount ? ` · ${withoutAmount} sin precio` : ""}
+                      {toDischarge ? ` · ${toDischarge} a descargar` : ""}
                       {fineScope === "todas" && paidShownTotal > 0 ? ` · pagado ${formatPesos(paidShownTotal)}` : ""}
                     </div>
                   </div>
@@ -786,11 +808,11 @@ const Autos = () => {
                 {shownFines.length === 0 ? (
                   <p className="app-muted mb-0">No hay multas con ese filtro.</p>
                 ) : (
-                  <div className="table-responsive fines-table-wrap">
-                    <table className="table table-sm table-bordered align-middle mb-0">
+                  <div className="fines-table-wrap">
+                    <table className="table table-sm align-middle mb-0 fines-table">
                       <thead>
                         <tr>
-                          <th style={{ width: 36 }}>
+                          <th>
                             <input
                               type="checkbox"
                               className="form-check-input"
@@ -802,9 +824,7 @@ const Autos = () => {
                           <th>Fecha</th>
                           <th>Auto</th>
                           <th>Persona</th>
-                          <th>Ubicación</th>
                           <th>$</th>
-                          <th>Voluntario</th>
                           <th>Vence</th>
                           <th>Estado</th>
                           <th></th>
@@ -812,8 +832,13 @@ const Autos = () => {
                       </thead>
                       <tbody>
                         {pagedFines.map((fine) => (
-                          <tr key={fine.id} className={fineDueSoon(fine) ? "text-danger" : undefined}>
-                            <td>
+                          <tr
+                            key={fine.id}
+                            className={fineDueSoon(fine) ? "text-danger" : fineNeedsDescargo(fine) ? "fine-needs-descargo" : undefined}
+                            onClick={() => setViewingFine(fine)}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <td onClick={(e) => e.stopPropagation()}>
                               <input
                                 type="checkbox"
                                 className="form-check-input"
@@ -822,26 +847,14 @@ const Autos = () => {
                                 aria-label={`Seleccionar multa ${fine.plate || fine.id}`}
                               />
                             </td>
-                            <td>{formatWhen(fine.occurred_at)}</td>
+                            <td>{formatShortWhen(fine.occurred_at)}</td>
                             <td>
-                              <div>{fine.plate}</div>
-                              <button
-                                type="button"
-                                className="btn btn-link p-0 small"
-                                onClick={() => {
-                                  setFinesOpen(false);
-                                  openDetail(fine.transport_id).catch((err) => tell("error", err.message));
-                                }}
-                              >
-                                {fine.name}
-                              </button>
+                              <span title={fine.name || undefined}>{fine.plate || fine.name || "—"}</span>
                             </td>
-                            <td>{fine.person || "Falta quién"}</td>
-                            <td className="small">{fine.lugar_infraccion || "—"}</td>
-                            <td>{formatPesos(fine.amount)}</td>
-                            <td>{voluntaryLabel(fine.voluntary)}</td>
+                            <td className="fines-person" title={fine.person || undefined}>{fine.person || "Falta quién"}</td>
+                            <td className={`text-end${fineNeedsDescargo(fine) ? " fw-semibold" : ""}`}>{fineAmountLabel(fine)}</td>
                             <td className={fineDueSoon(fine) ? "fw-semibold" : undefined}>{formatDay(fine.due_at)}</td>
-                            <td>
+                            <td onClick={(e) => e.stopPropagation()}>
                               {isAdmin ? (
                                 <select
                                   className="form-select form-select-sm"
@@ -857,8 +870,8 @@ const Autos = () => {
                                 <span className={`badge ${fineStatusMeta(fine).badge}`} title={fine.claim_reason || undefined}>{fineStatusMeta(fine).label}</span>
                               )}
                             </td>
-                            <td>
-                              <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => setViewingFine(fine)}>
+                            <td className="text-end" onClick={(e) => e.stopPropagation()}>
+                              <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setViewingFine(fine)}>
                                 Ver
                               </button>
                             </td>
@@ -914,6 +927,14 @@ const Autos = () => {
           fine={claimingFine}
           onClose={() => setClaimingFine(null)}
           onSave={(reason) => changeFineStatus(claimingFine, "a_reclamar", { claim_reason: reason })}
+        />
+      )}
+
+      {useReportOpen && (
+        <UseReportModal
+          autos={autos}
+          onClose={() => setUseReportOpen(false)}
+          onError={(message) => tell("error", message)}
         />
       )}
 
@@ -1435,7 +1456,12 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                   <div>
                     <div className="fw-semibold">Multas</div>
                     {pending.length > 0 && (
-                      <div className="small app-muted">Hay que poner {pendingDue > 0 ? formatPesos(pendingDue) : "sin precios"}</div>
+                      <div className="small app-muted">
+                        Hay que poner {formatPesos(pendingDue)}
+                        {pending.filter((fine) => fineNeedsDescargo(fine)).length
+                          ? ` · ${pending.filter((fine) => fineNeedsDescargo(fine)).length} a descargar`
+                          : ""}
+                      </div>
                     )}
                   </div>
                   {isAdmin && (
@@ -1626,16 +1652,17 @@ function ServicePlacesModal({ row, isAdmin, onClose, onSaved, onError }) {
 function FineSummaryRow({ fine, onOpen }) {
   const meta = fineStatusMeta(fine);
   const dueSoon = fineDueSoon(fine);
+  const needsDescargo = fineNeedsDescargo(fine);
   return (
-    <div className={`fine-row${dueSoon ? " text-danger" : ""}`}>
+    <div className={`fine-row${dueSoon ? " text-danger" : needsDescargo ? " fine-needs-descargo" : ""}`}>
       <span>{formatWhen(fine.occurred_at)}</span>
       <span>{fine.person || "Falta quién"}</span>
-      {fine.lugar_infraccion && <span className={dueSoon ? "" : "app-muted"}>{fine.lugar_infraccion}</span>}
+      {fine.lugar_infraccion && <span className={dueSoon || needsDescargo ? "" : "app-muted"}>{fine.lugar_infraccion}</span>}
       {fine.due_at && <span className={dueSoon ? "fw-semibold" : "app-muted"}>Vence {formatDay(fine.due_at)}</span>}
       {fine.claim_reason && <span className="app-muted" title={fine.claim_reason}>Motivo: {fine.claim_reason}</span>}
       <FineFile fine={fine} compact />
       <span className={`badge ${meta.badge}`}>{meta.label}</span>
-      <span>{formatPesos(fine.amount)}</span>
+      <span className={needsDescargo ? "fw-semibold" : undefined}>{fineAmountLabel(fine)}</span>
       <button type="button" className="btn btn-sm btn-link p-0 ms-auto" onClick={onOpen}>Ver</button>
     </div>
   );
@@ -1868,9 +1895,19 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
               <div className="col-md-6">
                 <label className="form-label">Precio</label>
                 {isAdmin ? (
-                  <NumberInput className="form-control" value={draft.amount} min={0} disabled={saving} onChange={(e) => setField("amount")(e.target.value)} placeholder="0" />
+                  <>
+                    <NumberInput className="form-control" value={draft.amount} min={0} disabled={saving} onChange={(e) => setField("amount")(e.target.value)} placeholder="0" />
+                    {fineNeedsDescargo(fine) && String(draft.amount ?? "").trim() === "" && (
+                      <div className="form-text text-warning-emphasis">Hay que hacer descargo para poder pagarla.</div>
+                    )}
+                  </>
                 ) : (
-                  <div>{formatPesos(fine.amount)}</div>
+                  <>
+                    <div className={fineNeedsDescargo(fine) ? "fw-semibold" : undefined}>{fineAmountLabel(fine)}</div>
+                    {fineNeedsDescargo(fine) && (
+                      <div className="form-text text-warning-emphasis">Hay que hacer descargo para poder pagarla.</div>
+                    )}
+                  </>
                 )}
               </div>
               <div className="col-md-6">
@@ -2046,6 +2083,174 @@ function FineDetailModal({ fine, isAdmin, onClose, onChange, onRefresh }) {
       onClose={() => setSavedOpen(false)}
     />
     </>
+  );
+}
+
+function UseReportModal({ autos, onClose, onError }) {
+  const [person, setPerson] = useState("");
+  const [autoId, setAutoId] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [report, setReport] = useState(null);
+
+  const filters = {
+    persona: person.trim(),
+    transportId: autoId || "",
+    desde: formatDateText(from),
+    hasta: formatDateText(to),
+  };
+
+  const loadReport = async () => {
+    if (from && !parsedDayKey(formatDateText(from))) {
+      onError?.("La fecha desde es día/mes/año");
+      return;
+    }
+    if (to && !parsedDayKey(formatDateText(to))) {
+      onError?.("La fecha hasta es día/mes/año");
+      return;
+    }
+    setBusy(true);
+    try {
+      const data = await getUseReport(filters);
+      setReport(data);
+    } catch (err) {
+      setReport(null);
+      onError?.(err.message || "No se pudo armar el informe");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportReport = async () => {
+    setExporting(true);
+    try {
+      await exportUseReport(filters);
+    } catch (err) {
+      onError?.(err.message || "No se pudo exportar el informe");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }} onClick={onClose}>
+      <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title mb-0">Informe de usos</h5>
+            <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={onClose}></button>
+          </div>
+          <div className="modal-body">
+            <div className="row g-2">
+              <div className="col-md-4">
+                <label className="form-label">Persona</label>
+                <PersonPicker value={person} onChange={setPerson} />
+              </div>
+              <div className="col-md-4">
+                <label className="form-label">Auto</label>
+                <PlatePicker autos={autos} value={autoId} onChange={setAutoId} allowEmpty placeholder="Todos" />
+              </div>
+              <div className="col-md-2">
+                <label className="form-label">Desde</label>
+                <input
+                  className="form-control"
+                  inputMode="decimal"
+                  placeholder="día/mes/año"
+                  value={from}
+                  onFocus={selectDatePart}
+                  onClick={selectDatePart}
+                  onChange={(e) => setFrom(e.target.value)}
+                  onBlur={() => setFrom(formatDateText(from))}
+                />
+              </div>
+              <div className="col-md-2">
+                <label className="form-label">Hasta</label>
+                <input
+                  className="form-control"
+                  inputMode="decimal"
+                  placeholder="día/mes/año"
+                  value={to}
+                  onFocus={selectDatePart}
+                  onClick={selectDatePart}
+                  onChange={(e) => setTo(e.target.value)}
+                  onBlur={() => setTo(formatDateText(to))}
+                />
+              </div>
+            </div>
+            <div className="d-flex flex-wrap gap-2 mt-3">
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={loadReport}>
+                {busy ? "Armando…" : "Ver informe"}
+              </button>
+              <button type="button" className="btn btn-outline-primary" disabled={exporting || busy} onClick={exportReport}>
+                {exporting ? "Exportando…" : "Exportar Excel"}
+              </button>
+            </div>
+            {report && (
+              <div className="mt-3">
+                <div className="small app-muted mb-2">
+                  Periodo {report.from_display} → {report.to_display} · {report.working_days} días hábiles
+                  {report.holidays_incomplete ? " · no se pudieron cargar todos los feriados" : ""}
+                </div>
+                {(report.groups || []).map((group) => (
+                  <div key={`${group.person}-${group.transport_id}`} className="border rounded p-3 mb-3">
+                    <div className="fw-semibold">
+                      {group.person} · {group.plate || group.name}
+                      {group.plate && group.name ? ` · ${group.name}` : ""}
+                    </div>
+                    <div className="mb-2">{group.summary}</div>
+                    <div className="row g-3">
+                      <div className="col-md-6">
+                        <div className="fw-semibold small mb-1">Días con auto</div>
+                        {group.used_days?.length ? (
+                          <ul className="list-unstyled small mb-0">
+                            {group.used_days.map((day) => (
+                              <li key={day.date}>
+                                <span className="fw-semibold">{day.label.split(" ")[0]}</span>
+                                {" "}
+                                {(day.hours || []).map((slot) => `${slot.from} → ${slot.to === "sigue afuera" ? "sigue afuera" : slot.to}`).join(" · ") || day.hours_label || "—"}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="small app-muted">Ninguno.</div>
+                        )}
+                      </div>
+                      <div className="col-md-6">
+                        <div className="fw-semibold small mb-1">Días sin auto</div>
+                        {group.unused_days?.length ? (
+                          <ul className="list-unstyled small mb-0">
+                            {group.unused_days.map((day) => (
+                              <li key={day.date}>{day.label}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <div className="small app-muted">Ninguno.</div>
+                        )}
+                      </div>
+                    </div>
+                    {group.trips?.length > 0 && (
+                      <div className="mt-3">
+                        <div className="fw-semibold small mb-1">Salidas</div>
+                        <ul className="list-unstyled small mb-0">
+                          {group.trips.map((trip) => (
+                            <li key={trip.id}>{trip.label}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-outline-secondary" onClick={onClose}>Cerrar</button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
