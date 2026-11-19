@@ -461,6 +461,56 @@ body {
   overflow: visible;
 }
 
+.use-report-modal .modal-content {
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.use-report-modal .modal-body {
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.use-report-modal .use-report-filters {
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+}
+
+.use-report-modal .use-report-results {
+  overflow: auto;
+  max-height: min(52vh, 28rem);
+  margin-top: 0.75rem;
+}
+
+.use-report-day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.use-report-day-list li {
+  display: grid;
+  grid-template-columns: minmax(11rem, 14rem) 1fr;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.use-report-day-label {
+  font-weight: 600;
+}
+
+.use-report-day-free .use-report-day-hours {
+  color: #667085;
+}
+
+.use-report-day-used .use-report-day-hours {
+  color: #101828;
+}
+
 .fines-modal .fines-table-wrap {
   overflow: auto;
   max-height: min(52vh, 28rem);
@@ -492,6 +542,16 @@ body {
   max-width: 10rem;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.fines-table .fines-amount {
+  min-width: 7.5rem;
+  padding-right: 1.25rem !important;
+}
+
+.fines-table .fines-due {
+  min-width: 5.5rem;
+  padding-left: 0.85rem !important;
 }
 
 .fines-table tbody tr:hover td {

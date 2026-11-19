@@ -867,6 +867,36 @@ def use_report(
     )
 
 
+def _slug_filename(value: Optional[str]) -> str:
+    text = " ".join((value or "").split()).strip()
+    if not text:
+        return ""
+    cleaned = []
+    for char in text:
+        if char.isalnum() or char in ("-", "_"):
+            cleaned.append(char)
+        elif char.isspace():
+            cleaned.append("_")
+    return "".join(cleaned).strip("_")
+
+
+def _use_report_filename(report: dict, persona: Optional[str], transport_id: Optional[int]) -> str:
+    parts = []
+    person = _slug_filename(persona)
+    if person:
+        parts.append(person)
+    plate = ""
+    if transport_id:
+        for group in report.get("groups") or []:
+            if group.get("transport_id") == transport_id:
+                plate = _slug_filename(group.get("plate") or group.get("name"))
+                break
+    if plate:
+        parts.append(plate)
+    parts.append("usos")
+    return f"{'-'.join(parts)}.xlsx"
+
+
 @router.post("/usos/informe/export")
 def export_use_report(
     body: UseReportBody,
@@ -967,7 +997,7 @@ def export_use_report(
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-    filename = f"informe_usos_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    filename = _use_report_filename(report, body.persona, body.transport_id)
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

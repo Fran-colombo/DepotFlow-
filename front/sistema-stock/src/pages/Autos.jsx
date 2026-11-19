@@ -101,7 +101,11 @@ const FINE_STATUSES = [
   { id: "reclamo", label: "Reclamada", badge: "bg-info text-dark" },
   { id: "pagada", label: "Pagada", badge: "bg-success" },
 ];
-const FINES_PER_PAGE = 12;
+const FINE_PAGE_SIZES = [10, 25, 50];
+const FINE_SORTS = [
+  { id: "fecha_persona_auto", label: "Fecha, persona, auto" },
+  { id: "persona_auto_fecha", label: "Persona, auto, fecha" },
+];
 
 function fineStatus(fine) {
   if (FINE_STATUSES.some((item) => item.id === fine?.status)) return fine.status;
@@ -451,6 +455,8 @@ const Autos = () => {
   const [exportingFines, setExportingFines] = useState(false);
   const [claimingFine, setClaimingFine] = useState(null);
   const [finePage, setFinePage] = useState(1);
+  const [finePageSize, setFinePageSize] = useState(10);
+  const [fineSort, setFineSort] = useState("fecha_persona_auto");
   const [useReportOpen, setUseReportOpen] = useState(false);
   const [feedback, setFeedback] = useState(null);
 
@@ -507,10 +513,25 @@ const Autos = () => {
     if (wanted && fineDayKey(fine.occurred_at) !== wanted) return false;
     return true;
   });
-  const unpaidShown = unpaidFines(shownFines);
+  const sortedFines = [...shownFines].sort((a, b) => {
+    const personA = (a.person || "").trim().toLowerCase();
+    const personB = (b.person || "").trim().toLowerCase();
+    const plateA = (a.plate || a.name || "").trim().toLowerCase();
+    const plateB = (b.plate || b.name || "").trim().toLowerCase();
+    const timeA = a.occurred_at ? new Date(a.occurred_at).getTime() : 0;
+    const timeB = b.occurred_at ? new Date(b.occurred_at).getTime() : 0;
+    const byPerson = Number(!personA) - Number(!personB) || personA.localeCompare(personB, "es");
+    const byPlate = plateA.localeCompare(plateB, "es");
+    const byDate = timeB - timeA;
+    if (fineSort === "persona_auto_fecha") {
+      return byPerson || byPlate || byDate || (b.id || 0) - (a.id || 0);
+    }
+    return byDate || byPerson || byPlate || (b.id || 0) - (a.id || 0);
+  });
+  const unpaidShown = unpaidFines(sortedFines);
   const dueTotal = sumFineAmounts(unpaidShown);
   const toDischarge = unpaidShown.filter((fine) => fineNeedsDescargo(fine)).length;
-  const paidShownTotal = sumFineAmounts(shownFines.filter((fine) => fineStatus(fine) === "pagada"));
+  const paidShownTotal = sumFineAmounts(sortedFines.filter((fine) => fineStatus(fine) === "pagada"));
   const activeFines = unpaidFines(fines);
   const activeFineCount = activeFines.length;
   const activeDueTotal = sumFineAmounts(activeFines);
@@ -520,9 +541,9 @@ const Autos = () => {
     fineAutoId && (fineMoneyCar?.plate || fineMoneyCar?.name),
     finePerson === "__none__" ? "sin nombre" : finePerson,
   ].filter(Boolean).join(" · ");
-  const finePages = Math.max(1, Math.ceil(shownFines.length / FINES_PER_PAGE));
+  const finePages = Math.max(1, Math.ceil(sortedFines.length / finePageSize));
   const currentFinePage = Math.min(finePage, finePages);
-  const pagedFines = shownFines.slice((currentFinePage - 1) * FINES_PER_PAGE, currentFinePage * FINES_PER_PAGE);
+  const pagedFines = sortedFines.slice((currentFinePage - 1) * finePageSize, currentFinePage * finePageSize);
   const pagedFineIds = pagedFines.map((fine) => fine.id);
   const selectedFines = fines.filter((fine) => selectedFineIds.includes(fine.id));
   const selectedPagedCount = pagedFines.filter((fine) => selectedFineIds.includes(fine.id)).length;
@@ -713,7 +734,7 @@ const Autos = () => {
               </div>
               <div className="modal-body">
                 <div className="row g-2">
-                  <div className="col-md-3 col-6">
+                  <div className="col-md-2 col-6">
                     <label className="form-label">Cuáles</label>
                     <select className="form-select" value={fineScope} onChange={(e) => { setFineScope(e.target.value); setFinePage(1); }}>
                       <option value="activas">Activas</option>
@@ -721,12 +742,12 @@ const Autos = () => {
                       <option value="todas">Todas</option>
                     </select>
                   </div>
-                  <div className="col-md-3 col-6">
+                  <div className="col-md-2 col-6">
                     <label className="form-label">Auto</label>
                     <PlatePicker autos={autos} value={fineAutoId} onChange={(value) => { setFineAutoId(value); setFinePage(1); }} allowEmpty placeholder="Todos" />
                   </div>
-                  <div className="col-md-3 col-6">
-                    <label className="form-label">Fecha</label>
+                  <div className="col-md-2 col-6">
+                    <label className="form-label">Día</label>
                     <input
                       className="form-control"
                       inputMode="decimal"
@@ -736,9 +757,10 @@ const Autos = () => {
                       onClick={selectDatePart}
                       onChange={(e) => { setFineDate(e.target.value); setFinePage(1); }}
                       onBlur={() => setFineDate(formatDateText(fineDate))}
+                      title="Día de la infracción"
                     />
                   </div>
-                  <div className="col-md-3 col-6">
+                  <div className="col-md-2 col-6">
                     <label className="form-label">Persona</label>
                     <select className="form-select" value={finePerson} onChange={(e) => { setFinePerson(e.target.value); setFinePage(1); }}>
                       <option value="">Todas</option>
@@ -746,6 +768,26 @@ const Autos = () => {
                         <option key={name} value={name}>{name}</option>
                       ))}
                       {hasNameless && <option value="__none__">Sin nombre</option>}
+                    </select>
+                  </div>
+                  <div className="col-md-2 col-6">
+                    <label className="form-label">Ordenar</label>
+                    <select className="form-select" value={fineSort} onChange={(e) => { setFineSort(e.target.value); setFinePage(1); }}>
+                      {FINE_SORTS.map((item) => (
+                        <option key={item.id} value={item.id}>{item.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="col-md-2 col-6">
+                    <label className="form-label">Por página</label>
+                    <select
+                      className="form-select"
+                      value={finePageSize}
+                      onChange={(e) => { setFinePageSize(Number(e.target.value)); setFinePage(1); }}
+                    >
+                      {FINE_PAGE_SIZES.map((size) => (
+                        <option key={size} value={size}>{size}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -824,8 +866,8 @@ const Autos = () => {
                           <th>Fecha</th>
                           <th>Auto</th>
                           <th>Persona</th>
-                          <th>$</th>
-                          <th>Vence</th>
+                          <th className="fines-amount">$</th>
+                          <th className="fines-due">Vence</th>
                           <th>Estado</th>
                           <th></th>
                         </tr>
@@ -852,8 +894,8 @@ const Autos = () => {
                               <span title={fine.name || undefined}>{fine.plate || fine.name || "—"}</span>
                             </td>
                             <td className="fines-person" title={fine.person || undefined}>{fine.person || "Falta quién"}</td>
-                            <td className={`text-end${fineNeedsDescargo(fine) ? " fw-semibold" : ""}`}>{fineAmountLabel(fine)}</td>
-                            <td className={fineDueSoon(fine) ? "fw-semibold" : undefined}>{formatDay(fine.due_at)}</td>
+                            <td className={`fines-amount text-end${fineNeedsDescargo(fine) ? " fw-semibold" : ""}`}>{fineAmountLabel(fine)}</td>
+                            <td className={`fines-due${fineDueSoon(fine) ? " fw-semibold" : ""}`}>{formatDay(fine.due_at)}</td>
                             <td onClick={(e) => e.stopPropagation()}>
                               {isAdmin ? (
                                 <select
@@ -870,9 +912,9 @@ const Autos = () => {
                                 <span className={`badge ${fineStatusMeta(fine).badge}`} title={fine.claim_reason || undefined}>{fineStatusMeta(fine).label}</span>
                               )}
                             </td>
-                            <td className="text-end" onClick={(e) => e.stopPropagation()}>
+                            <td className="text-end text-nowrap" onClick={(e) => e.stopPropagation()}>
                               <button type="button" className="btn btn-link btn-sm p-0" onClick={() => setViewingFine(fine)}>
-                                Ver
+                                Ver detalle
                               </button>
                             </td>
                           </tr>
@@ -881,25 +923,27 @@ const Autos = () => {
                     </table>
                   </div>
                 )}
-                {shownFines.length > 0 && (
-                  <div className="d-flex justify-content-between align-items-center mt-2">
+                {sortedFines.length > 0 && (
+                  <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
                     <span className="small app-muted">
-                      {shownFines.length === 1 ? "1 multa" : `${shownFines.length} multas`}
-                      {finePages > 1 ? ` · ${((currentFinePage - 1) * FINES_PER_PAGE) + 1}–${Math.min(currentFinePage * FINES_PER_PAGE, shownFines.length)}` : ""}
+                      {sortedFines.length === 1 ? "1 multa" : `${sortedFines.length} multas`}
+                      {` · ${((currentFinePage - 1) * finePageSize) + 1}–${Math.min(currentFinePage * finePageSize, sortedFines.length)}`}
                     </span>
-                    {finePages > 1 && (
-                      <div className="btn-group btn-group-sm">
-                        <button type="button" className="btn btn-outline-secondary" disabled={currentFinePage <= 1} onClick={() => setFinePage(currentFinePage - 1)}>
-                          Anterior
-                        </button>
-                        <button type="button" className="btn btn-light border" disabled>
-                          {currentFinePage} / {finePages}
-                        </button>
-                        <button type="button" className="btn btn-outline-secondary" disabled={currentFinePage >= finePages} onClick={() => setFinePage(currentFinePage + 1)}>
-                          Siguiente
-                        </button>
-                      </div>
-                    )}
+                    <div className="d-flex flex-wrap align-items-center gap-2">
+                      {finePages > 1 && (
+                        <div className="btn-group btn-group-sm">
+                          <button type="button" className="btn btn-outline-secondary" disabled={currentFinePage <= 1} onClick={() => setFinePage(currentFinePage - 1)}>
+                            Anterior
+                          </button>
+                          <button type="button" className="btn btn-light border" disabled>
+                            {currentFinePage} / {finePages}
+                          </button>
+                          <button type="button" className="btn btn-outline-secondary" disabled={currentFinePage >= finePages} onClick={() => setFinePage(currentFinePage + 1)}>
+                            Siguiente
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1108,6 +1152,7 @@ function UseHistory({ row }) {
   const uses = useMemo(() => (Array.isArray(row.uses) ? row.uses : []), [row.uses]);
   const [person, setPerson] = useState("");
   const [state, setState] = useState("");
+  const [day, setDay] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [page, setPage] = useState(1);
@@ -1121,11 +1166,12 @@ function UseHistory({ row }) {
     if (person && (use.person || "").trim() !== person) return false;
     if (state === "out" && use.returned_at) return false;
     if (state === "back" && !use.returned_at) return false;
-    const day = dayKey(use.left_at);
-    if (from && day < from) return false;
-    if (to && day > to) return false;
+    const useDay = dayKey(use.left_at);
+    if (day) return useDay === day;
+    if (from && useDay < from) return false;
+    if (to && useDay > to) return false;
     return true;
-  }), [uses, person, state, from, to]);
+  }), [uses, person, state, day, from, to]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / USES_PER_PAGE));
   const current = Math.min(page, pages);
@@ -1136,14 +1182,29 @@ function UseHistory({ row }) {
     if (last && last.key === key) last.items.push(use);
     else groups.push({ key, label: formatUseDay(use.left_at), items: [use] });
   });
-  const filtering = Boolean(person || state || from || to);
+  const filtering = Boolean(person || state || day || from || to);
   const change = (setter) => (event) => {
     setter(event.target.value);
+    setPage(1);
+  };
+  const changeDay = (event) => {
+    const value = event.target.value;
+    setDay(value);
+    if (value) {
+      setFrom("");
+      setTo("");
+    }
+    setPage(1);
+  };
+  const changeRange = (setter) => (event) => {
+    setter(event.target.value);
+    setDay("");
     setPage(1);
   };
   const clear = () => {
     setPerson("");
     setState("");
+    setDay("");
     setFrom("");
     setTo("");
     setPage(1);
@@ -1164,7 +1225,7 @@ function UseHistory({ row }) {
       ) : (
         <>
           <div className="row g-2 mb-2">
-            <div className="col-6 col-md-3">
+            <div className="col-6 col-md-4 col-xl">
               <label className="form-label small mb-1" htmlFor="uses-person">Quién</label>
               <select id="uses-person" className="form-select form-select-sm" value={person} onChange={change(setPerson)}>
                 <option value="">Todos</option>
@@ -1173,7 +1234,7 @@ function UseHistory({ row }) {
                 ))}
               </select>
             </div>
-            <div className="col-6 col-md-3">
+            <div className="col-6 col-md-4 col-xl">
               <label className="form-label small mb-1" htmlFor="uses-state">Estado</label>
               <select id="uses-state" className="form-select form-select-sm" value={state} onChange={change(setState)}>
                 <option value="">Todos</option>
@@ -1181,13 +1242,17 @@ function UseHistory({ row }) {
                 <option value="back">Volvió</option>
               </select>
             </div>
-            <div className="col-6 col-md-3">
-              <label className="form-label small mb-1" htmlFor="uses-from">Desde</label>
-              <input id="uses-from" type="date" className="form-control form-control-sm" value={from} max={to || undefined} onChange={change(setFrom)} />
+            <div className="col-6 col-md-4 col-xl">
+              <label className="form-label small mb-1" htmlFor="uses-day">Día</label>
+              <input id="uses-day" type="date" className="form-control form-control-sm" value={day} onChange={changeDay} />
             </div>
-            <div className="col-6 col-md-3">
+            <div className="col-6 col-md-4 col-xl">
+              <label className="form-label small mb-1" htmlFor="uses-from">Desde</label>
+              <input id="uses-from" type="date" className="form-control form-control-sm" value={from} max={to || undefined} disabled={Boolean(day)} onChange={changeRange(setFrom)} />
+            </div>
+            <div className="col-6 col-md-4 col-xl">
               <label className="form-label small mb-1" htmlFor="uses-to">Hasta</label>
-              <input id="uses-to" type="date" className="form-control form-control-sm" value={to} min={from || undefined} onChange={change(setTo)} />
+              <input id="uses-to" type="date" className="form-control form-control-sm" value={to} min={from || undefined} disabled={Boolean(day)} onChange={changeRange(setTo)} />
             </div>
           </div>
           {filtering && (
@@ -2136,14 +2201,14 @@ function UseReportModal({ autos, onClose, onError }) {
 
   return (
     <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }} onClick={onClose}>
-      <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-dialog modal-xl modal-dialog-centered use-report-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-content">
           <div className="modal-header">
             <h5 className="modal-title mb-0">Informe de usos</h5>
             <button type="button" className="btn-close ms-auto" aria-label="Cerrar" onClick={onClose}></button>
           </div>
           <div className="modal-body">
-            <div className="row g-2">
+            <div className="use-report-filters row g-2">
               <div className="col-md-4">
                 <label className="form-label">Persona</label>
                 <PersonPicker value={person} onChange={setPerson} />
@@ -2188,7 +2253,7 @@ function UseReportModal({ autos, onClose, onError }) {
               </button>
             </div>
             {report && (
-              <div className="mt-3">
+              <div className="use-report-results mt-3">
                 <div className="small app-muted mb-2">
                   Periodo {report.from_display} → {report.to_display} · {report.working_days} días hábiles
                   {report.holidays_incomplete ? " · no se pudieron cargar todos los feriados" : ""}
@@ -2200,46 +2265,25 @@ function UseReportModal({ autos, onClose, onError }) {
                       {group.plate && group.name ? ` · ${group.name}` : ""}
                     </div>
                     <div className="mb-2">{group.summary}</div>
-                    <div className="row g-3">
-                      <div className="col-md-6">
-                        <div className="fw-semibold small mb-1">Días con auto</div>
-                        {group.used_days?.length ? (
-                          <ul className="list-unstyled small mb-0">
-                            {group.used_days.map((day) => (
-                              <li key={day.date}>
-                                <span className="fw-semibold">{day.label.split(" ")[0]}</span>
-                                {" "}
-                                {(day.hours || []).map((slot) => `${slot.from} → ${slot.to === "sigue afuera" ? "sigue afuera" : slot.to}`).join(" · ") || day.hours_label || "—"}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="small app-muted">Ninguno.</div>
-                        )}
-                      </div>
-                      <div className="col-md-6">
-                        <div className="fw-semibold small mb-1">Días sin auto</div>
-                        {group.unused_days?.length ? (
-                          <ul className="list-unstyled small mb-0">
-                            {group.unused_days.map((day) => (
-                              <li key={day.date}>{day.label}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <div className="small app-muted">Ninguno.</div>
-                        )}
-                      </div>
-                    </div>
-                    {group.trips?.length > 0 && (
-                      <div className="mt-3">
-                        <div className="fw-semibold small mb-1">Salidas</div>
-                        <ul className="list-unstyled small mb-0">
-                          {group.trips.map((trip) => (
-                            <li key={trip.id}>{trip.label}</li>
+                    <div className="use-report-calendar">
+                      <div className="fw-semibold small mb-2">Calendario</div>
+                      {(group.calendar || []).length === 0 ? (
+                        <div className="small app-muted">No hay días hábiles en el periodo.</div>
+                      ) : (
+                        <ul className="list-unstyled small mb-0 use-report-day-list">
+                          {(group.calendar || []).map((day) => (
+                            <li key={day.date} className={day.used ? "use-report-day-used" : "use-report-day-free"}>
+                              <span className="use-report-day-label">{day.label}</span>
+                              <span className="use-report-day-hours">
+                                {day.used
+                                  ? (day.hours || []).map((slot) => `${slot.from} → ${slot.to}`).join(" · ") || day.hours_label || "—"
+                                  : "sin auto"}
+                              </span>
+                            </li>
                           ))}
                         </ul>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
