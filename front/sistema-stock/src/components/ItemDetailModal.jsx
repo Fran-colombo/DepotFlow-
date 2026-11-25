@@ -34,6 +34,7 @@ import TrasladoModal from "./TrasladoModal";
 import NoVolvioModal from "./NoVolvioModal";
 import ActionMenu from "./ActionMenu";
 import SwitchShedModal from "./SwitchShedModal";
+import { todayKey } from "./ViajeModal";
 import { getSheds } from "../api/sheds";
 import { printLabels } from "./printLabels";
 import useAuth from "../hooks/useAuth";
@@ -936,6 +937,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
   const [popupPlace, setPopupPlace] = useState("");
   const [popupPerson, setPopupPerson] = useState("");
   const [popupNote, setPopupNote] = useState("");
+  const [popupOccurredAt, setPopupOccurredAt] = useState(() => todayKey());
   const [popupError, setPopupError] = useState("");
   const [popupAmount, setPopupAmount] = useState(1);
   const [retireScope, setRetireScope] = useState("parcial");
@@ -1209,6 +1211,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
     setPopupPlace("");
     setPopupPerson("");
     setPopupNote("");
+    setPopupOccurredAt(todayKey());
     setPopupError("");
     setPopupAmount("");
     setRetireScope("parcial");
@@ -1268,6 +1271,7 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
         codes: [unit.code],
         noReturn: retireRepair ? false : consumable,
         repair: retireRepair,
+        occurredAt: popupOccurredAt || todayKey(),
         ...(inShed ? { inShed: true } : {}),
         ...(popupNote.trim() ? { note: popupNote.trim() } : {}),
       });
@@ -2328,6 +2332,20 @@ const ItemDetailModal = ({ item, isOpen, onClose, onChanged, focusCode = "" }) =
                 </label>
                 <PersonPicker value={popupPerson} onChange={setPopupPerson} disabled={busy} />
               </div>
+              {actionUnit.kind === "retire" && (
+                <div className="mb-3">
+                  <label className="form-label">Día</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={popupOccurredAt || todayKey()}
+                    max={todayKey()}
+                    disabled={busy}
+                    onChange={(e) => setPopupOccurredAt(e.target.value || todayKey())}
+                  />
+                  <div className="form-text">Por defecto es hoy. Si el retiro fue ayer, cambiá el día.</div>
+                </div>
+              )}
               <div className="mb-3">
                 <label className="form-label">{retireUsedInShed ? "Para qué" : "Nota"}</label>
                 <textarea
