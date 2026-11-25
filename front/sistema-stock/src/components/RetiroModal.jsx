@@ -147,7 +147,7 @@ const RetirarItemModal = ({
   const [item, setItem] = useState(null);
   const [stockUnits, setStockUnits] = useState([]);
   const [innerQuantity, setInnerQuantity] = useState(false);
-  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '', zone_id: '' });
+  const [form, setForm] = useState({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: todayKey(), viajeId: '', zone_id: '' });
   const [viajes, setViajes] = useState([]);
   const [retiredCodes, setRetiredCodes] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -162,7 +162,7 @@ const RetirarItemModal = ({
 
   useEffect(() => {
     if (isOpen && itemId) {
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '', zone_id: '' });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: todayKey(), viajeId: '', zone_id: '' });
       setViajes([]);
       setRetiredCodes([]);
       setStockUnits([]);
@@ -270,11 +270,11 @@ const RetirarItemModal = ({
         ...(inShed ? { inShed: true } : {}),
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
         ...(form.viajeId ? { viajeId: Number(form.viajeId) } : {}),
-        ...(form.occurredAt && !form.viajeId ? { occurredAt: form.occurredAt } : {}),
+        ...(!form.viajeId ? { occurredAt: form.occurredAt || todayKey() } : {}),
         ...(!item?.track_units && form.zone_id ? { zone_id: Number(form.zone_id) } : {}),
       });
       setRetiredCodes(result?.unit_codes || []);
-      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: '', viajeId: '', zone_id: '' });
+      setForm({ amount: '', place: '', personWhoTook: '', code: '', scope: 'parcial', noReturn: false, note: '', inShed: false, occurredAt: todayKey(), viajeId: '', zone_id: '' });
       setRemitoDraft(inShed ? null : {
         item,
         amount,
@@ -483,14 +483,15 @@ const RetirarItemModal = ({
                 </div>
                 {!form.viajeId && (
                   <div className="mb-3">
-                    <label className="form-label">Fecha y hora</label>
+                    <label className="form-label">Día</label>
                     <input
-                      type="datetime-local"
+                      type="date"
                       className="form-control"
-                      value={form.occurredAt}
-                      onChange={(e) => setForm({ ...form, occurredAt: e.target.value })}
+                      value={form.occurredAt || todayKey()}
+                      max={todayKey()}
+                      onChange={(e) => setForm({ ...form, occurredAt: e.target.value || todayKey() })}
                     />
-                    <div className="form-text">Si no ponés nada, el horario es ahora.</div>
+                    <div className="form-text">Por defecto es hoy. Si el retiro fue ayer, cambiá el día.</div>
                   </div>
                 )}
                 {!inShed && viajes.length > 0 && (

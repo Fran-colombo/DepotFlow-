@@ -612,10 +612,15 @@ def _occurred_at(value: Optional[str]) -> datetime:
     try:
         parsed = datetime.fromisoformat(text)
     except ValueError:
-        raise HTTPException(status_code=400, detail="La fecha y la hora no son válidas")
+        raise HTTPException(status_code=400, detail="La fecha no es válida")
     parsed = _as_local(parsed)
+    # Solo día (YYYY-MM-DD): si es hoy, usamos ahora; si es otro día, queda a las 12:00.
+    if len(text) == 10 and "T" not in text and " " not in text:
+        if parsed.date() == now().date():
+            return now()
+        parsed = parsed.replace(hour=12, minute=0, second=0, microsecond=0)
     if parsed > now() + timedelta(minutes=2):
-        raise HTTPException(status_code=400, detail="El horario no puede ser más adelante que ahora")
+        raise HTTPException(status_code=400, detail="La fecha no puede ser más adelante que hoy")
     return parsed
 
 
@@ -1701,6 +1706,7 @@ def trasladar_item(
             ),
         )
 
+    moment = _occurred_at(dto.occurredAt)
     restante = dto.amount
     for p in pendientes:
         if restante <= 0:
@@ -1713,7 +1719,7 @@ def trasladar_item(
             restante = 0
         if p.amountNotReturned == 0:
             p.turnback = True
-            p.turnbackDate = now()
+            p.turnbackDate = moment
 
     quien_mueve = (
         dto.personWhoMoved.strip()
@@ -1729,7 +1735,7 @@ def trasladar_item(
         personWhoTook=quien_mueve,
         amountRetired=dto.amount,
         amountNotReturned=dto.amount,
-        date=now(),
+        date=moment,
         place=to_place,
         turnback=False,
         lastNotification=None,
@@ -1747,10 +1753,10 @@ def trasladar_item(
         personWhoTook=quien_mueve,
         amountRetired=dto.amount,
         amountNotReturned=0,
-        date=now(),
+        date=moment,
         place=f"{from_place} → {to_place}",
         turnback=True,
-        turnbackDate=now(),
+        turnbackDate=moment,
         lastNotification=None,
         hideFromHistorial=False,
     )

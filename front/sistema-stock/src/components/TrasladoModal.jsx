@@ -9,6 +9,7 @@ import FeedbackModal from "./FeedbackModal";
 import PersonPicker from "./PersonPicker";
 import NumberInput from "./NumberInput";
 import ObraPicker from "./ObraPicker";
+import { todayKey } from "./ViajeModal";
 
 const TrasladoModal = ({
   itemId,
@@ -28,6 +29,7 @@ const TrasladoModal = ({
     fromPlace: "",
     toPlaceSelect: "",
     personWhoMoved: "",
+    occurredAt: todayKey(),
   });
   const [loading, setLoading] = useState(false);
   const [loadingPlaces, setLoadingPlaces] = useState(false);
@@ -42,6 +44,7 @@ const TrasladoModal = ({
       fromPlace: defaultFromPlace || "",
       toPlaceSelect: "",
       personWhoMoved: "",
+      occurredAt: todayKey(),
     });
     setError("");
     setFeedback(null);
@@ -135,6 +138,7 @@ const TrasladoModal = ({
         fromPlace: form.fromPlace,
         toPlace,
         personWhoMoved: form.personWhoMoved.trim(),
+        occurredAt: form.occurredAt || todayKey(),
         ...(code ? { code } : {}),
       });
       onFinished?.({ type: "success", message: `Se trasladó a ${toPlace}.` });
@@ -259,6 +263,19 @@ const TrasladoModal = ({
                   onChange={(personWhoMoved) => setForm({ ...form, personWhoMoved })}
                   disabled={noPending}
                 />
+              </div>
+
+              <div className="mb-3">
+                <label className="form-label">Día</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={form.occurredAt || todayKey()}
+                  max={todayKey()}
+                  disabled={noPending}
+                  onChange={(e) => setForm({ ...form, occurredAt: e.target.value || todayKey() })}
+                />
+                <div className="form-text">Por defecto es hoy. Si el traslado fue ayer, cambiá el día.</div>
               </div>
 
               {error && (
