@@ -259,7 +259,7 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: 
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
+            detail="Credenciales inválidas",
         )
 
     role = user.role.value if hasattr(user.role, "value") else user.role

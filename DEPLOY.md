@@ -174,9 +174,11 @@ En los logs de **Caddy del VPS** buscá que el certificado de `conkreto-gestiond
 
 Containers de esta app que tienen que estar up:
 
-- `backend`
-- `frontend`
-- (opcional) `n8n` si usan el bot
+- `depotflow-backend`
+- `depotflow-frontend`
+- (opcional) `depotflow-n8n` si usan el bot
+
+Los nombres van con prefijo `depotflow-` para no chocar con otras apps del mismo VPS (ej. otro `/n8n`).
 
 ---
 

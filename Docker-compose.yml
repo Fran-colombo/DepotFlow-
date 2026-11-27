@@ -4,7 +4,7 @@ services:
   backend:
     build:
       context: ./back
-    container_name: backend
+    container_name: depotflow-backend
     environment:
       DOCKER: "1"
       DB_PATH: /app/shed_data/shed.db
@@ -39,7 +39,7 @@ services:
       context: ./front/sistema-stock
       args:
         VITE_API_URL: ${VITE_API_URL:-/api}
-    container_name: frontend
+    container_name: depotflow-frontend
     ports:
       - "8084:80"
     depends_on:
@@ -50,7 +50,7 @@ services:
 
   n8n:
     image: n8nio/n8n:1.109.1
-    container_name: n8n
+    container_name: depotflow-n8n
     environment:
       DOCKER: "1"
       GENERIC_TIMEZONE: America/Argentina/Buenos_Aires

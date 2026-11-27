@@ -14,7 +14,7 @@ export const MANUAL_SECTIONS = [
             "Escribí tu **Email** y tu **Contraseña**. El ojito muestra lo que escribiste.",
             "Tocá **Iniciar Sesión**. Entrás a **Productos**.",
           ] },
-          { type: "p", text: "Si dice **Invalid credentials**, el email o la contraseña están mal." },
+          { type: "p", text: "Si dice **Credenciales inválidas**, el email o la contraseña están mal." },
           { type: "warn", text: "No hay opción de recuperar la contraseña ni de crearte un usuario. Si te olvidaste la contraseña o necesitás una cuenta, pedíselo a un administrador." },
           { type: "p", text: "Si pasás **30 minutos sin tocar nada**, la sesión se cierra sola y volvés a la pantalla de entrada. Mientras uses el sistema, sigue abierta." },
           { type: "p", text: "Para salir a propósito, tocá **Cerrar sesión** (en rojo, a la derecha del menú)." },
