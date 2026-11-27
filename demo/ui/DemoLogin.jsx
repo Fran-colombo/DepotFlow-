@@ -86,7 +86,7 @@ function DemoLoginPage() {
         <div className="text-center mb-3">
           <img src={logoConkreto} alt="Logo Conkreto" style={{ maxWidth: 180 }} />
           <h4 className="mt-3 fw-bold mb-1 text-dark">Gestor de Inventario</h4>
-          <p className="text-muted small mb-0">Conkreto Construcciones STL</p>
+          <p className="text-muted small mb-0">Conkreto Construcciones SRL</p>
         </div>
 
         <div className="alert alert-warning py-2 px-3 small text-center border-0">
