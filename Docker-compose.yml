@@ -35,8 +35,8 @@ services:
   frontend:
     build:
       context: ./front/sistema-stock
-    args:
-      VITE_API_URL: ${VITE_API_URL:-/api}
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
     container_name: depotflow-frontend
     ports:
       - "8084:80"
