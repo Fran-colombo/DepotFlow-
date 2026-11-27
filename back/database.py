@@ -406,6 +406,26 @@ def ensure_inventory_schema():
             "CREATE INDEX IF NOT EXISTS ix_transporte_lugares_service_transport_id "
             "ON transporte_lugares_service (transport_id)"
         ))
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS transporte_reparaciones (
+                id INTEGER NOT NULL PRIMARY KEY,
+                transport_id INTEGER NOT NULL,
+                reason VARCHAR NOT NULL,
+                place VARCHAR NOT NULL,
+                taken_by VARCHAR NOT NULL,
+                sent_at DATETIME NOT NULL,
+                returned_at DATETIME,
+                picked_up_by VARCHAR,
+                cost INTEGER,
+                fix_note VARCHAR,
+                still_broken BOOLEAN NOT NULL DEFAULT 0,
+                FOREIGN KEY(transport_id) REFERENCES transportes (id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_transporte_reparaciones_transport_id "
+            "ON transporte_reparaciones (transport_id)"
+        ))
 
     if _column_exists("transporte_usos", "id") and not _column_exists("transporte_usos", "with_transport_id"):
         with engine.begin() as conn:

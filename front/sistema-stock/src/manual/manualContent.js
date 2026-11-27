@@ -836,9 +836,9 @@ export const MANUAL_SECTIONS = [
         keywords: ["autos", "auto", "carro", "ficha", "patente", "en uso", "en depósito"],
         body: [
           { type: "p", text: "Arriba están los **autos** y abajo los **carros**. Cada tarjeta muestra si está en depósito, en uso y con quién, si está roto o lo llevaron a arreglar, los km y cuánto falta para el service." },
-          { type: "p", text: "Tocá la tarjeta para abrir la **ficha**: último service, notas, multas y el historial de salidas. En el historial podés filtrar por quién, estado, un **día** puntual o un rango desde/hasta." },
+          { type: "p", text: "Tocá la tarjeta para abrir la **ficha**: último service, notas, multas, roturas/taller y el historial de salidas. En el historial podés filtrar por quién, estado, un **día** puntual o un rango desde/hasta." },
         ],
-        related: ["salir", "km", "auto-vs-carro", "informe-usos"],
+        related: ["salir", "km", "auto-vs-carro", "informe-usos", "auto-roturas"],
       },
       {
         id: "salir",
@@ -927,7 +927,23 @@ export const MANUAL_SECTIONS = [
           ] },
           { type: "warn", text: "No podés poner menos km de los que tiene. Si se cargó mal un número más alto, pedile a un administrador que lo corrija." },
         ],
-        related: ["service", "tres-km"],
+        related: ["service", "tres-km", "auto-roturas"],
+      },
+      {
+        id: "auto-roturas",
+        title: "Roturas y taller del auto",
+        summary: "Marcar roto, llevar a arreglar y ver el historial.",
+        keywords: ["roto", "rotura", "taller", "arreglar", "reparación", "costo", "historial"],
+        body: [
+          { type: "p", text: "En la ficha del auto un administrador marca **Roto** y anota qué tiene. Eso queda en la tarjeta." },
+          { type: "steps", items: [
+            "Tocá **Llevar a arreglar**: indicá **a dónde**, **quién lo lleva**, el **día** y el **por qué**.",
+            "Cuando vuelve, tocá **Volvió del taller**: **quién lo busca**, el **día**, **qué le hicieron**, el **costo** (opcional) y si **sigue roto**.",
+            "Tocá **Ver roturas** para el historial (igual que en las herramientas): cada vez que lo llevaron y cada vuelta.",
+          ] },
+          { type: "p", text: "Mientras está en el taller no se puede destildar Roto a mano: primero hay que registrar la vuelta." },
+        ],
+        related: ["autos-ver", "service", "km"],
       },
       {
         id: "service",

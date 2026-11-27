@@ -28,6 +28,8 @@ import {
   exportUseReport,
   getUseReport,
   returnTransporte,
+  returnTransporteFromRepair,
+  sendTransporteToRepair,
   setFinePerson,
   transportImageUrl,
   updateServicePlace,
@@ -37,6 +39,7 @@ import {
   uploadFineFile,
   uploadTransporteImage,
 } from "../api/transportes";
+import { todayKey } from "../components/ViajeModal";
 
 function FineFile({ fine, canEdit = false, busy = false, onReplace, compact = false }) {
   const inputRef = useRef(null);
@@ -1296,6 +1299,8 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
   const [saving, setSaving] = useState(false);
   const [kmEdit, setKmEdit] = useState(null);
   const [placesOpen, setPlacesOpen] = useState(false);
+  const [repairsOpen, setRepairsOpen] = useState(false);
+  const [repairForm, setRepairForm] = useState(null);
   const [profile, setProfile] = useState({
     name: row.name || "",
     plate: row.plate || "",
@@ -1304,10 +1309,11 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
     next_service_km: row.next_service_km ?? "",
     is_broken: Boolean(row.is_broken),
     damage_note: row.damage_note || "",
-    in_repair: Boolean(row.in_repair),
   });
   const notes = Array.isArray(row.notes) ? row.notes : [];
   const fines = Array.isArray(row.fines) ? row.fines : [];
+  const repairs = Array.isArray(row.repairs) ? row.repairs : [];
+  const openRepair = repairs.find((item) => item.open) || null;
   const pending = fines.filter((fine) => fineStatus(fine) !== "pagada");
   const paid = fines.filter((fine) => fineStatus(fine) === "pagada");
   const pendingDue = sumFineAmounts(pending);
@@ -1336,11 +1342,63 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
         next_service_km: optionalKm(profile.next_service_km),
         is_broken: profile.is_broken,
         damage_note: profile.damage_note.trim(),
-        in_repair: profile.in_repair,
       });
       await onSaved("Se guardó la ficha.");
     } catch (err) {
       onError(err.message || "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openSendRepair = () => {
+    setRepairForm({
+      mode: "send",
+      place: "",
+      taken_by: "",
+      reason: profile.damage_note || row.damage_note || "",
+      sent_at: todayKey(),
+    });
+  };
+
+  const openReturnRepair = () => {
+    setRepairForm({
+      mode: "return",
+      picked_up_by: "",
+      fix_note: "",
+      returned_at: todayKey(),
+      cost: "",
+      still_broken: false,
+    });
+  };
+
+  const saveRepair = async () => {
+    if (!repairForm) return;
+    setSaving(true);
+    try {
+      if (repairForm.mode === "send") {
+        await sendTransporteToRepair(row.id, {
+          place: repairForm.place.trim(),
+          taken_by: repairForm.taken_by.trim(),
+          reason: repairForm.reason.trim(),
+          sent_at: repairForm.sent_at || todayKey(),
+        });
+        setRepairForm(null);
+        await onSaved("Quedó que lo llevaron a arreglar.");
+      } else {
+        const costText = String(repairForm.cost ?? "").trim();
+        await returnTransporteFromRepair(row.id, {
+          picked_up_by: repairForm.picked_up_by.trim(),
+          fix_note: repairForm.fix_note.trim(),
+          returned_at: repairForm.returned_at || todayKey(),
+          still_broken: Boolean(repairForm.still_broken),
+          ...(costText !== "" ? { cost: Number(costText) } : {}),
+        });
+        setRepairForm(null);
+        await onSaved(repairForm.still_broken ? "Volvió del taller y sigue roto." : "Volvió del taller.");
+      }
+    } catch (err) {
+      onError(err.message || "No se pudo guardar el arreglo");
     } finally {
       setSaving(false);
     }
@@ -1459,15 +1517,46 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                 <NumberInput className="form-control mb-2" value={profile.last_service_km} onChange={(e) => setProfile({ ...profile, last_service_km: e.target.value })} placeholder="Km del service" />
                 <NumberInput className="form-control mb-2" value={profile.next_service_km} onChange={(e) => setProfile({ ...profile, next_service_km: e.target.value })} placeholder="Km del próximo service" />
                 <div className="form-check">
-                  <input id="auto-roto" type="checkbox" className="form-check-input" checked={profile.is_broken} onChange={(e) => setProfile({ ...profile, is_broken: e.target.checked })} />
+                  <input
+                    id="auto-roto"
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={profile.is_broken || Boolean(row.in_repair)}
+                    disabled={Boolean(row.in_repair)}
+                    onChange={(e) => setProfile({ ...profile, is_broken: e.target.checked })}
+                  />
                   <label className="form-check-label" htmlFor="auto-roto">Roto</label>
                 </div>
-                {profile.is_broken && (
-                  <textarea className="form-control my-2" rows="2" placeholder="Qué tiene" value={profile.damage_note} onChange={(e) => setProfile({ ...profile, damage_note: e.target.value })} />
+                {(profile.is_broken || row.in_repair) && (
+                  <textarea
+                    className="form-control my-2"
+                    rows="2"
+                    placeholder="Qué tiene"
+                    value={profile.damage_note}
+                    disabled={Boolean(row.in_repair)}
+                    onChange={(e) => setProfile({ ...profile, damage_note: e.target.value })}
+                  />
                 )}
-                <div className="form-check mb-2">
-                  <input id="auto-arreglo" type="checkbox" className="form-check-input" checked={profile.in_repair} onChange={(e) => setProfile({ ...profile, in_repair: e.target.checked })} />
-                  <label className="form-check-label" htmlFor="auto-arreglo">Lo llevaron a arreglar</label>
+                {row.in_repair ? (
+                  <div className="alert alert-warning py-2 small mb-2">
+                    Está en el taller{openRepair?.place ? ` · ${openRepair.place}` : ""}.
+                    {openRepair?.taken_by ? ` Lo llevó ${openRepair.taken_by}.` : ""}
+                  </div>
+                ) : null}
+                <div className="d-flex flex-wrap gap-2 mb-2">
+                  {!row.in_repair && (
+                    <button type="button" className="btn btn-outline-warning" disabled={saving} onClick={openSendRepair}>
+                      Llevar a arreglar
+                    </button>
+                  )}
+                  {row.in_repair && (
+                    <button type="button" className="btn btn-outline-success" disabled={saving} onClick={openReturnRepair}>
+                      Volvió del taller
+                    </button>
+                  )}
+                  <button type="button" className="btn btn-outline-secondary" onClick={() => setRepairsOpen(true)}>
+                    Ver roturas{repairs.length ? ` (${repairs.length})` : ""}
+                  </button>
                 </div>
                 <button type="button" className="btn btn-primary" disabled={saving} onClick={saveProfile}>Guardar ficha</button>
               </div>
@@ -1486,7 +1575,18 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
                 {row.last_service_km != null && <div>Km del service: {row.last_service_km}</div>}
                 {row.next_service_km != null && <div>Próximo service: {row.next_service_km} km</div>}
                 {row.is_broken && <div>Roto{row.damage_note ? `: ${row.damage_note}` : ""}</div>}
-                {row.in_repair && <div>Lo llevaron a arreglar</div>}
+                {row.in_repair && (
+                  <div>
+                    Lo llevaron a arreglar
+                    {openRepair?.place ? ` · ${openRepair.place}` : ""}
+                    {openRepair?.taken_by ? ` · ${openRepair.taken_by}` : ""}
+                  </div>
+                )}
+                {repairs.length > 0 && (
+                  <button type="button" className="btn btn-link btn-sm p-0 mt-1" onClick={() => setRepairsOpen(true)}>
+                    Ver roturas ({repairs.length})
+                  </button>
+                )}
               </div>
             )}
 
@@ -1557,6 +1657,186 @@ function Detail({ row, isAdmin, onClose, onLeave, onReturn, onPass, onPastUse, o
           onError={onError}
         />
       )}
+      {repairsOpen && (
+        <RepairHistoryModal
+          repairs={repairs}
+          plate={row.plate || row.name}
+          onClose={() => setRepairsOpen(false)}
+        />
+      )}
+      {repairForm && (
+        <div
+          className="modal show d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1065 }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!saving) setRepairForm(null);
+          }}
+        >
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title mb-0">
+                  {repairForm.mode === "send" ? "Llevar a arreglar" : "Volvió del taller"}
+                </h5>
+                <button type="button" className="btn-close" disabled={saving} onClick={() => setRepairForm(null)}></button>
+              </div>
+              <div className="modal-body">
+                {repairForm.mode === "send" ? (
+                  <>
+                    <div className="mb-2">
+                      <label className="form-label">A dónde</label>
+                      <input
+                        className="form-control"
+                        value={repairForm.place}
+                        onChange={(e) => setRepairForm({ ...repairForm, place: e.target.value })}
+                        placeholder="Taller o lugar"
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <label className="form-label">Quién lo lleva</label>
+                      <PersonPicker
+                        value={repairForm.taken_by}
+                        onChange={(taken_by) => setRepairForm({ ...repairForm, taken_by })}
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <label className="form-label">Día</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        value={repairForm.sent_at || todayKey()}
+                        max={todayKey()}
+                        onChange={(e) => setRepairForm({ ...repairForm, sent_at: e.target.value || todayKey() })}
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <label className="form-label">Por qué / qué tiene</label>
+                      <textarea
+                        className="form-control"
+                        rows="2"
+                        value={repairForm.reason}
+                        onChange={(e) => setRepairForm({ ...repairForm, reason: e.target.value })}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-2">
+                      <label className="form-label">Quién lo busca</label>
+                      <PersonPicker
+                        value={repairForm.picked_up_by}
+                        onChange={(picked_up_by) => setRepairForm({ ...repairForm, picked_up_by })}
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <label className="form-label">Día que volvió</label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        value={repairForm.returned_at || todayKey()}
+                        max={todayKey()}
+                        onChange={(e) => setRepairForm({ ...repairForm, returned_at: e.target.value || todayKey() })}
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <label className="form-label">Qué le hicieron</label>
+                      <textarea
+                        className="form-control"
+                        rows="2"
+                        value={repairForm.fix_note}
+                        onChange={(e) => setRepairForm({ ...repairForm, fix_note: e.target.value })}
+                      />
+                    </div>
+                    <div className="mb-2">
+                      <label className="form-label">Costo (opcional)</label>
+                      <NumberInput
+                        className="form-control"
+                        value={repairForm.cost}
+                        min={0}
+                        onChange={(e) => setRepairForm({ ...repairForm, cost: e.target.value })}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div className="form-check">
+                      <input
+                        id="repair-still-broken"
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={Boolean(repairForm.still_broken)}
+                        onChange={(e) => setRepairForm({ ...repairForm, still_broken: e.target.checked })}
+                      />
+                      <label className="form-check-label" htmlFor="repair-still-broken">Sigue roto</label>
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-outline-secondary" disabled={saving} onClick={() => setRepairForm(null)}>
+                  Cancelar
+                </button>
+                <button type="button" className="btn btn-primary" disabled={saving} onClick={saveRepair}>
+                  {saving ? "Guardando…" : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RepairHistoryModal({ repairs, plate, onClose }) {
+  return (
+    <div
+      className="modal show d-block"
+      style={{ backgroundColor: "rgba(0,0,0,0.5)", zIndex: 1060 }}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div className="modal-dialog modal-dialog-centered modal-dialog-scrollable" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-content">
+          <div className="modal-header">
+            <h5 className="modal-title mb-0">Roturas · {plate}</h5>
+            <button type="button" className="btn-close" onClick={onClose}></button>
+          </div>
+          <div className="modal-body">
+            {repairs.length === 0 ? (
+              <p className="app-muted mb-0">Todavía no hay roturas cargadas.</p>
+            ) : (
+              <ul className="list-unstyled mb-0">
+                {repairs.map((item) => (
+                  <li key={item.id} className="border rounded p-2 mb-2">
+                    <div className="fw-semibold">
+                      {item.open ? "En el taller" : "Cerrada"}
+                      {item.still_broken && !item.open ? " · volvió y sigue roto" : ""}
+                    </div>
+                    <div className="small">{item.reason}</div>
+                    <div className="small app-muted">
+                      Llevaron: {formatDay(item.sent_at)} · {item.place} · {item.taken_by}
+                    </div>
+                    {!item.open && (
+                      <>
+                        <div className="small app-muted">
+                          Volvió: {formatDay(item.returned_at)} · {item.picked_up_by}
+                          {item.cost != null ? ` · ${formatPesos(item.cost)}` : ""}
+                        </div>
+                        {item.fix_note ? <div className="small">Qué le hicieron: {item.fix_note}</div> : null}
+                      </>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn btn-outline-secondary" onClick={onClose}>Cerrar</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

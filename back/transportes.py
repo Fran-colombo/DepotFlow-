@@ -350,12 +350,66 @@ class ProfileBody(BaseModel):
     next_service_km: Optional[int] = None
     is_broken: bool = False
     damage_note: Optional[str] = None
-    in_repair: bool = False
 
 
 class NoteBody(BaseModel):
     description: str
     observed_by: Optional[str] = None
+
+
+class RepairSendBody(BaseModel):
+    place: str
+    taken_by: str
+    reason: str
+    sent_at: Optional[str] = None
+
+
+class RepairReturnBody(BaseModel):
+    picked_up_by: str
+    fix_note: str
+    returned_at: Optional[str] = None
+    cost: Optional[int] = None
+    still_broken: bool = False
+
+
+def _repair_out(row: models.TransportRepair) -> dict:
+    return {
+        "id": row.id,
+        "reason": row.reason or "",
+        "place": row.place or "",
+        "taken_by": row.taken_by or "",
+        "sent_at": _iso(row.sent_at),
+        "returned_at": _iso(row.returned_at),
+        "picked_up_by": row.picked_up_by or "",
+        "cost": row.cost,
+        "fix_note": row.fix_note or "",
+        "still_broken": bool(row.still_broken),
+        "open": row.returned_at is None,
+    }
+
+
+def _open_repair(db: Session, transport_id: int):
+    return (
+        db.query(models.TransportRepair)
+        .filter(
+            models.TransportRepair.transport_id == transport_id,
+            models.TransportRepair.returned_at.is_(None),
+        )
+        .order_by(models.TransportRepair.sent_at.desc(), models.TransportRepair.id.desc())
+        .first()
+    )
+
+
+def _day_moment(value: Optional[str], label: str) -> datetime:
+    text = (value or "").strip()
+    if not text:
+        return datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    if len(text) == 10 and "T" not in text and " " not in text:
+        try:
+            return datetime.strptime(text, "%Y-%m-%d").replace(hour=12, minute=0, second=0, microsecond=0)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"{label} no es válida") from exc
+    return _moment(text)
 
 
 class FineLookupBody(BaseModel):
@@ -1070,6 +1124,15 @@ def read_transporte(
         .order_by(models.TransportServicePlace.name.asc())
         .all()
     )
+    repairs = (
+        db.query(models.TransportRepair)
+        .filter(models.TransportRepair.transport_id == row.id)
+        .order_by(
+            models.TransportRepair.sent_at.desc(),
+            models.TransportRepair.id.desc(),
+        )
+        .all()
+    )
     joined = _joined_cart(db, row.id) if row.kind == "auto" else None
     data = _summary(row, open_use, names, joined)
     data.update({
@@ -1088,6 +1151,7 @@ def read_transporte(
             for note in notes
         ],
         "service_places": [_place_row(place) for place in places],
+        "repairs": [_repair_out(item) for item in repairs],
     })
     return data
 
@@ -1118,11 +1182,100 @@ def update_transporte(
         row.last_service_at = _moment(body.last_service_at) if (body.last_service_at or "").strip() else None
         row.last_service_km = _km(body.last_service_km)
         row.next_service_km = _km(body.next_service_km)
+        if row.in_repair and not body.is_broken:
+            raise HTTPException(status_code=400, detail="Está en el taller: primero registrá que volvió")
         row.is_broken = bool(body.is_broken)
-        row.damage_note = (body.damage_note or "").strip() or None
-        row.in_repair = bool(body.in_repair)
+        row.damage_note = (body.damage_note or "").strip() or None if body.is_broken else None
     db.commit()
     return {"ok": True}
+
+
+@router.post("/{transport_id}/reparacion")
+def send_transporte_to_repair(
+    transport_id: int,
+    body: RepairSendBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    _admin(current_user)
+    row = _get(db, transport_id)
+    if row.kind != "auto":
+        raise HTTPException(status_code=400, detail="Solo los autos van al taller así")
+    if _open_repair(db, row.id):
+        raise HTTPException(status_code=400, detail="Ya está en el taller")
+    place = (body.place or "").strip()
+    taken_by = (body.taken_by or "").strip()
+    reason = (body.reason or "").strip() or (row.damage_note or "").strip()
+    if not place:
+        raise HTTPException(status_code=400, detail="Indicá a dónde lo llevan")
+    if not taken_by:
+        raise HTTPException(status_code=400, detail="Indicá quién lo lleva")
+    if not reason:
+        raise HTTPException(status_code=400, detail="Indicá por qué lo llevan")
+    sent_at = _day_moment(body.sent_at, "La fecha en que lo llevaron")
+    repair = models.TransportRepair(
+        transport_id=row.id,
+        reason=reason,
+        place=place,
+        taken_by=taken_by,
+        sent_at=sent_at,
+    )
+    db.add(repair)
+    row.is_broken = True
+    row.damage_note = reason
+    row.in_repair = True
+    db.commit()
+    db.refresh(repair)
+    return _repair_out(repair)
+
+
+@router.post("/{transport_id}/reparacion/volver")
+def return_transporte_from_repair(
+    transport_id: int,
+    body: RepairReturnBody,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    _admin(current_user)
+    row = _get(db, transport_id)
+    if row.kind != "auto":
+        raise HTTPException(status_code=400, detail="Solo los autos vuelven del taller así")
+    repair = _open_repair(db, row.id)
+    if not repair:
+        raise HTTPException(status_code=400, detail="No hay un arreglo abierto")
+    picked_up_by = (body.picked_up_by or "").strip()
+    fix_note = (body.fix_note or "").strip()
+    if not picked_up_by:
+        raise HTTPException(status_code=400, detail="Indicá quién lo busca")
+    if not fix_note:
+        raise HTTPException(status_code=400, detail="Indicá qué le hicieron")
+    returned_at = _day_moment(body.returned_at, "La fecha en que volvió")
+    if returned_at.date() < repair.sent_at.date():
+        raise HTTPException(status_code=400, detail="La vuelta no puede ser antes de que lo llevaron")
+    cost = body.cost
+    if cost is not None:
+        try:
+            cost = int(cost)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="El costo no es válido") from exc
+        if cost < 0:
+            raise HTTPException(status_code=400, detail="El costo no puede ser negativo")
+    still_broken = bool(body.still_broken)
+    repair.returned_at = returned_at
+    repair.picked_up_by = picked_up_by
+    repair.fix_note = fix_note
+    repair.cost = cost
+    repair.still_broken = still_broken
+    row.in_repair = False
+    if still_broken:
+        row.is_broken = True
+        row.damage_note = repair.reason
+    else:
+        row.is_broken = False
+        row.damage_note = None
+    db.commit()
+    db.refresh(repair)
+    return _repair_out(repair)
 
 
 @router.post("/{transport_id}/salida")

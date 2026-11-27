@@ -295,6 +295,22 @@ class TransportNote(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class TransportRepair(Base):
+    __tablename__ = "transporte_reparaciones"
+
+    id = Column(Integer, primary_key=True, index=True)
+    transport_id = Column(Integer, ForeignKey("transportes.id"), nullable=False, index=True)
+    reason = Column(String, nullable=False)
+    place = Column(String, nullable=False)
+    taken_by = Column(String, nullable=False)
+    sent_at = Column(DateTime, nullable=False)
+    returned_at = Column(DateTime, nullable=True)
+    picked_up_by = Column(String, nullable=True)
+    cost = Column(Integer, nullable=True)
+    fix_note = Column(String, nullable=True)
+    still_broken = Column(Boolean, default=False, nullable=False)
+
+
 class TransportServicePlace(Base):
     __tablename__ = "transporte_lugares_service"
 

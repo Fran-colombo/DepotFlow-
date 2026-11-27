@@ -28,6 +28,22 @@ export function updateTransporte(id, data) {
   });
 }
 
+export function sendTransporteToRepair(id, data) {
+  return apiFetch(`/transportes/${id}/reparacion`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
+export function returnTransporteFromRepair(id, data) {
+  return apiFetch(`/transportes/${id}/reparacion/volver`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+
 export function leaveTransporte(id, data) {
   return apiFetch(`/transportes/${id}/salida`, {
     method: "POST",
