@@ -84,9 +84,11 @@ docker compose up -d --build
 | `ALLOWED_ORIGINS` | CORS (orígenes del front, separados por coma). No uses `*` |
 | `EMAIL_*` / `SMTP_*` | Notificaciones (opcional) |
 
-### HTTPS
+### HTTPS / VPS (DuckDNS)
 
-Poné un reverse proxy (Caddy / nginx / Traefik) delante del puerto 80 con certificado Let's Encrypt.
+Guía completa para el dominio `https://conkreto-gestiondeposito.duckdns.org` (NAT, Caddy compartido, CORS, checklist): ver **[DEPLOY.md](DEPLOY.md)**.
+
+No borres `shed_data/` al actualizar.
 
 ### Backup
 
