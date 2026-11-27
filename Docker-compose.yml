@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   backend:
     build:
@@ -25,7 +23,7 @@ services:
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
-      TELEGRAM_N8N_WEBHOOK_URL: ${TELEGRAM_N8N_WEBHOOK_URL:-http://n8n:5678/webhook/inventario-telegram}
+      TELEGRAM_N8N_WEBHOOK_URL: ${TELEGRAM_N8N_WEBHOOK_URL:-}
     volumes:
       - ./shed_data:/app/shed_data
     ports:
@@ -37,8 +35,8 @@ services:
   frontend:
     build:
       context: ./front/sistema-stock
-      args:
-        VITE_API_URL: ${VITE_API_URL:-/api}
+    args:
+      VITE_API_URL: ${VITE_API_URL:-/api}
     container_name: depotflow-frontend
     ports:
       - "8084:80"
@@ -48,64 +46,6 @@ services:
     networks:
       - app-network
 
-  n8n:
-    image: n8nio/n8n:1.109.1
-    container_name: depotflow-n8n
-    environment:
-      DOCKER: "1"
-      GENERIC_TIMEZONE: America/Argentina/Buenos_Aires
-      TZ: America/Argentina/Buenos_Aires
-      N8N_HOST: ${N8N_HOST:-localhost}
-      N8N_PORT: "5678"
-      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
-      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
-      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "false"
-      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-cambia-esta-clave-whatsapp}
-      INVENTORY_API_URL: http://backend:8000
-      WHATSAPP_TOKEN: ${WHATSAPP_TOKEN:-}
-      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
-    volumes:
-      - ./n8n/data:/home/node/.n8n
-      - ./n8n/workflows:/workflows:ro
-    ports:
-      - "5678:5678"
-    depends_on:
-      - backend
-    restart: unless-stopped
-    networks:
-      - app-network
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
-        mkdir -p /home/node/.n8n
-        if [ ! -f /home/node/.n8n/.workflow_imported ] && [ -f /workflows/whatsapp-inventario.json ]; then
-          n8n import:workflow --input=/workflows/whatsapp-inventario.json || true
-          touch /home/node/.n8n/.workflow_imported || true
-        fi
-        if [ ! -f /home/node/.n8n/.telegram_workflow_imported ] && [ -f /workflows/telegram-inventario.json ]; then
-          n8n import:workflow --input=/workflows/telegram-inventario.json || true
-          touch /home/node/.n8n/.telegram_workflow_imported || true
-        fi
-        exec n8n start
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    profiles: ["ollama"]
-    volumes:
-      - ollama-data:/root/.ollama
-    ports:
-      - "11434:11434"
-    restart: unless-stopped
-    networks:
-      - app-network
-
 networks:
   app-network:
     driver: bridge
-
-volumes:
-  ollama-data:

@@ -176,9 +176,10 @@ Containers de esta app que tienen que estar up:
 
 - `depotflow-backend`
 - `depotflow-frontend`
-- (opcional) `depotflow-n8n` si usan el bot
 
-Los nombres van con prefijo `depotflow-` para no chocar con otras apps del mismo VPS (ej. otro `/n8n`).
+Los nombres van con prefijo `depotflow-` para no chocar con otras apps del mismo VPS. **n8n no va en este compose** (si hace falta después, se suma aparte).
+
+En Caddy: `reverse_proxy depotflow-frontend:80` y el contenedor tiene que estar en la red `portfolio_default`.
 
 ---
 
